@@ -570,25 +570,14 @@ static uint32_t leaf_split(struct Txn *txn,
 
     /* Save sibling info before reinitialising lpg */
     uint32_t old_rsib=L_RSIB(lpg);
-    uint32_t old_lsib=L_LSIB(lpg);
 
     pg_init_leaf(rpg,rpgno,db->page_size);
     pg_init_leaf(lpg,lpgno,db->page_size);
 
-    /* Fix sibling chain: old_lsib <-> lpg <-> rpg <-> old_rsib */
-    SET_L_LSIB(lpg,old_lsib);
+    /* Fix sibling chain for the two new halves (no COW of old_rsib needed;
+     * L_LSIB of old_rsib is unused by the stack-based cursor). */
     SET_L_RSIB(lpg,rpgno);
-    SET_L_LSIB(rpg,lpgno);
     SET_L_RSIB(rpg,old_rsib);
-
-    if (old_rsib!=INVALID_PGNO) {
-        uint32_t rrc=txn_cow(txn,old_rsib);
-        if (rrc==INVALID_PGNO){
-            free(kbuf);free(vbuf);free(koff);free(voff);free(kl2);free(vl2);
-            return INVALID_PGNO;
-        }
-        SET_L_LSIB(db->pages[rrc],rpgno);
-    }
 
     for (int j=0;j<total;j++){
         void *dst=(j<left_n)?lpg:rpg;
@@ -870,17 +859,10 @@ int txn_del(Txn *txn_pub, const void *key, uint32_t key_len)
     /* If leaf empty: unlink and collapse */
     if (PG_NUM(lpg)>0) return SAP_OK;
 
-    uint32_t lsib=L_LSIB(lpg), rsib=L_RSIB(lpg);
-    if (lsib!=INVALID_PGNO){
-        uint32_t lc=txn_cow(txn,lsib);
-        if (lc==INVALID_PGNO) return SAP_ERROR;
-        SET_L_RSIB(db->pages[lc],rsib);
-    }
-    if (rsib!=INVALID_PGNO){
-        uint32_t rc=txn_cow(txn,rsib);
-        if (rc==INVALID_PGNO) return SAP_ERROR;
-        SET_L_LSIB(db->pages[rc],lsib);
-    }
+    /* Don't COW siblings: updating their parent references would require
+     * knowing the sibling's parent, which is not on our path.  The
+     * sibling L_RSIB/L_LSIB fields are only cosmetically stale; the
+     * stack-based cursor does not follow sibling pointers. */
     txn_free_page(txn,leaf_pgno);
 
     if (depth==0){ txn->root_pgno=INVALID_PGNO; return SAP_OK; }
@@ -1134,16 +1116,32 @@ int cursor_next(Cursor *cp)
     struct Cursor *c=(struct Cursor*)cp;
     struct DB *db=c->txn->db;
     if (c->depth<0) return SAP_NOTFOUND;
+
+    /* Advance within the current leaf. */
     void *lpg=db->pages[c->stack[c->depth]];
     c->idx[c->depth]++;
     if (c->idx[c->depth]<(int)PG_NUM(lpg)) return SAP_OK;
-    /* Follow right sibling */
-    uint32_t rsib=L_RSIB(lpg);
-    if (rsib==INVALID_PGNO){ c->depth=-1; return SAP_NOTFOUND; }
-    void *rp=db->pages[rsib];
-    if (PG_NUM(rp)==0){ c->depth=-1; return SAP_NOTFOUND; }
-    uint16_t off=(uint16_t)L_SLOT(rp,0);
-    return cursor_seek(cp,L_CKEY(rp,off),L_CKLEN(rp,off));
+
+    /* At the end of the leaf: climb the ancestor stack until we find
+     * an internal node where we can go right, then descend leftmost. */
+    for (int d=c->depth-1; d>=0; d--) {
+        void *pg=db->pages[c->stack[d]];
+        if (c->idx[d]<(int)PG_NUM(pg)) {
+            c->idx[d]++;
+            uint32_t child=int_child(pg,c->idx[d]);
+            c->depth=d+1;
+            while (PG_TYPE(db->pages[child])==PAGE_INTERNAL) {
+                void *cpg=db->pages[child];
+                c->stack[c->depth]=child; c->idx[c->depth]=0; c->depth++;
+                child=I_LEFT(cpg);
+            }
+            c->stack[c->depth]=child; c->idx[c->depth]=0;
+            if (PG_NUM(db->pages[child])==0){ c->depth=-1; return SAP_NOTFOUND; }
+            return SAP_OK;
+        }
+    }
+    c->depth=-1;
+    return SAP_NOTFOUND;
 }
 
 int cursor_prev(Cursor *cp)
@@ -1151,17 +1149,33 @@ int cursor_prev(Cursor *cp)
     struct Cursor *c=(struct Cursor*)cp;
     struct DB *db=c->txn->db;
     if (c->depth<0) return SAP_NOTFOUND;
+
+    /* Retreat within the current leaf. */
     if (c->idx[c->depth]>0){ c->idx[c->depth]--; return SAP_OK; }
-    /* Follow left sibling */
-    void *lpg=db->pages[c->stack[c->depth]];
-    uint32_t lsib=L_LSIB(lpg);
-    if (lsib==INVALID_PGNO){ c->depth=-1; return SAP_NOTFOUND; }
-    void *lspg=db->pages[lsib];
-    int ln=(int)PG_NUM(lspg);
-    if (ln==0){ c->depth=-1; return SAP_NOTFOUND; }
-    uint16_t off=(uint16_t)L_SLOT(lspg,ln-1);
-    int rc=cursor_seek(cp,L_CKEY(lspg,off),L_CKLEN(lspg,off));
-    return rc;
+
+    /* At the beginning of the leaf: climb until we can go left, then
+     * descend to the rightmost leaf of that subtree. */
+    for (int d=c->depth-1; d>=0; d--) {
+        if (c->idx[d]>0) {
+            c->idx[d]--;
+            void *pg=db->pages[c->stack[d]];
+            uint32_t child=int_child(pg,c->idx[d]);
+            c->depth=d+1;
+            while (PG_TYPE(db->pages[child])==PAGE_INTERNAL) {
+                void *cpg=db->pages[child];
+                int cn=(int)PG_NUM(cpg);
+                c->stack[c->depth]=child; c->idx[c->depth]=cn; c->depth++;
+                child=int_child(cpg,cn);
+            }
+            void *leaf=db->pages[child];
+            int ln=(int)PG_NUM(leaf);
+            c->stack[c->depth]=child; c->idx[c->depth]=(ln>0)?ln-1:0;
+            if (ln==0){ c->depth=-1; return SAP_NOTFOUND; }
+            return SAP_OK;
+        }
+    }
+    c->depth=-1;
+    return SAP_NOTFOUND;
 }
 
 int cursor_get(Cursor *cp,
