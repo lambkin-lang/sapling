@@ -457,8 +457,9 @@ Phase A status (started):
   `OUTBOX_EMIT` and `TIMER_ARM` through one callback path
 - done: lease-aware inbox handling now requeues claimed messages on handler
   failure, clears lease state, and keeps retryable failures in-band
-- next: wire attempt-engine execution + composed intent sink into worker handler
-  flow
+- done: WASI shim handler now executes through `attempt_v0` and publishes
+  committed intents via composed sink (`intent_sink_v0`)
+- next: generalize attempt-backed handler wiring for non-WASI runner handlers
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -488,8 +489,9 @@ Phase B status (started):
 - done: composed intent sink for outbox+timer publication
 - done: mailbox lease claim/ack/requeue integrated into inbox polling with
   retry-aware requeue semantics
-- next: integrate mailbox-claimed message execution through `attempt_v0` in the
-  live worker path
+- done: mailbox-claimed message execution through `attempt_v0` in live WASI
+  worker flow with retry stats captured in shim state
+- next: expose a generic runner-level attempt handler contract (beyond WASI shim)
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards

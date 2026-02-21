@@ -6,6 +6,8 @@
 #ifndef SAPLING_WASI_SHIM_V0_H
 #define SAPLING_WASI_SHIM_V0_H
 
+#include "runner/attempt_v0.h"
+#include "runner/intent_sink_v0.h"
 #include "runner/runner_v0.h"
 #include "wasi/runtime_v0.h"
 
@@ -18,6 +20,9 @@ typedef struct
 {
     DB *db;
     SapWasiRuntimeV0 *runtime;
+    SapRunnerIntentSinkV0 intent_sink;
+    SapRunnerAttemptV0Policy attempt_policy;
+    SapRunnerAttemptV0Stats last_attempt_stats;
     uint64_t next_outbox_seq;
     int emit_outbox_events;
     uint8_t reply_buf[SAP_WASI_SHIM_V0_REPLY_CAP];
@@ -25,6 +30,8 @@ typedef struct
 
 int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
                           uint64_t initial_outbox_seq, int emit_outbox_events);
+void sap_wasi_shim_v0_set_attempt_policy(SapWasiShimV0 *shim,
+                                         const SapRunnerAttemptV0Policy *policy);
 
 /* Adapter to pass into runner worker handler callbacks. */
 int sap_wasi_shim_v0_runner_handler(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *ctx);

@@ -7,7 +7,8 @@ runner worker shell and guest invocation logic.
 
 - connect worker handling to a concrete runtime object (`runtime_v0`)
 - allow `SapRunnerV0Worker` to process inbox messages through that callback
-- optionally emit invocation results to outbox (DBI 2)
+- execute guest calls through `attempt_v0` retry flow
+- publish committed intents through the composed sink (`intent_sink_v0`)
 
 ## API
 
@@ -19,18 +20,21 @@ runner worker shell and guest invocation logic.
   - convenience wrapper: initializes `SapRunnerV0Worker` with shim handler
 
 Runtime invocation:
-- shim delegates to `sap_wasi_runtime_v0_invoke`
-  - request input is `msg.payload`
-  - reply payload bytes are copied into shim-managed response buffer
-  - non-`SAP_OK` aborts processing and leaves inbox entry intact
+- shim runs `sap_runner_attempt_v0_run(...)` and invokes
+  `sap_wasi_runtime_v0_invoke` inside the attempt atomic callback
+- request input is `msg.payload`
+- reply payload bytes are copied into shim-managed response buffer
+- retryable errors follow attempt-policy retry/backoff rules
+- attempt stats are exposed on `shim.last_attempt_stats`
 
 ## Outbox behavior
 
 When `emit_outbox_events` is enabled and guest callback returns a non-empty
-reply payload, the shim:
+reply payload, the shim atomic callback:
 1. builds a reply `LMSG` frame (`kind=event`)
-2. writes frame to outbox DBI (DBI 2) with big-endian `u64` sequence key
-3. increments `next_outbox_seq`
+2. pushes `OUTBOX_EMIT` intent into tx stack
+3. after successful attempt commit, intent sink publishes to outbox DBI (DBI 2)
+4. updates `next_outbox_seq` from sink state
 
 When disabled or reply length is zero, no outbox record is emitted.
 
@@ -38,4 +42,5 @@ When disabled or reply length is zero, no outbox record is emitted.
 
 `tests/unit/wasi_shim_test.c` verifies:
 - inbox -> shim -> outbox happy path
-- callback error propagation with inbox retention
+- retryable callback errors drive attempt retries before inbox requeue
+- non-retryable callback errors propagate while preserving inbox durability

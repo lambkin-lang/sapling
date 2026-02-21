@@ -201,6 +201,9 @@ static int test_worker_shim_outbox_path(void)
     CHECK(guest.calls == 1u);
     CHECK(runtime.calls == 1u);
     CHECK(runtime.last_rc == SAP_OK);
+    CHECK(shim.last_attempt_stats.attempts == 1u);
+    CHECK(shim.last_attempt_stats.retries == 0u);
+    CHECK(shim.last_attempt_stats.last_rc == SAP_OK);
     CHECK(shim.next_outbox_seq == 101u);
 
     CHECK(outbox_get(db, 100u, &out_val, &out_len, &exists) == SAP_OK);
@@ -251,9 +254,13 @@ static int test_worker_shim_retryable_error_requeues_inbox(void)
     CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
     CHECK(processed == 0u);
     CHECK(worker.last_error == SAP_OK);
-    CHECK(guest.calls == 1u);
-    CHECK(runtime.calls == 1u);
+    CHECK(guest.calls == shim.attempt_policy.max_retries + 1u);
+    CHECK(runtime.calls == shim.attempt_policy.max_retries + 1u);
     CHECK(runtime.last_rc == SAP_CONFLICT);
+    CHECK(shim.last_attempt_stats.attempts == shim.attempt_policy.max_retries + 1u);
+    CHECK(shim.last_attempt_stats.retries == shim.attempt_policy.max_retries);
+    CHECK(shim.last_attempt_stats.conflict_retries == shim.attempt_policy.max_retries);
+    CHECK(shim.last_attempt_stats.last_rc == SAP_CONFLICT);
 
     CHECK(inbox_exists(db, 7u, 55u, &exists) == SAP_OK);
     CHECK(exists == 0);
@@ -299,6 +306,9 @@ static int test_worker_shim_fatal_error_requeues_and_returns_error(void)
     CHECK(guest.calls == 1u);
     CHECK(runtime.calls == 1u);
     CHECK(runtime.last_rc == SAP_ERROR);
+    CHECK(shim.last_attempt_stats.attempts == 1u);
+    CHECK(shim.last_attempt_stats.retries == 0u);
+    CHECK(shim.last_attempt_stats.last_rc == SAP_ERROR);
 
     CHECK(inbox_exists(db, 7u, 77u, &exists) == SAP_OK);
     CHECK(exists == 0);
