@@ -2813,6 +2813,18 @@ static void test_load_sorted(void)
     SECTION("txn_load_sorted");
     DB *db = new_db();
     CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    {
+        uint8_t big[5000];
+        const void *keys[] = {"q"};
+        const uint32_t key_lens[] = {1};
+        const void *vals[] = {big};
+        const uint32_t val_lens[] = {(uint32_t)sizeof(big)};
+        fill_pattern(big, (uint32_t)sizeof(big), 17);
+        Txn *w = txn_begin(db, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 1) == SAP_FULL);
+        txn_abort(w);
+    }
 
     {
         const void *keys[] = {"a", "b", "c"};
@@ -3020,6 +3032,11 @@ static void test_dupsort_apis(void)
 
     void *reserved = NULL;
     CHECK(txn_put_flags_dbi(w, 1, "k", 1, NULL, 4, SAP_RESERVE, &reserved) == SAP_ERROR);
+    {
+        uint8_t big[5000];
+        fill_pattern(big, (uint32_t)sizeof(big), 13);
+        CHECK(txn_put_dbi(w, 1, "overflow-like", 13, big, (uint32_t)sizeof(big)) == SAP_FULL);
+    }
 
     CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == SAP_OK);
     CHECK(txn_put_dbi(w, 1, "k", 1, "v1", 2) == SAP_OK);
