@@ -58,6 +58,7 @@ dkms.conf
 test_sapling
 bench_sapling
 fault_harness
+runner_wire_test
 wasm_smoke.wasm
 _codeql_detected_source_root
 .claude/settings.local.json

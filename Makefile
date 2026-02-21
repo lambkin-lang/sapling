@@ -19,9 +19,11 @@
 #   make wit-schema-check — validate WIT schema package
 #   make wit-schema-generate — generate DBI manifest + C metadata from WIT
 #   make wit-schema-cc-check — compile generated C metadata
+#   make runner-wire-test — run v0 runner wire-format tests
 #   make schema-check — validate schemas/dbi_manifest.csv
 #   make stress-harness — run deterministic fault harness scaffold
 #   make phase0-check — run phase-0 foundation checks
+#   make phasea-check — run phase-0 checks + runner wire tests
 #   make clean        — remove build artifacts
 #
 # Variables:
@@ -57,6 +59,7 @@ OBJ      = sapling.o
 TEST_BIN = test_sapling
 BENCH_BIN = bench_sapling
 STRESS_BIN = fault_harness
+RUNNER_WIRE_TEST_BIN = runner_wire_test
 BENCH_COUNT ?= 100000
 BENCH_ROUNDS ?= 3
 BENCH_BASELINE ?= benchmarks/baseline.env
@@ -85,11 +88,14 @@ SAPLING_SRC = src/sapling/sapling.c
 SAPLING_HDR = include/sapling/sapling.h
 FAULT_SRC = src/common/fault_inject.c
 FAULT_HDR = src/common/fault_inject.h
-FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) tests/stress/fault_harness.c
-PHASE0_TIDY_FILES = $(FAULT_SRC) tests/stress/fault_harness.c
-PHASE0_CPPCHECK_FILES = src/common tests/stress/fault_harness.c
+RUNNER_WIRE_SRC = src/runner/wire_v0.c
+RUNNER_WIRE_HDR = src/runner/wire_v0.h
+RUNNER_WIRE_TEST_SRC = tests/unit/runner_wire_test.c
+FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_WIRE_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_CPPCHECK_FILES = src/common src/runner tests/unit/runner_wire_test.c tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check schema-check stress-harness phase0-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test schema-check stress-harness phase0-check phasea-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -159,6 +165,9 @@ $(TEST_BIN): test_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 $(BENCH_BIN): bench_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) bench_sapling.c $(SAPLING_SRC) -o $(BENCH_BIN) $(LDFLAGS)
 
+$(RUNNER_WIRE_TEST_BIN): $(RUNNER_WIRE_TEST_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR)
+	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_WIRE_SRC) -o $(RUNNER_WIRE_TEST_BIN) $(LDFLAGS)
+
 format:
 	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { echo "clang-format not found: $(CLANG_FORMAT)"; exit 2; }
 	$(CLANG_FORMAT) -i $(FORMAT_FILES)
@@ -195,6 +204,10 @@ wit-schema-cc-check: wit-schema-generate
 schema-check: wit-schema-check wit-schema-cc-check
 	python3 tools/check_dbi_manifest.py $(DBI_MANIFEST)
 
+runner-wire-test: CFLAGS += -O2 -g
+runner-wire-test: $(RUNNER_WIRE_TEST_BIN)
+	./$(RUNNER_WIRE_TEST_BIN)
+
 $(STRESS_BIN): tests/stress/fault_harness.c $(FAULT_SRC) $(FAULT_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/fault_harness.c $(FAULT_SRC) -o $(STRESS_BIN) $(LDFLAGS)
 
@@ -203,5 +216,7 @@ stress-harness: $(STRESS_BIN)
 
 phase0-check: lint schema-check stress-harness
 
+phasea-check: phase0-check runner-wire-test
+
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
+	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)

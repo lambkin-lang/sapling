@@ -16,7 +16,9 @@ and prefix watch notifications.
 - `make wit-schema-generate` regenerates schema artifacts from WIT
 - `make wit-schema-cc-check` compile-checks generated C schema metadata
 - `make schema-check` runs WIT validation + codegen + generated-C compile check + `schemas/dbi_manifest.csv` validation
+- `make runner-wire-test` runs v0 runner message/intent wire-format tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
+- `make phasea-check` runs phase-0 checks plus runner wire tests
 
 Benchmark guardrail overrides:
 - `BENCH_BASELINE=benchmarks/baseline.env` selects the baseline file
@@ -36,6 +38,7 @@ Both require a WASI sysroot:
 - `docs/REPO_LAYOUT.md` describes the source tree migration and compatibility
   shims.
 - `docs/WIT_SCHEMA.md` describes WIT-first schema conventions and codegen.
+- `docs/RUNNER_WIRE_V0.md` defines the frozen v0 runner serialization contract.
 
 ## Source layout transition (phase 0)
 - Canonical engine sources now live in:

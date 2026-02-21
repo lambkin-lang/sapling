@@ -416,6 +416,13 @@ Phase 0 status (initiated):
 - dispatch loop with explicit schema/version guardrails
 - DBI bootstrap and schema/version guard
 
+Phase A status (started):
+- done: frozen v0 wire contract module (`src/runner/wire_v0.h`,
+  `src/runner/wire_v0.c`) with strict encode/decode validation and unit tests
+  (`tests/unit/runner_wire_test.c`)
+- next: worker lifecycle skeleton + schema/version guard integration
+- next: dispatch loop scaffold using the v0 wire contract
+
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
 - nested atomic context stack (closed nesting/savepoints)
