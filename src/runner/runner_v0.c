@@ -34,10 +34,17 @@ typedef struct
     uint32_t count;
 } TimerDispatchCtx;
 
+typedef int64_t (*runner_now_ms_fn)(void *ctx);
+
 static void metrics_note_latency(SapRunnerV0 *runner, int64_t start_ms, int64_t end_ms);
 static void metrics_note_failure(SapRunnerV0 *runner, int rc);
 static void emit_replay_event(const SapRunnerV0 *runner, uint8_t kind, uint64_t seq, int32_t rc,
                               const uint8_t *frame, uint32_t frame_len);
+static int64_t runner_now_ms_value(runner_now_ms_fn now_ms_fn, void *now_ms_ctx);
+static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
+                                 sap_runner_v0_message_handler handler, void *ctx,
+                                 uint32_t *processed_out, runner_now_ms_fn now_ms_fn,
+                                 void *now_ms_ctx);
 
 static int64_t default_now_ms(void *ctx)
 {
@@ -51,6 +58,15 @@ static int64_t default_now_ms(void *ctx)
     }
     ms = (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000L);
     return ms;
+}
+
+static int64_t runner_now_ms_value(runner_now_ms_fn now_ms_fn, void *now_ms_ctx)
+{
+    if (now_ms_fn)
+    {
+        return now_ms_fn(now_ms_ctx);
+    }
+    return default_now_ms(NULL);
 }
 
 static int64_t worker_now_ms(const SapRunnerV0Worker *worker)
@@ -134,13 +150,13 @@ static int timer_dispatch_handler(int64_t due_ts, const uint8_t *payload, uint32
     {
         return SAP_ERROR;
     }
-    step_start = default_now_ms(NULL);
+    step_start = worker_now_ms(tctx->worker);
     tctx->worker->runner.metrics.step_attempts++;
     emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT, 0u, SAP_OK,
                       payload, payload_len);
     step_rc = sap_runner_v0_run_step(&tctx->worker->runner, payload, payload_len,
                                      tctx->worker->handler, tctx->worker->handler_ctx);
-    step_end = default_now_ms(NULL);
+    step_end = worker_now_ms(tctx->worker);
     metrics_note_latency(&tctx->worker->runner, step_start, step_end);
     emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, 0u,
                       (int32_t)step_rc, payload, payload_len);
@@ -1042,9 +1058,10 @@ int sap_runner_v0_run_step(SapRunnerV0 *runner, const uint8_t *frame, uint32_t f
     return SAP_OK;
 }
 
-int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
-                             sap_runner_v0_message_handler handler, void *ctx,
-                             uint32_t *processed_out)
+static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
+                                 sap_runner_v0_message_handler handler, void *ctx,
+                                 uint32_t *processed_out, runner_now_ms_fn now_ms_fn,
+                                 void *now_ms_ctx)
 {
     uint32_t processed = 0u;
     uint32_t i;
@@ -1099,7 +1116,7 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         }
 
         {
-            int64_t now_ms = default_now_ms(NULL);
+            int64_t now_ms = runner_now_ms_value(now_ms_fn, now_ms_ctx);
             int64_t deadline_ms = now_ms + runner->policy.lease_ttl_ms;
 
             rc = sap_runner_mailbox_v0_claim(runner->db, key_worker, key_seq, runner->worker_id,
@@ -1125,13 +1142,13 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         }
 
         {
-            int64_t step_start_ms = default_now_ms(NULL);
+            int64_t step_start_ms = runner_now_ms_value(now_ms_fn, now_ms_ctx);
             int64_t step_end_ms;
             runner->metrics.step_attempts++;
             emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT, key_seq, SAP_OK,
                               frame, frame_len);
             rc = sap_runner_v0_run_step(runner, frame, frame_len, handler, ctx);
-            step_end_ms = default_now_ms(NULL);
+            step_end_ms = runner_now_ms_value(now_ms_fn, now_ms_ctx);
             metrics_note_latency(runner, step_start_ms, step_end_ms);
             emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT, key_seq, (int32_t)rc,
                               frame, frame_len);
@@ -1271,6 +1288,13 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
     return SAP_OK;
 }
 
+int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
+                             sap_runner_v0_message_handler handler, void *ctx,
+                             uint32_t *processed_out)
+{
+    return poll_inbox_with_clock(runner, max_messages, handler, ctx, processed_out, NULL, NULL);
+}
+
 int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config *cfg,
                               sap_runner_v0_message_handler handler, void *handler_ctx,
                               uint32_t max_batch)
@@ -1320,8 +1344,9 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
         return SAP_BUSY;
     }
 
-    rc = sap_runner_v0_poll_inbox(&worker->runner, worker->max_batch, worker->handler,
-                                  worker->handler_ctx, &processed);
+    rc = poll_inbox_with_clock(&worker->runner, worker->max_batch, worker->handler,
+                               worker->handler_ctx, &processed, worker->now_ms_fn,
+                               worker->now_ms_ctx);
     if (rc != SAP_OK)
     {
         if (rc != SAP_BUSY)

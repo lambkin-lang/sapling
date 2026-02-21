@@ -64,7 +64,8 @@ dispatch loop.
 Per message attempt:
 1. read oldest matching worker-prefixed key under a read txn
 2. copy key/frame bytes out of txn memory
-3. claim the message lease in DBI 3 (short write txn)
+3. claim the message lease in DBI 3 (short write txn; uses injected worker
+   clock when running through `SapRunnerV0Worker` hooks)
 4. run message decode + callback outside write txn
 5. on success, ack (delete inbox + lease atomically)
 6. on callback failure:
@@ -108,6 +109,8 @@ API:
 
 Counters are updated by inbox and due-timer dispatch paths and are intended as
 the baseline observability substrate for Phase D.
+When worker time hooks are installed, inbox/timer latency samples are measured
+using that injected clock source for deterministic testing.
 
 ## Runner policy surface
 
@@ -143,6 +146,8 @@ and frame bytes for immediate capture by the callback.
   and due timers
 - `sap_runner_v0_worker_set_idle_policy`: configure max idle sleep budget
 - `sap_runner_v0_worker_set_time_hooks`: optional clock/sleep hook injection
+  used by lease timing, timer due checks, idle-sleep calculations, and
+  dispatch latency timing in worker-driven paths
 - `sap_runner_v0_worker_compute_idle_sleep_ms`: compute timer-aware idle sleep
   from next due timer and configured max idle budget
 - `sap_runner_v0_worker_request_stop` / `sap_runner_v0_worker_shutdown`

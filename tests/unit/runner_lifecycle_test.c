@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "runner/runner_v0.h"
+#include "runner/mailbox_v0.h"
 #include "runner/timer_v0.h"
 #include "generated/wit_schema_dbis.h"
 
@@ -868,6 +869,40 @@ static int64_t fixed_now_ms(void *ctx)
     return clock->now_ms;
 }
 
+typedef struct
+{
+    const int64_t *values;
+    uint32_t len;
+    uint32_t idx;
+} SequenceNowCtx;
+
+static int64_t sequence_now_ms(void *ctx)
+{
+    SequenceNowCtx *clock = (SequenceNowCtx *)ctx;
+    uint32_t idx;
+
+    if (!clock || !clock->values || clock->len == 0u)
+    {
+        return 0;
+    }
+    idx = (clock->idx < clock->len) ? clock->idx : (clock->len - 1u);
+    if (clock->idx < UINT32_MAX)
+    {
+        clock->idx++;
+    }
+    return clock->values[idx];
+}
+
+static int64_t realtime_now_ms(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
+    {
+        return 0;
+    }
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000L);
+}
+
 #ifdef SAPLING_THREADED
 static void sleep_for_ms(uint32_t ms)
 {
@@ -930,6 +965,91 @@ static int test_worker_thread_survives_transient_busy(void)
     return 0;
 }
 #endif
+
+static int test_worker_tick_uses_time_hook_for_inbox_lease_reclaim(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    NowCtx clock = {0};
+    SapRunnerLeaseV0 lease = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    int exists = 0;
+    int64_t wall_now;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+
+    wall_now = realtime_now_ms();
+    CHECK(wall_now > 0);
+    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 99u, wall_now, wall_now + 60000, &lease) ==
+          SAP_OK);
+
+    clock.now_ms = wall_now + 120000;
+    sap_runner_v0_worker_set_time_hooks(&worker, fixed_now_ms, &clock, NULL, NULL);
+
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+    CHECK(dispatch_state.calls == 1u);
+    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_worker_tick_uses_time_hook_for_timer_latency(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    SapRunnerV0Metrics metrics = {0};
+    const int64_t now_values[] = {5000, 10000, 11234};
+    SequenceNowCtx clock = {now_values, 3u, 0u};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    sap_runner_v0_worker_set_time_hooks(&worker, sequence_now_ms, &clock, NULL, NULL);
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 5000, 1u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+    CHECK(dispatch_state.calls == 1u);
+
+    sap_runner_v0_metrics_snapshot(&worker.runner, &metrics);
+    CHECK(metrics.step_attempts == 1u);
+    CHECK(metrics.step_successes == 1u);
+    CHECK(metrics.step_latency_samples == 1u);
+    CHECK(metrics.step_latency_total_ms == 1234u);
+    CHECK(metrics.step_latency_max_ms == 1234u);
+
+    db_close(db);
+    return 0;
+}
 
 static int test_worker_tick_drains_due_timers(void)
 {
@@ -1059,9 +1179,17 @@ int main(void)
     {
         return 14;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+    if (test_worker_tick_uses_time_hook_for_inbox_lease_reclaim() != 0)
     {
         return 15;
+    }
+    if (test_worker_tick_uses_time_hook_for_timer_latency() != 0)
+    {
+        return 16;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 17;
     }
     return 0;
 }

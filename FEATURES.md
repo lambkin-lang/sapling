@@ -478,7 +478,11 @@ Phase A status (started):
   inbox/timer/disposition event capture during debugging
 - done: stable runner policy/config surface for lease/requeue/retry-budget
   tuning (`SapRunnerV0Policy` + setter APIs)
-- next: begin Phase E profile-guided coupling study (optional)
+- done: threaded worker stop/join signaling is now synchronized; worker loop
+  no longer exits on transient `SAP_BUSY`; threaded regression coverage added
+- done: worker clock hooks now drive inbox lease-claim timing and timer/inbox
+  step-latency measurements (not only scheduler idle-sleep decisions)
+- next: execute reprioritized backlog below (starting with replay timer-seq fidelity)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -521,7 +525,10 @@ Phase B status (started):
 - done: crash-recovery checks around checkpoint/restore for runner flows
 - done: deterministic replay hooks (optional) for postmortem debugging
 - done: stable runner config knobs for worker retry/lease behavior
-- next: begin Phase E profile-guided coupling study (optional)
+- done: threaded worker stop/join signaling is now synchronized; worker loop
+  now treats transient `SAP_BUSY` as retryable
+- done: worker clock hooks now cover lease timing + latency measurement paths
+- next: execute reprioritized backlog below (starting with replay timer-seq fidelity)
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -554,7 +561,28 @@ Phase C status (started):
   disposition outcomes
 - done: stable runner config surface for retry budget, lease TTL, and requeue
   attempt search budget
-- next: begin Phase E profile-guided coupling study (optional)
+- done: threaded worker stop/join signaling hardened and transient `SAP_BUSY`
+  recovery in worker loop validated under threaded regression
+- done: worker time-hook usage expanded from scheduler-only to inbox lease and
+  latency paths
+- next: execute reprioritized backlog below (starting with replay timer-seq fidelity)
+
+#### Reprioritized runner backlog (known issues + planned features)
+1. [Known issue][P1] Replay fidelity gap: timer replay events currently emit
+   `seq=0` instead of the timer key sequence; include timer sequence in replay
+   event records and assert it in lifecycle tests.
+2. [Known issue][P1] CI/threaded coverage gap: default sanitizer targets do not
+   gate threaded runner lifecycle behavior; add a threaded runner TSAN target
+   to CI-quality checks so stop/busy races are prevented from regressing.
+3. [Known issue][P2] Replay hook frame ownership contract is implicit; document
+   callback-lifetime rules explicitly (frame bytes are callback-scoped unless
+   copied by the hook implementation).
+4. [Planned feature][P2] Runner observability export surface: add explicit host
+   sink hooks for reliability metrics snapshots/log events so deployments can
+   consume counters without directly reading internal structs.
+5. [Planned feature][P3] Phase E profile-guided coupling study (optional):
+   benchmark targeted internal-coupling points while preserving the public-API
+   correctness baseline.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
