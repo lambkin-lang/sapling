@@ -209,6 +209,14 @@ static uint32_t read_u32_le(const uint8_t *p)
     return v;
 }
 
+static uint16_t read_u16_le(const uint8_t *p)
+{
+    uint16_t v = 0;
+    if (p)
+        memcpy(&v, p, sizeof(v));
+    return v;
+}
+
 static void write_u16_le(uint8_t *p, uint16_t v)
 {
     if (p)
@@ -245,6 +253,67 @@ static int snapshot_find_first_page_type(const struct MemBuf *mb, uint8_t page_t
                 *page_size_out = page_size;
             if (page_index_out)
                 *page_index_out = i;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int snapshot_find_leaf_overflow_ref(const struct MemBuf *mb, const void *key, uint32_t key_len,
+                                           uint32_t *ref_offset_out)
+{
+    uint32_t page_size;
+    uint32_t num_pages;
+    uint64_t total;
+    if (!mb || !mb->data || !key || key_len > UINT16_MAX || mb->len < 16)
+        return 0;
+    page_size = read_u32_le(mb->data + 8);
+    num_pages = read_u32_le(mb->data + 12);
+    if (page_size == 0 || num_pages < 2)
+        return 0;
+    total = 16ull + (uint64_t)page_size * (uint64_t)num_pages;
+    if (total > mb->len)
+        return 0;
+
+    for (uint32_t i = 0; i < num_pages; i++)
+    {
+        uint64_t base64 = 16ull + (uint64_t)i * (uint64_t)page_size;
+        uint32_t base = (uint32_t)base64;
+        uint16_t num;
+        if (base64 > UINT32_MAX)
+            return 0;
+        if (mb->data[base] != 2u) /* PAGE_LEAF */
+            continue;
+        if (base + 10u > mb->len)
+            return 0;
+        num = read_u16_le(mb->data + base + 2);
+        for (uint16_t s = 0; s < num; s++)
+        {
+            uint32_t slot_off = base + 10u + (uint32_t)s * 2u;
+            uint16_t cell_off;
+            uint16_t klen;
+            uint16_t vlen;
+            uint32_t key_off;
+            uint32_t val_off;
+            if (slot_off + 2u > mb->len)
+                return 0;
+            cell_off = read_u16_le(mb->data + slot_off);
+            if ((uint32_t)cell_off + 4u > page_size)
+                continue;
+            klen = read_u16_le(mb->data + base + cell_off + 0u);
+            vlen = read_u16_le(mb->data + base + cell_off + 2u);
+            if (vlen != UINT16_MAX)
+                continue;
+            key_off = base + (uint32_t)cell_off + 4u;
+            val_off = key_off + (uint32_t)klen;
+            if (val_off + 8u > base + page_size || val_off + 8u > mb->len)
+                continue;
+            if (klen != key_len)
+                continue;
+            if (memcmp(mb->data + key_off, key, key_len) != 0)
+                continue;
+            if (ref_offset_out)
+                *ref_offset_out = val_off;
             return 1;
         }
     }
@@ -1309,6 +1378,81 @@ static void test_overflow_values(void)
         db_close(db4);
     }
 
+    {
+        DB *db5 = db_open(&g_alloc, 256, NULL, NULL);
+        struct MemBuf snap = {0};
+        uint32_t page_size = 0;
+        uint32_t page_index = 0;
+        int rc_ka;
+        int rc_kb;
+        const void *va = NULL;
+        const void *vb = NULL;
+        uint32_t vla = 0;
+        uint32_t vlb = 0;
+        CHECK(db5 != NULL);
+        w = txn_begin(db5, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put(w, "ka", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
+        CHECK(txn_put(w, "kb", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(db_checkpoint(db5, membuf_write, &snap) == SAP_OK);
+        CHECK(snapshot_find_first_page_type(&snap, 3u, &page_size, &page_index) == 1);
+        if (page_size > 0)
+        {
+            uint8_t *pg = snap.data + 16u + page_index * page_size;
+            write_u16_le(pg + 12, 0);
+        }
+        snap.pos = 0;
+        CHECK(db_restore(db5, membuf_read, &snap) == SAP_OK);
+
+        Txn *r = txn_begin(db5, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        rc_ka = txn_get(r, "ka", 2, &va, &vla);
+        rc_kb = txn_get(r, "kb", 2, &vb, &vlb);
+        CHECK((rc_ka == SAP_ERROR && rc_kb == SAP_OK) || (rc_ka == SAP_OK && rc_kb == SAP_ERROR));
+        if (rc_ka == SAP_OK)
+        {
+            CHECK(vla == (uint32_t)sizeof(v1));
+            CHECK(memcmp(va, v1, sizeof(v1)) == 0);
+        }
+        if (rc_kb == SAP_OK)
+        {
+            CHECK(vlb == (uint32_t)sizeof(v2));
+            CHECK(memcmp(vb, v2, sizeof(v2)) == 0);
+        }
+        txn_abort(r);
+        free(snap.data);
+        db_close(db5);
+    }
+
+    {
+        DB *db6 = db_open(&g_alloc, 256, NULL, NULL);
+        struct MemBuf snap = {0};
+        const void *v;
+        uint32_t vl;
+        uint32_t ref_off = 0;
+        CHECK(db6 != NULL);
+        w = txn_begin(db6, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put(w, "ke", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(db_checkpoint(db6, membuf_write, &snap) == SAP_OK);
+        CHECK(snapshot_find_leaf_overflow_ref(&snap, "ke", 2, &ref_off) == 1);
+        if (ref_off > 0)
+        {
+            /* Corrupt logical value length beyond API maximum. */
+            write_u32_le(snap.data + ref_off, (uint32_t)UINT16_MAX + 1u);
+        }
+        snap.pos = 0;
+        CHECK(db_restore(db6, membuf_read, &snap) == SAP_OK);
+        Txn *r = txn_begin(db6, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "ke", 2, &v, &vl) == SAP_ERROR);
+        txn_abort(r);
+        free(snap.data);
+        db_close(db6);
+    }
+
     db_close(db);
 }
 
@@ -1321,6 +1465,7 @@ static void test_overflow_failure_atomicity(void)
     uint8_t oldv[48];
     uint8_t bigv[900];
     uint32_t live_before_abort;
+    uint32_t live_before_restore_fail;
     struct MemBuf snap = {0};
     Txn *w;
     Txn *r;
@@ -1371,10 +1516,12 @@ static void test_overflow_failure_atomicity(void)
     CHECK(txn_put(w, "k", 1, "mut", 3) == SAP_OK);
     CHECK(txn_commit(w) == SAP_OK);
 
+    live_before_restore_fail = fa.live_pages;
     snap.pos = 0;
     failing_alloc_arm(&fa, 2);
     CHECK(db_restore(db, membuf_read, &snap) == SAP_ERROR);
     failing_alloc_disarm(&fa);
+    CHECK(fa.live_pages == live_before_restore_fail);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);

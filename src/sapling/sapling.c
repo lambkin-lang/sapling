@@ -994,6 +994,8 @@ static int overflow_read_value(struct Txn *txn, const void *meta, const void **v
     val_len = rd32(meta);
     first_pgno = rd32((const uint8_t *)meta + 4);
     pgno = first_pgno;
+    if (val_len > UINT16_MAX)
+        return SAP_ERROR;
     if (val_len == 0)
     {
         *val_out = "";
