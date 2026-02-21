@@ -11,7 +11,7 @@ Implemented foundation:
 - `runner_v0.h` / `runner_v0.c`: phase-A lifecycle scaffold with DBI bootstrap,
   schema-version guard, single-step dispatch callback integration, and
   DB-backed inbox polling with lease-aware claim/ack/requeue handling plus
-  retry-budget dead-letter routing.
+  retry-budget dead-letter routing and runner reliability counters.
 - `SapRunnerV0Worker` shell: runner tick/stop APIs and optional pthread
   start/join helpers (gated by `SAPLING_THREADED`).
 - `txctx_v0.h` / `txctx_v0.c`: phase-B host transaction context scaffold with

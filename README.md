@@ -56,7 +56,7 @@ Both require a WASI sysroot:
   shims.
 - `docs/WIT_SCHEMA.md` describes WIT-first schema conventions and codegen.
 - `docs/RUNNER_WIRE_V0.md` defines the frozen v0 runner serialization contract.
-- `docs/RUNNER_LIFECYCLE_V0.md` defines lifecycle bootstrap and schema-version guard behavior.
+- `docs/RUNNER_LIFECYCLE_V0.md` defines lifecycle bootstrap, schema-version guards, and runner reliability counters.
 - `docs/RUNNER_TXCTX_V0.md` defines the initial Phase-B host tx context behavior.
 - `docs/RUNNER_TXSTACK_V0.md` defines closed-nested atomic stack behavior.
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.

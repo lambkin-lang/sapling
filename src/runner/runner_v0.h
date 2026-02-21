@@ -34,12 +34,28 @@ typedef struct
 
 typedef struct
 {
+    uint64_t step_attempts;
+    uint64_t step_successes;
+    uint64_t retryable_failures;
+    uint64_t conflict_failures;
+    uint64_t busy_failures;
+    uint64_t non_retryable_failures;
+    uint64_t requeues;
+    uint64_t dead_letter_moves;
+    uint64_t step_latency_samples;
+    uint64_t step_latency_total_ms;
+    uint32_t step_latency_max_ms;
+} SapRunnerV0Metrics;
+
+typedef struct
+{
     DB *db;
     uint32_t worker_id;
     uint16_t schema_major;
     uint16_t schema_minor;
     uint64_t steps_completed;
     SapRunnerV0State state;
+    SapRunnerV0Metrics metrics;
 } SapRunnerV0;
 
 typedef int (*sap_runner_v0_message_handler)(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg,
@@ -75,6 +91,8 @@ int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_
 /* Initialize lifecycle state and apply DBI/schema guards. */
 int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg);
 void sap_runner_v0_shutdown(SapRunnerV0 *runner);
+void sap_runner_v0_metrics_reset(SapRunnerV0 *runner);
+void sap_runner_v0_metrics_snapshot(const SapRunnerV0 *runner, SapRunnerV0Metrics *metrics_out);
 
 /* Inbox key helpers (DBI 1): [worker_id:u64be][seq:u64be] */
 void sap_runner_v0_inbox_key_encode(uint64_t worker_id, uint64_t seq,

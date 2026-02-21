@@ -470,7 +470,9 @@ Phase A status (started):
 - done: dead-letter replay/drain tooling path via `dead_letter_v0` APIs
   (`sap_runner_dead_letter_v0_drain`, `sap_runner_dead_letter_v0_replay`) with
   expanded unit coverage and operational policy docs
-- next: add reliability counters for conflicts/retries/latency (Phase D)
+- done: runner reliability counters for conflict/busy/non-retryable failures,
+  requeues/dead-letter moves, and step latency aggregation
+- next: add crash-recovery checks around checkpoint/restore for runner flows
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -509,7 +511,8 @@ Phase B status (started):
 - done: additional runner integration path via non-WASI native example
   (`examples/native/runner_native_example.c`)
 - done: dead-letter drain/replay tooling API and policy docs in Phase C
-- next: add reliability counters for conflicts/retries/latency (Phase D)
+- done: initial Phase D reliability counters surfaced on `SapRunnerV0`
+- next: add crash-recovery checks around checkpoint/restore for runner flows
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -534,7 +537,9 @@ Phase C status (started):
   for exhausted retryable failures
 - done: dead-letter replay/drain helpers for operational tooling plus
   replay-policy documentation (`docs/RUNNER_DEAD_LETTER_POLICY.md`)
-- next: add reliability counters for conflicts/retries/latency (Phase D)
+- done: reliability counters for retries/conflicts/requeues/dead-letter moves
+  and step latency in runner lifecycle path
+- next: add crash-recovery checks around checkpoint/restore for runner flows
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

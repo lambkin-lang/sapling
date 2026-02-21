@@ -559,6 +559,118 @@ static int test_retry_budget_moves_to_dead_letter(void)
     return 0;
 }
 
+static int test_runner_metrics_non_retryable_and_reset(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    SapRunnerV0Metrics metrics = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    dispatch_state.fail_calls_remaining = 1u;
+    dispatch_state.fail_rc = SAP_ERROR;
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 70u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) ==
+          SAP_ERROR);
+    CHECK(processed == 0u);
+
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+
+    sap_runner_v0_metrics_snapshot(&runner, &metrics);
+    CHECK(metrics.step_attempts == 2u);
+    CHECK(metrics.step_successes == 1u);
+    CHECK(metrics.retryable_failures == 0u);
+    CHECK(metrics.conflict_failures == 0u);
+    CHECK(metrics.busy_failures == 0u);
+    CHECK(metrics.non_retryable_failures == 1u);
+    CHECK(metrics.requeues == 1u);
+    CHECK(metrics.dead_letter_moves == 0u);
+    CHECK(metrics.step_latency_samples == 2u);
+
+    sap_runner_v0_metrics_reset(&runner);
+    sap_runner_v0_metrics_snapshot(&runner, &metrics);
+    CHECK(metrics.step_attempts == 0u);
+    CHECK(metrics.step_successes == 0u);
+    CHECK(metrics.retryable_failures == 0u);
+    CHECK(metrics.non_retryable_failures == 0u);
+    CHECK(metrics.requeues == 0u);
+    CHECK(metrics.dead_letter_moves == 0u);
+    CHECK(metrics.step_latency_samples == 0u);
+    CHECK(metrics.step_latency_total_ms == 0u);
+    CHECK(metrics.step_latency_max_ms == 0u);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_runner_metrics_retryable_dead_letter_path(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    SapRunnerV0Metrics metrics = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    uint32_t dead_letter_count = 0u;
+    uint32_t rounds;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    dispatch_state.fail_calls_remaining = 32u;
+    dispatch_state.fail_rc = SAP_CONFLICT;
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 90u, frame, frame_len) == SAP_OK);
+
+    for (rounds = 0u; rounds < 16u; rounds++)
+    {
+        CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) ==
+              SAP_OK);
+        CHECK(processed == 0u);
+        CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == SAP_OK);
+        if (dead_letter_count == 1u)
+        {
+            break;
+        }
+    }
+    CHECK(dead_letter_count == 1u);
+
+    sap_runner_v0_metrics_snapshot(&runner, &metrics);
+    CHECK(metrics.step_attempts >= 1u);
+    CHECK(metrics.step_successes == 0u);
+    CHECK(metrics.retryable_failures == metrics.step_attempts);
+    CHECK(metrics.conflict_failures == metrics.retryable_failures);
+    CHECK(metrics.busy_failures == 0u);
+    CHECK(metrics.non_retryable_failures == 0u);
+    CHECK(metrics.dead_letter_moves == 1u);
+    CHECK(metrics.requeues + metrics.dead_letter_moves == metrics.retryable_failures);
+    CHECK(metrics.step_latency_samples == metrics.step_attempts);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_worker_shell_tick(void)
 {
     DB *db = new_db();
@@ -720,17 +832,25 @@ int main(void)
     {
         return 7;
     }
-    if (test_worker_shell_tick() != 0)
+    if (test_runner_metrics_non_retryable_and_reset() != 0)
     {
         return 8;
     }
-    if (test_worker_tick_drains_due_timers() != 0)
+    if (test_runner_metrics_retryable_dead_letter_path() != 0)
     {
         return 9;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+    if (test_worker_shell_tick() != 0)
     {
         return 10;
+    }
+    if (test_worker_tick_drains_due_timers() != 0)
+    {
+        return 11;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 12;
     }
     return 0;
 }

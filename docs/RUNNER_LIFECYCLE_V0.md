@@ -93,6 +93,22 @@ Retry behavior in the scaffold:
 Due timer frames are dispatched through the same `sap_runner_v0_run_step`
 path and deleted with key/value match guards.
 
+## Reliability counters
+
+`SapRunnerV0` now tracks lightweight reliability metrics:
+- step attempts/successes
+- retryable failures split by `SAP_CONFLICT` and `SAP_BUSY`
+- non-retryable failures
+- requeue and dead-letter move counts
+- step latency samples/total/max (millisecond resolution)
+
+API:
+- `sap_runner_v0_metrics_snapshot(...)`
+- `sap_runner_v0_metrics_reset(...)`
+
+Counters are updated by inbox and due-timer dispatch paths and are intended as
+the baseline observability substrate for Phase D.
+
 ## Worker shell
 
 `SapRunnerV0Worker` wraps lifecycle + poll behavior for host scheduling:
