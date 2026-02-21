@@ -628,6 +628,7 @@ logical value length, while read paths reconstruct bytes transparently.
 Current scope:
 - non-DUPSORT `txn_put` / `txn_get` / cursor reads
 - update/delete/range-delete cleanup of old overflow chains
+- CAS (`txn_put_if`) and merge (`txn_merge`) paths operate on overflow values
 - tree-rewrite cleanup paths and checkpoint/restore compatibility
 
 Current constraints:
@@ -664,8 +665,10 @@ int txn_del_range(Txn *txn, DBI dbi,
 ### Merge operator (done, callback-defined)
 `txn_merge` is available for non-DUPSORT DBIs and applies a callback-defined
 transform to the current value (or empty value when the key is missing).
-Callbacks receive output capacity in `*new_len` and report produced bytes; if
-the callback reports a larger result, `txn_merge` returns `SAP_FULL`.
+Callbacks receive output capacity in `*new_len` and report produced bytes. If a
+callback reports a size larger than inline capacity, Sapling retries once with
+the requested size (up to `UINT16_MAX`) so merged values can spill to overflow
+pages. Requests above `UINT16_MAX` still return `SAP_FULL`.
 
 ```c
 typedef void (*sap_merge_fn)(const void *old_val, uint32_t old_len,

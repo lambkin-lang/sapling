@@ -3015,9 +3015,9 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
     struct ScratchMark scratch_mark;
     const void *old_val;
     uint32_t old_len;
-    uint32_t out_cap;
+    uint32_t inline_cap;
     uint8_t *old_copy;
-    uint8_t *out_buf;
+    uint32_t cap;
     int rc;
 
     if (!txn || !merge)
@@ -3038,7 +3038,7 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
     if (SLOT_SZ + LCELL_SZ(key_len, 0) + LEAF_HDR > db->page_size)
         return SAP_FULL;
 
-    out_cap = db->page_size - (SLOT_SZ + LCELL_SZ(key_len, 0) + LEAF_HDR);
+    inline_cap = db->page_size - (SLOT_SZ + LCELL_SZ(key_len, 0) + LEAF_HDR);
     old_val = NULL;
     old_len = 0;
 
@@ -3065,26 +3065,38 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
         }
     }
 
-    out_buf = (uint8_t *)txn_scratch_alloc(txn, out_cap);
-    if (!out_buf)
-    {
-        txn_scratch_release(txn, scratch_mark);
-        return SAP_ERROR;
-    }
+    cap = inline_cap;
+    if (cap > UINT16_MAX)
+        cap = UINT16_MAX;
 
+    for (int pass = 0; pass < 2; pass++)
     {
-        uint32_t out_len = out_cap;
+        uint8_t *out_buf = (uint8_t *)txn_scratch_alloc(txn, cap);
+        uint32_t out_len = cap;
+        if (!out_buf)
+        {
+            txn_scratch_release(txn, scratch_mark);
+            return SAP_ERROR;
+        }
+
         merge(old_copy, old_len, operand, op_len, out_buf, &out_len, ctx);
-        if (out_len > out_cap)
+        if (out_len <= cap)
+        {
+            rc = txn_put_dbi((Txn *)txn, dbi, key, key_len, out_buf, out_len);
+            txn_scratch_release(txn, scratch_mark);
+            return rc;
+        }
+
+        if (out_len > UINT16_MAX)
         {
             txn_scratch_release(txn, scratch_mark);
             return SAP_FULL;
         }
-        rc = txn_put_dbi((Txn *)txn, dbi, key, key_len, out_buf, out_len);
+        cap = out_len;
     }
 
     txn_scratch_release(txn, scratch_mark);
-    return rc;
+    return SAP_FULL;
 }
 
 /* ================================================================== */

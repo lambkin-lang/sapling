@@ -212,7 +212,10 @@ int txn_del_range(Txn *txn, uint32_t dbi, const void *lo, uint32_t lo_len, const
  * Not supported for DUPSORT DBIs.
  * old_val is NULL with old_len=0 when key is missing.
  * On entry, *new_len is output capacity; callback sets produced byte count.
- * If callback reports a size larger than capacity, returns SAP_FULL.
+ * If callback reports more than inline capacity, Sapling retries once with the
+ * reported size (up to UINT16_MAX), enabling overflow-value merge results.
+ * Returns SAP_FULL if the callback keeps requesting larger output or exceeds
+ * UINT16_MAX.
  */
 int txn_merge(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *operand,
               uint32_t op_len, sap_merge_fn merge, void *ctx);

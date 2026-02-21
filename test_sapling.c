@@ -293,6 +293,19 @@ static void merge_overflow(const void *old_val, uint32_t old_len, const void *op
         *new_len = *new_len + 1;
 }
 
+static void merge_too_large(const void *old_val, uint32_t old_len, const void *operand,
+                            uint32_t op_len, void *new_val, uint32_t *new_len, void *ctx)
+{
+    (void)old_val;
+    (void)old_len;
+    (void)operand;
+    (void)op_len;
+    (void)new_val;
+    (void)ctx;
+    if (new_len)
+        *new_len = (uint32_t)UINT16_MAX + 1u;
+}
+
 /* ================================================================== */
 /* Test: basic CRUD                                                     */
 /* ================================================================== */
@@ -2040,6 +2053,36 @@ static void test_put_if(void)
     txn_abort(r);
 
     db_close(db);
+
+    {
+        uint8_t v1[700];
+        uint8_t v2[900];
+        const void *v;
+        uint32_t vl;
+        DB *odb = db_open(&g_alloc, 256, NULL, NULL);
+        CHECK(odb != NULL);
+        fill_pattern(v1, (uint32_t)sizeof(v1), 5);
+        fill_pattern(v2, (uint32_t)sizeof(v2), 11);
+
+        w = txn_begin(odb, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put_if(w, 0, "ov", 2, v2, (uint32_t)sizeof(v2), v1, (uint32_t)sizeof(v1)) ==
+              SAP_NOTFOUND);
+        CHECK(txn_put(w, "ov", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
+        CHECK(txn_put_if(w, 0, "ov", 2, v2, (uint32_t)sizeof(v2), v1, (uint32_t)sizeof(v1)) ==
+              SAP_OK);
+        CHECK(txn_put_if(w, 0, "ov", 2, v1, (uint32_t)sizeof(v1), v1, (uint32_t)sizeof(v1)) ==
+              SAP_CONFLICT);
+        CHECK(txn_commit(w) == SAP_OK);
+
+        r = txn_begin(odb, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "ov", 2, &v, &vl) == SAP_OK);
+        CHECK(vl == (uint32_t)sizeof(v2));
+        CHECK(memcmp(v, v2, sizeof(v2)) == 0);
+        txn_abort(r);
+        db_close(odb);
+    }
 }
 
 /* ================================================================== */
@@ -2416,6 +2459,25 @@ static void test_merge(void)
     }
 
     {
+        uint8_t big[5000];
+        const void *v;
+        uint32_t vl;
+        fill_pattern(big, (uint32_t)sizeof(big), 23);
+
+        w = txn_begin(db, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_merge(w, 0, "blob", 4, big, (uint32_t)sizeof(big), merge_concat, NULL) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+
+        Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get_dbi(r, 0, "blob", 4, &v, &vl) == SAP_OK);
+        CHECK(vl == (uint32_t)sizeof(big));
+        CHECK(memcmp(v, big, sizeof(big)) == 0);
+        txn_abort(r);
+    }
+
+    {
         const void *v;
         uint32_t vl;
         w = txn_begin(db, NULL, 0);
@@ -2442,6 +2504,7 @@ static void test_merge(void)
         CHECK(txn_merge(w, 0, "k", 1, NULL, 1, merge_concat, NULL) == SAP_ERROR);
         CHECK(txn_merge(w, 0, "k", 1, "x", 1, NULL, NULL) == SAP_ERROR);
         CHECK(txn_merge(w, 1, "k", 1, "x", 1, merge_concat, NULL) == SAP_ERROR);
+        CHECK(txn_merge(w, 0, "k", 1, "x", 1, merge_too_large, NULL) == SAP_FULL);
         CHECK(txn_merge(w, 0, &z, (uint32_t)UINT16_MAX + 1u, "x", 1, merge_concat, NULL) ==
               SAP_FULL);
         txn_abort(w);
