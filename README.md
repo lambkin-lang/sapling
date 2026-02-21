@@ -21,6 +21,7 @@ and prefix watch notifications.
 - `make runner-txctx-test` runs phase-B host tx context tests
 - `make runner-txstack-test` runs phase-B nested tx stack tests
 - `make runner-attempt-test` runs phase-B bounded retry attempt tests
+- `make runner-integration-test` runs deterministic phase-B retry+nested integration tests
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
 - `make wasi-shim-test` runs phase-A runner<->wasi shim integration tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding

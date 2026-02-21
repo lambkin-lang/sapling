@@ -63,6 +63,7 @@ runner_lifecycle_test
 runner_txctx_test
 runner_txstack_test
 runner_attempt_test
+runner_atomic_integration_test
 wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm

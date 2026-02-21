@@ -441,7 +441,9 @@ Phase A status (started):
 - done: bounded retry attempt engine scaffold (`src/runner/attempt_v0`) around
   snapshot execution, root validate/apply, and post-commit intent sink
   (`tests/unit/runner_attempt_test.c`)
-- next: deterministic integration tests for conflict retry + nested rollback/commit
+- done: deterministic integration coverage for conflict-retry + nested
+  rollback/commit (`tests/integration/runner_atomic_integration_test.c`)
+- next: begin Phase C mailbox claim/ack/requeue flow with CAS guards
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -456,7 +458,9 @@ Phase B status (started):
   semantics and nested read-your-write behavior across frame depth
 - done: `attempt_v0` bounded retry loop (`SAP_BUSY`/`SAP_CONFLICT`) with
   backoff policy hooks and run stats
-- next: deterministic integration tests for retry + nested rollback/commit
+- done: deterministic integration test that exercises conflict injection,
+  bounded retry, child commit/abort merge semantics, and post-commit intents
+- next: begin Phase C mailbox lease claim/ack/requeue semantics
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
