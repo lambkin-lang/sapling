@@ -64,6 +64,7 @@ Both require a WASI sysroot:
 - `examples/native/runner_native_example.c` demonstrates a non-WASI worker path using `attempt_handler_v0`.
 - `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
 - `docs/RUNNER_DEAD_LETTER_V0.md` defines dead-letter move/record behavior.
+- `docs/RUNNER_DEAD_LETTER_POLICY.md` defines dead-letter drain/replay operations and policy.
 - `docs/RUNNER_OUTBOX_V0.md` defines outbox append/drain and intent-publisher behavior.
 - `docs/RUNNER_TIMER_V0.md` defines timer intent ingestion and due-time draining.
 - `docs/RUNNER_SCHEDULER_V0.md` defines timer next-due and sleep-budget helpers.

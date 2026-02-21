@@ -28,7 +28,7 @@ Implemented foundation:
 - `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue
   scaffold with CAS-style lease token guards.
 - `dead_letter_v0.h` / `dead_letter_v0.c`: phase-C dead-letter move helpers for
-  exhausted retry-budget messages.
+  exhausted retry-budget messages, plus drain/replay tooling APIs.
 - `outbox_v0.h` / `outbox_v0.c`: phase-C outbox append/drain APIs plus
   attempt-intent publisher adapter for committed outbox emission.
 - `timer_v0.h` / `timer_v0.c`: phase-C timer append/due-drain APIs plus

@@ -17,6 +17,17 @@ This document defines the Phase-C dead-letter helper module:
 - writes dead-letter record under the same `(worker_id, seq)` key
 - deletes inbox + lease atomically
 
+3. Drain dead-letter records for tooling workflows:
+- iterates DBI 6 in key order
+- decodes each record and invokes caller callback
+- deletes each drained record with compare-before-delete guard
+
+4. Replay dead-letter records back to inbox:
+- loads and decodes one dead-letter record
+- re-enqueues its original frame to inbox `(worker_id, replay_seq)` with
+  `SAP_NOOVERWRITE`
+- removes the original dead-letter record on success
+
 ## Runner integration
 
 `runner_v0` now uses this module when:
@@ -25,3 +36,13 @@ This document defines the Phase-C dead-letter helper module:
 
 In both cases, the message is removed from inbox flow and retained in DBI 6 for
 inspection/replay tooling.
+
+## Tooling APIs
+
+- `sap_runner_dead_letter_v0_drain(...)`
+  - callback receives `(worker_id, seq, record)` per dead-letter entry
+  - callback returning non-`SAP_OK` aborts the drain and leaves remaining
+    records untouched
+- `sap_runner_dead_letter_v0_replay(...)`
+  - requeues one dead-letter record back to inbox and removes it from DBI 6
+  - returns `SAP_EXISTS` if the destination inbox key already exists

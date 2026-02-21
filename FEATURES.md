@@ -467,7 +467,10 @@ Phase A status (started):
   `src/runner/attempt_handler_v0` for non-WASI integrations
 - done: non-WASI example runner path wired through `attempt_handler_v0`
   (`examples/native/runner_native_example.c`)
-- next: add dead-letter replay/drain tooling path and operational policy docs
+- done: dead-letter replay/drain tooling path via `dead_letter_v0` APIs
+  (`sap_runner_dead_letter_v0_drain`, `sap_runner_dead_letter_v0_replay`) with
+  expanded unit coverage and operational policy docs
+- next: add reliability counters for conflicts/retries/latency (Phase D)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -505,7 +508,8 @@ Phase B status (started):
   `attempt_handler_v0`
 - done: additional runner integration path via non-WASI native example
   (`examples/native/runner_native_example.c`)
-- next: add dead-letter replay/drain tooling path and operational policy docs
+- done: dead-letter drain/replay tooling API and policy docs in Phase C
+- next: add reliability counters for conflicts/retries/latency (Phase D)
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -528,7 +532,9 @@ Phase C status (started):
   now preserves message durability while clearing stale lease records
 - done: retry-budget counter tracking in DBI 5 and dead-letter diversion to DBI 6
   for exhausted retryable failures
-- next: add dead-letter replay/drain tooling path and operational policy docs
+- done: dead-letter replay/drain helpers for operational tooling plus
+  replay-policy documentation (`docs/RUNNER_DEAD_LETTER_POLICY.md`)
+- next: add reliability counters for conflicts/retries/latency (Phase D)
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

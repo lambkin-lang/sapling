@@ -27,7 +27,7 @@
 #   make runner-attempt-handler-test — run generic attempt-backed handler adapter tests
 #   make runner-integration-test — run phase-B retry+nested integration test
 #   make runner-mailbox-test — run phase-C mailbox lease tests
-#   make runner-dead-letter-test — run phase-C dead-letter move tests
+#   make runner-dead-letter-test — run phase-C dead-letter move/replay/drain tests
 #   make runner-outbox-test — run phase-C outbox append/drain tests
 #   make runner-timer-test — run phase-C timer ingestion/drain tests
 #   make runner-scheduler-test — run phase-C timer scheduling helper tests
