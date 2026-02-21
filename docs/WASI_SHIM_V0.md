@@ -12,8 +12,13 @@ runner worker shell and guest invocation logic.
 
 ## API
 
+- `sap_wasi_shim_v0_options_default`
+  - fills defaults for init options (default reply cap, outbox disabled)
+- `sap_wasi_shim_v0_init_with_options`
+  - binds DB handle, runtime instance, and explicit shim options
+  - supports caller-provided reply buffer/cap for larger replies
 - `sap_wasi_shim_v0_init`
-  - binds DB handle, runtime instance, and shim options
+  - compatibility helper using default inline reply buffer capacity
 - `sap_wasi_shim_v0_runner_handler`
   - handler adapter passed into runner lifecycle APIs
 - `sap_wasi_shim_v0_worker_init`
@@ -23,7 +28,7 @@ Runtime invocation:
 - shim runs `sap_runner_attempt_v0_run(...)` and invokes
   `sap_wasi_runtime_v0_invoke` inside the attempt atomic callback
 - request input is `msg.payload`
-- reply payload bytes are copied into shim-managed response buffer
+- reply payload bytes are copied into configured shim response buffer
 - retryable errors follow attempt-policy retry/backoff rules
 - attempt stats are exposed on `shim.last_attempt_stats`
 
@@ -44,3 +49,4 @@ When disabled or reply length is zero, no outbox record is emitted.
 - inbox -> shim -> outbox happy path
 - retryable callback errors drive attempt retries before inbox requeue
 - non-retryable callback errors propagate while preserving inbox durability
+- custom reply-buffer cap wiring through `sap_wasi_shim_v0_init_with_options`

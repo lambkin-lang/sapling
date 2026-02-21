@@ -107,7 +107,7 @@ static int shim_atomic_execute(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
     }
     shim = atomic->shim;
     rc = sap_wasi_runtime_v0_invoke(shim->runtime, atomic->msg, shim->reply_buf,
-                                    sizeof(shim->reply_buf), &reply_len);
+                                    shim->reply_buf_cap, &reply_len);
     if (rc != SAP_OK)
     {
         return rc;
@@ -116,26 +116,80 @@ static int shim_atomic_execute(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
     {
         return SAP_OK;
     }
-    if (reply_len > sizeof(shim->reply_buf))
+    if (reply_len > shim->reply_buf_cap)
     {
         return SAP_ERROR;
     }
     return shim_push_reply_intent(stack, shim, atomic->runner, atomic->msg, reply_len);
 }
 
-int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
-                          uint64_t initial_outbox_seq, int emit_outbox_events)
+void sap_wasi_shim_v0_options_default(SapWasiShimV0Options *options)
 {
+    if (!options)
+    {
+        return;
+    }
+    memset(options, 0, sizeof(*options));
+    options->initial_outbox_seq = 0u;
+    options->emit_outbox_events = 0;
+    options->reply_buf = NULL;
+    options->reply_buf_cap = SAP_WASI_SHIM_V0_DEFAULT_REPLY_CAP;
+}
+
+int sap_wasi_shim_v0_init_with_options(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
+                                       const SapWasiShimV0Options *options)
+{
+    SapWasiShimV0Options local = {0};
+    uint64_t initial_outbox_seq;
+    int emit_outbox_events;
+    uint8_t *reply_buf = NULL;
+    uint32_t reply_buf_cap = 0u;
     int rc;
 
     if (!shim || !db || !runtime)
     {
         return SAP_ERROR;
     }
+    sap_wasi_shim_v0_options_default(&local);
+    if (options)
+    {
+        local = *options;
+        if (local.reply_buf && local.reply_buf_cap == 0u)
+        {
+            return SAP_ERROR;
+        }
+        if (local.reply_buf_cap == 0u)
+        {
+            local.reply_buf_cap = SAP_WASI_SHIM_V0_DEFAULT_REPLY_CAP;
+        }
+    }
+    initial_outbox_seq = local.initial_outbox_seq;
+    emit_outbox_events = local.emit_outbox_events ? 1 : 0;
 
     memset(shim, 0, sizeof(*shim));
     shim->db = db;
     shim->runtime = runtime;
+
+    reply_buf_cap = local.reply_buf_cap;
+    if (reply_buf_cap == 0u)
+    {
+        return SAP_ERROR;
+    }
+    if (local.reply_buf)
+    {
+        reply_buf = local.reply_buf;
+    }
+    else if (reply_buf_cap <= SAP_WASI_SHIM_V0_DEFAULT_REPLY_CAP)
+    {
+        reply_buf = shim->reply_buf_inline;
+    }
+    else
+    {
+        return SAP_ERROR;
+    }
+
+    shim->reply_buf = reply_buf;
+    shim->reply_buf_cap = reply_buf_cap;
     rc = sap_runner_intent_sink_v0_init(&shim->intent_sink, db, initial_outbox_seq, 0u);
     if (rc != SAP_OK)
     {
@@ -144,8 +198,18 @@ int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime
     sap_runner_attempt_v0_policy_default(&shim->attempt_policy);
     shim->last_attempt_stats.last_rc = SAP_OK;
     shim->next_outbox_seq = initial_outbox_seq;
-    shim->emit_outbox_events = emit_outbox_events ? 1 : 0;
+    shim->emit_outbox_events = emit_outbox_events;
     return SAP_OK;
+}
+
+int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
+                          uint64_t initial_outbox_seq, int emit_outbox_events)
+{
+    SapWasiShimV0Options options = {0};
+    sap_wasi_shim_v0_options_default(&options);
+    options.initial_outbox_seq = initial_outbox_seq;
+    options.emit_outbox_events = emit_outbox_events ? 1 : 0;
+    return sap_wasi_shim_v0_init_with_options(shim, db, runtime, &options);
 }
 
 void sap_wasi_shim_v0_set_attempt_policy(SapWasiShimV0 *shim,

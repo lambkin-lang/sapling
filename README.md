@@ -17,6 +17,7 @@ notifications.
 - `make wit-schema-generate` regenerates schema artifacts from WIT
 - `make wit-schema-cc-check` compile-checks generated C schema metadata
 - `make schema-check` runs WIT validation + codegen + generated-C compile check + `schemas/dbi_manifest.csv` validation
+- `make runner-dbi-status-check` validates runner DBI status alignment across manifest/docs/runtime usage
 - `make runner-wire-test` runs v0 runner message/intent wire-format tests
 - `make runner-lifecycle-test` runs phase-A runner lifecycle/schema-guard tests
 - `make runner-lifecycle-threaded-tsan-test` runs threaded runner lifecycle checks under ThreadSanitizer

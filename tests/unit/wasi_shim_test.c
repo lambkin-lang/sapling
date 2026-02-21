@@ -319,6 +319,69 @@ static int test_worker_shim_fatal_error_requeues_and_returns_error(void)
     return 0;
 }
 
+static int test_worker_shim_custom_reply_cap(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Config cfg;
+    SapRunnerV0Worker worker;
+    SapWasiShimV0 shim;
+    SapWasiRuntimeV0 runtime;
+    SapWasiShimV0Options options = {0};
+    GuestCtx guest = {0};
+    uint8_t frame[128];
+    uint8_t reply_buf[2];
+    const void *out_val = NULL;
+    uint32_t out_len = 0u;
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    int exists = 0;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+
+    guest.rc = SAP_OK;
+    guest.reply[0] = 'o';
+    guest.reply[1] = 'v';
+    guest.reply[2] = 'r';
+    guest.reply_len = 3u;
+
+    sap_wasi_shim_v0_options_default(&options);
+    options.initial_outbox_seq = 0u;
+    options.emit_outbox_events = 1;
+    options.reply_buf = reply_buf;
+    options.reply_buf_cap = (uint32_t)sizeof(reply_buf);
+
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_init_with_options(&shim, db, &runtime, &options) == SAP_OK);
+    CHECK(shim.reply_buf == reply_buf);
+    CHECK(shim.reply_buf_cap == (uint32_t)sizeof(reply_buf));
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
+    CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 91u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_ERROR);
+    CHECK(processed == 0u);
+    CHECK(guest.calls == 1u);
+    CHECK(runtime.calls == 1u);
+    CHECK(runtime.last_rc == SAP_ERROR);
+    CHECK(shim.last_attempt_stats.attempts == 1u);
+    CHECK(shim.last_attempt_stats.last_rc == SAP_ERROR);
+
+    CHECK(inbox_exists(db, 7u, 91u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(inbox_exists(db, 7u, 92u, &exists) == SAP_OK);
+    CHECK(exists == 1);
+    CHECK(outbox_get(db, 0u, &out_val, &out_len, &exists) == SAP_OK);
+    CHECK(exists == 0);
+
+    db_close(db);
+    return 0;
+}
+
 int main(void)
 {
     if (test_worker_shim_outbox_path() != 0)
@@ -332,6 +395,10 @@ int main(void)
     if (test_worker_shim_fatal_error_requeues_and_returns_error() != 0)
     {
         return 3;
+    }
+    if (test_worker_shim_custom_reply_cap() != 0)
+    {
+        return 4;
     }
     return 0;
 }

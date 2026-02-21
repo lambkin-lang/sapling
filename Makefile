@@ -41,6 +41,7 @@
 #   make wasi-runtime-test — run concrete wasi runtime wrapper tests
 #   make wasi-shim-test — run runner<->wasi shim integration tests
 #   make schema-check — validate schemas/dbi_manifest.csv
+#   make runner-dbi-status-check — validate runner DBI status drift
 #   make stress-harness — run deterministic fault harness scaffold
 #   make phase0-check — run phase-0 foundation checks
 #   make phasea-check — run phase-0 checks + phase-A runner tests
@@ -190,7 +191,7 @@ FORMAT_FILES = sapling.c sapling.h $(RUNNER_PHASEE_BENCH_SRC) $(FAULT_SRC) $(FAU
 PHASE0_TIDY_FILES = $(RUNNER_PHASEE_BENCH_SRC) $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_OUTBOX_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_INTENT_SINK_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_RECOVERY_TEST_SRC) $(RUNNER_NATIVE_EXAMPLE_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
 PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/runner_txctx_test.c tests/unit/runner_txstack_test.c tests/unit/runner_attempt_test.c tests/unit/runner_attempt_handler_test.c tests/unit/runner_mailbox_test.c tests/unit/runner_dead_letter_test.c tests/unit/runner_outbox_test.c tests/unit/runner_timer_test.c tests/unit/runner_scheduler_test.c tests/unit/runner_intent_sink_test.c tests/integration/runner_atomic_integration_test.c tests/integration/runner_recovery_integration_test.c examples/native/runner_native_example.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -349,6 +350,10 @@ wit-schema-cc-check: wit-schema-generate
 
 schema-check: wit-schema-check wit-schema-cc-check
 	python3 tools/check_dbi_manifest.py $(DBI_MANIFEST)
+	$(MAKE) runner-dbi-status-check
+
+runner-dbi-status-check: wit-schema-generate
+	python3 tools/check_runner_dbi_status.py $(DBI_MANIFEST) $(WIT_GEN_HDR) .
 
 runner-wire-test: CFLAGS += -O2 -g
 runner-wire-test: $(RUNNER_WIRE_TEST_BIN)

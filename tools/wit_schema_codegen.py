@@ -83,19 +83,43 @@ def parse_dbi_entries(wit_text: str) -> list[DbiEntry]:
 
 
 def write_manifest(entries: list[DbiEntry], out_path: Path) -> None:
+    existing_meta: dict[int, tuple[str, str, str]] = {}
+
+    if out_path.exists():
+        with out_path.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    dbi = int((row.get("dbi") or "").strip(), 10)
+                except ValueError:
+                    continue
+                name = (row.get("name") or "").strip()
+                owner = (row.get("owner") or "").strip()
+                status = (row.get("status") or "").strip()
+                if not name:
+                    continue
+                existing_meta[dbi] = (name, owner or "runtime", status or "planned")
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, lineterminator="\n")
         writer.writerow(["dbi", "name", "key_format", "value_format", "owner", "status"])
         for e in entries:
+            norm_name = e.name.replace("-", "_")
+            owner = "runtime"
             status = "active" if e.dbi == 0 else "planned"
+            if e.dbi in existing_meta:
+                old_name, old_owner, old_status = existing_meta[e.dbi]
+                if old_name == norm_name:
+                    owner = old_owner
+                    status = old_status
             writer.writerow(
                 [
                     str(e.dbi),
-                    e.name.replace("-", "_"),
+                    norm_name,
                     f"wit:{e.key_record}",
                     f"wit:{e.value_record}",
-                    "runtime",
+                    owner,
                     status,
                 ]
             )

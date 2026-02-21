@@ -1,8 +1,8 @@
 dbi,name,key_format,value_format,owner,status
 0,app_state,wit:dbi0-app-state-key,wit:dbi0-app-state-value,runtime,active
-1,inbox,wit:dbi1-inbox-key,wit:dbi1-inbox-value,runtime,planned
-2,outbox,wit:dbi2-outbox-key,wit:dbi2-outbox-value,runtime,planned
-3,leases,wit:dbi3-leases-key,wit:dbi3-leases-value,runtime,planned
-4,timers,wit:dbi4-timers-key,wit:dbi4-timers-value,runtime,planned
-5,dedupe,wit:dbi5-dedupe-key,wit:dbi5-dedupe-value,runtime,planned
-6,dead_letter,wit:dbi6-dead-letter-key,wit:dbi6-dead-letter-value,runtime,planned
+1,inbox,wit:dbi1-inbox-key,wit:dbi1-inbox-value,runtime,active
+2,outbox,wit:dbi2-outbox-key,wit:dbi2-outbox-value,runtime,active
+3,leases,wit:dbi3-leases-key,wit:dbi3-leases-value,runtime,active
+4,timers,wit:dbi4-timers-key,wit:dbi4-timers-value,runtime,active
+5,dedupe,wit:dbi5-dedupe-key,wit:dbi5-dedupe-value,runtime,active
+6,dead_letter,wit:dbi6-dead-letter-key,wit:dbi6-dead-letter-value,runtime,active

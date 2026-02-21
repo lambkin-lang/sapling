@@ -13,8 +13,18 @@
 
 #include <stdint.h>
 
-#define SAP_WASI_SHIM_V0_REPLY_CAP 4096u
+#define SAP_WASI_SHIM_V0_DEFAULT_REPLY_CAP 4096u
 #define SAP_WASI_SHIM_V0_OUTBOX_KEY_SIZE 8u
+
+typedef struct
+{
+    uint64_t initial_outbox_seq;
+    int emit_outbox_events;
+    /* Optional caller-provided reply buffer; if NULL, shim uses inline storage. */
+    uint8_t *reply_buf;
+    /* Buffer capacity in bytes; when reply_buf is NULL this may be <= DEFAULT. */
+    uint32_t reply_buf_cap;
+} SapWasiShimV0Options;
 
 typedef struct
 {
@@ -25,8 +35,15 @@ typedef struct
     SapRunnerAttemptV0Stats last_attempt_stats;
     uint64_t next_outbox_seq;
     int emit_outbox_events;
-    uint8_t reply_buf[SAP_WASI_SHIM_V0_REPLY_CAP];
+    uint8_t *reply_buf;
+    uint32_t reply_buf_cap;
+    uint8_t reply_buf_inline[SAP_WASI_SHIM_V0_DEFAULT_REPLY_CAP];
 } SapWasiShimV0;
+
+void sap_wasi_shim_v0_options_default(SapWasiShimV0Options *options);
+
+int sap_wasi_shim_v0_init_with_options(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
+                                       const SapWasiShimV0Options *options);
 
 int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
                           uint64_t initial_outbox_seq, int emit_outbox_events);

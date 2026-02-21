@@ -593,6 +593,14 @@ Phase C status (started):
 6. [Done][P2] Phase F operational readiness package documented:
    `docs/RUNNER_PHASEF_RUNBOOK.md` + `docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md`,
    with automated checklist entry point `make runner-release-checklist`.
+7. [Done][P1] Schema status metadata reconciled with implemented runner DBIs:
+   DBI 1-6 now marked `active`, and `tools/check_runner_dbi_status.py` was
+   added and wired into `make schema-check` to prevent manifest/docs/runtime
+   status drift regressions.
+8. [Done][P2] WASI v0 runtime evolved to a pluggable adapter surface:
+   `sap_wasi_runtime_v0_init_adapter` + optional streaming invoke support were
+   added, and shim init now supports configurable reply-buffer capacity via
+   `sap_wasi_shim_v0_init_with_options` (removing fixed-cap-only behavior).
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
@@ -685,9 +693,14 @@ Current constraints:
 - TTL helper keys must satisfy `key_len <= UINT16_MAX - 9`.
 
 Next priorities:
-1. [P1] Add resumable sweep checkpoints to continue long expiration drains.
-2. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
-3. [P2] Add host-runner background sweep cadence and observability counters.
+1. [P1] Harden sweep correctness: when draining index entries, verify lookup
+   expiry exactly matches index expiry before deleting data rows (mismatch
+   should prune stale metadata only).
+2. [P1] Add a protected TTL metadata mode so raw `txn_put*`/`txn_del*` calls
+   cannot violate reserved lookup/index key-prefix invariants in `ttl_dbi`.
+3. [P1] Add resumable sweep checkpoints to continue long expiration drains.
+4. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
+5. [P2] Add host-runner background sweep cadence and observability counters.
 
 ### Range delete (done, scan-backed for now)
 `txn_del_range` is available with half-open semantics `[lo, hi)` and currently
