@@ -35,6 +35,7 @@ typedef struct
 {
     uint32_t calls;
     int64_t due_ts[4];
+    uint64_t seq[4];
     uint8_t payloads[4][256];
     uint32_t payload_lens[4];
 } TimerCollectCtx;
@@ -206,8 +207,8 @@ static int collect_outbox_frame(const uint8_t *frame, uint32_t frame_len, void *
     return SAP_OK;
 }
 
-static int collect_timer_due(int64_t due_ts, const uint8_t *payload, uint32_t payload_len,
-                             void *ctx)
+static int collect_timer_due(int64_t due_ts, uint64_t seq, const uint8_t *payload,
+                             uint32_t payload_len, void *ctx)
 {
     TimerCollectCtx *timers = (TimerCollectCtx *)ctx;
 
@@ -217,6 +218,7 @@ static int collect_timer_due(int64_t due_ts, const uint8_t *payload, uint32_t pa
         return SAP_ERROR;
     }
     timers->due_ts[timers->calls] = due_ts;
+    timers->seq[timers->calls] = seq;
     memcpy(timers->payloads[timers->calls], payload, payload_len);
     timers->payload_lens[timers->calls] = payload_len;
     timers->calls++;
@@ -463,7 +465,8 @@ int main(void)
     processed = 0u;
     if (sap_runner_timer_v0_drain_due(db, atomic.due_ts, 4u, collect_timer_due, &timers,
                                       &processed) != SAP_OK ||
-        processed != 1u || timers.calls != 1u || timers.due_ts[0] != atomic.due_ts)
+        processed != 1u || timers.calls != 1u || timers.due_ts[0] != atomic.due_ts ||
+        timers.seq[0] != 1u)
     {
         fprintf(stderr, "runner-native-example: timer drain check failed\n");
         goto done;

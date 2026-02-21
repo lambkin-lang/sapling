@@ -1,8 +1,8 @@
 # sapling
 Clean-room, MIT-licensed copy-on-write B+ tree in portable C with MVCC snapshots,
 nested transactions, multi-DBI support, cursor reuse/key-only helpers, and
-DupSort/prefix helpers, plus range count, sorted-load, CAS, checkpoint APIs,
-and prefix watch notifications.
+DupSort/prefix helpers, plus range count/range delete/merge, sorted-load, CAS,
+checkpoint APIs, and prefix watch notifications.
 
 ## Build and test
 - `make` builds `libsapling.a`
@@ -18,6 +18,7 @@ and prefix watch notifications.
 - `make schema-check` runs WIT validation + codegen + generated-C compile check + `schemas/dbi_manifest.csv` validation
 - `make runner-wire-test` runs v0 runner message/intent wire-format tests
 - `make runner-lifecycle-test` runs phase-A runner lifecycle/schema-guard tests
+- `make runner-lifecycle-threaded-tsan-test` runs threaded runner lifecycle checks under ThreadSanitizer
 - `make runner-txctx-test` runs phase-B host tx context tests
 - `make runner-txstack-test` runs phase-B nested tx stack tests
 - `make runner-attempt-test` runs phase-B bounded retry attempt tests
@@ -31,6 +32,8 @@ and prefix watch notifications.
 - `make runner-scheduler-test` runs phase-C timer scheduling helper tests
 - `make runner-intent-sink-test` runs composed outbox+timer intent sink tests
 - `make runner-native-example` runs a non-WASI worker example wired through `attempt_handler_v0`
+- `make runner-phasee-bench-run` runs the Phase E runner coupling-study benchmark
+- `make runner-release-checklist` runs the Phase F release checklist automation
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
 - `make wasi-shim-test` runs phase-A runner<->wasi shim integration tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
@@ -57,7 +60,7 @@ Both require a WASI sysroot:
   shims.
 - `docs/WIT_SCHEMA.md` describes WIT-first schema conventions and codegen.
 - `docs/RUNNER_WIRE_V0.md` defines the frozen v0 runner serialization contract.
-- `docs/RUNNER_LIFECYCLE_V0.md` defines lifecycle bootstrap, schema-version guards, and runner reliability counters.
+- `docs/RUNNER_LIFECYCLE_V0.md` defines lifecycle bootstrap, schema-version guards, runner reliability counters, and observability sink hooks.
 - `docs/RUNNER_TXCTX_V0.md` defines the initial Phase-B host tx context behavior.
 - `docs/RUNNER_TXSTACK_V0.md` defines closed-nested atomic stack behavior.
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.
@@ -71,6 +74,9 @@ Both require a WASI sysroot:
 - `docs/RUNNER_TIMER_V0.md` defines timer intent ingestion and due-time draining.
 - `docs/RUNNER_SCHEDULER_V0.md` defines timer next-due and sleep-budget helpers.
 - `docs/RUNNER_INTENT_SINK_V0.md` defines the composed outbox+timer intent sink.
+- `docs/RUNNER_PHASEE_COUPLING_STUDY.md` defines the Phase E benchmark scenarios and interpretation guidance.
+- `docs/RUNNER_PHASEF_RUNBOOK.md` defines day-2 runner operations and incident handling.
+- `docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md` defines release gates for compatibility/reliability/perf validation.
 - `docs/WASI_RUNTIME_V0.md` defines the concrete runtime invocation layer used by the shim.
 - `docs/WASI_SHIM_V0.md` defines runner worker integration with the WASI shim/runtime path.
 

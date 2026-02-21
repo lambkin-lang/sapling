@@ -46,6 +46,18 @@ typedef struct
     ReplayEventLogEntry events[32];
 } ReplayHookCtx;
 
+typedef struct
+{
+    uint32_t count;
+    SapRunnerV0Metrics last;
+} MetricsSinkCtx;
+
+typedef struct
+{
+    uint32_t count;
+    SapRunnerV0LogEvent events[32];
+} LogSinkCtx;
+
 static void *test_alloc(void *ctx, uint32_t sz)
 {
     (void)ctx;
@@ -102,6 +114,30 @@ static void on_replay_event(const SapRunnerV0ReplayEvent *event, void *ctx)
         dst->frame_len = event->frame_len;
     }
     log->count++;
+}
+
+static void on_metrics_event(const SapRunnerV0Metrics *metrics, void *ctx)
+{
+    MetricsSinkCtx *sink = (MetricsSinkCtx *)ctx;
+
+    if (!metrics || !sink)
+    {
+        return;
+    }
+    sink->last = *metrics;
+    sink->count++;
+}
+
+static void on_log_event(const SapRunnerV0LogEvent *event, void *ctx)
+{
+    LogSinkCtx *sink = (LogSinkCtx *)ctx;
+
+    if (!event || !sink || sink->count >= 32u)
+    {
+        return;
+    }
+    sink->events[sink->count] = *event;
+    sink->count++;
 }
 
 static int encode_test_message(uint32_t to_worker, uint8_t *buf, uint32_t buf_len,
@@ -806,6 +842,114 @@ static int test_runner_replay_hook_inbox_requeue_flow(void)
     return 0;
 }
 
+static int test_runner_observability_sinks_emit_updates(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    MetricsSinkCtx metrics_sink = {0};
+    LogSinkCtx log_sink = {0};
+    SapRunnerV0Metrics metrics = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    sap_runner_v0_set_metrics_sink(&runner, on_metrics_event, &metrics_sink);
+    sap_runner_v0_set_log_sink(&runner, on_log_event, &log_sink);
+    dispatch_state.fail_calls_remaining = 1u;
+    dispatch_state.fail_rc = SAP_CONFLICT;
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 2u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+    CHECK(dispatch_state.invocations == 2u);
+    CHECK(dispatch_state.calls == 1u);
+
+    sap_runner_v0_metrics_snapshot(&runner, &metrics);
+    CHECK(metrics.step_attempts == 2u);
+    CHECK(metrics.step_successes == 1u);
+    CHECK(metrics.retryable_failures == 1u);
+    CHECK(metrics.conflict_failures == 1u);
+    CHECK(metrics.busy_failures == 0u);
+    CHECK(metrics.non_retryable_failures == 0u);
+    CHECK(metrics.requeues == 1u);
+    CHECK(metrics.dead_letter_moves == 0u);
+
+    CHECK(metrics_sink.count > 1u);
+    CHECK(metrics_sink.last.step_attempts == metrics.step_attempts);
+    CHECK(metrics_sink.last.step_successes == metrics.step_successes);
+    CHECK(metrics_sink.last.retryable_failures == metrics.retryable_failures);
+    CHECK(metrics_sink.last.requeues == metrics.requeues);
+
+    CHECK(log_sink.count == 2u);
+    CHECK(log_sink.events[0].kind == SAP_RUNNER_V0_LOG_EVENT_STEP_RETRYABLE_FAILURE);
+    CHECK(log_sink.events[0].seq == 1u);
+    CHECK(log_sink.events[0].rc == SAP_CONFLICT);
+    CHECK(log_sink.events[0].detail == 0u);
+    CHECK(log_sink.events[1].kind == SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_REQUEUE);
+    CHECK(log_sink.events[1].seq == 1u);
+    CHECK(log_sink.events[1].rc == SAP_CONFLICT);
+    CHECK(log_sink.events[1].detail == 1u);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_worker_tick_emits_worker_error_log_event(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    LogSinkCtx log_sink = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == SAP_OK);
+    sap_runner_v0_set_log_sink(&worker.runner, on_log_event, &log_sink);
+
+    dispatch_state.fail_calls_remaining = 1u;
+    dispatch_state.fail_rc = SAP_ERROR;
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_ERROR);
+    CHECK(processed == 0u);
+    CHECK(worker.last_error == SAP_ERROR);
+
+    CHECK(log_sink.count == 3u);
+    CHECK(log_sink.events[0].kind == SAP_RUNNER_V0_LOG_EVENT_STEP_NON_RETRYABLE_FAILURE);
+    CHECK(log_sink.events[0].seq == 10u);
+    CHECK(log_sink.events[0].rc == SAP_ERROR);
+    CHECK(log_sink.events[1].kind == SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_REQUEUE);
+    CHECK(log_sink.events[1].seq == 10u);
+    CHECK(log_sink.events[1].rc == SAP_ERROR);
+    CHECK(log_sink.events[2].kind == SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR);
+    CHECK(log_sink.events[2].seq == 0u);
+    CHECK(log_sink.events[2].rc == SAP_ERROR);
+    CHECK(log_sink.events[2].detail == 0u);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_worker_shell_tick(void)
 {
     DB *db = new_db();
@@ -1083,6 +1227,43 @@ static int test_worker_tick_drains_due_timers(void)
     return 0;
 }
 
+static int test_worker_tick_timer_replay_preserves_seq(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    ReplayHookCtx replay = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    sap_runner_v0_set_replay_hook(&worker.runner, on_replay_event, &replay);
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 0, 41u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+    CHECK(dispatch_state.calls == 1u);
+
+    CHECK(replay.count >= 2u);
+    CHECK(replay.events[0].kind == SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT);
+    CHECK(replay.events[0].seq == 41u);
+    CHECK(replay.events[1].kind == SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT);
+    CHECK(replay.events[1].seq == 41u);
+    CHECK(replay.events[1].rc == SAP_OK);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_worker_idle_sleep_budget(void)
 {
     DB *db = new_db();
@@ -1165,31 +1346,43 @@ int main(void)
     {
         return 11;
     }
-    if (test_worker_shell_tick() != 0)
+    if (test_runner_observability_sinks_emit_updates() != 0)
     {
         return 12;
+    }
+    if (test_worker_tick_emits_worker_error_log_event() != 0)
+    {
+        return 13;
+    }
+    if (test_worker_shell_tick() != 0)
+    {
+        return 14;
     }
 #ifdef SAPLING_THREADED
     if (test_worker_thread_survives_transient_busy() != 0)
     {
-        return 13;
+        return 15;
     }
 #endif
     if (test_worker_tick_drains_due_timers() != 0)
     {
-        return 14;
+        return 16;
+    }
+    if (test_worker_tick_timer_replay_preserves_seq() != 0)
+    {
+        return 17;
     }
     if (test_worker_tick_uses_time_hook_for_inbox_lease_reclaim() != 0)
     {
-        return 15;
+        return 18;
     }
     if (test_worker_tick_uses_time_hook_for_timer_latency() != 0)
     {
-        return 16;
+        return 19;
     }
     if (test_worker_idle_sleep_budget() != 0)
     {
-        return 17;
+        return 20;
     }
     return 0;
 }

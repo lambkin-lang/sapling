@@ -12,7 +12,7 @@ This document defines the Phase-C timer scaffold:
 2. Due drain:
 - scans oldest timers
 - processes entries with `due_ts <= now_ts`
-- callback + delete-if-match dequeue
+- callback (`due_ts`, timer `seq`, payload) + delete-if-match dequeue
 
 3. Intent publisher adapter:
 - decodes `SapRunnerIntentV0`

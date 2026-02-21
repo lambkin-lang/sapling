@@ -280,7 +280,6 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
         }
 
         rc = sap_runner_timer_v0_key_decode(key, key_len, &due_ts, &seq);
-        (void)seq;
         if (rc != SAP_OK)
         {
             free(key);
@@ -288,7 +287,7 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
             return rc;
         }
 
-        rc = handler(due_ts, payload, payload_len, ctx);
+        rc = handler(due_ts, seq, payload, payload_len, ctx);
         if (rc != SAP_OK)
         {
             free(key);

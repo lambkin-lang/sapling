@@ -106,11 +106,32 @@ path and deleted with key/value match guards.
 API:
 - `sap_runner_v0_metrics_snapshot(...)`
 - `sap_runner_v0_metrics_reset(...)`
+- `sap_runner_v0_set_metrics_sink(...)`
 
 Counters are updated by inbox and due-timer dispatch paths and are intended as
 the baseline observability substrate for Phase D.
 When worker time hooks are installed, inbox/timer latency samples are measured
 using that injected clock source for deterministic testing.
+
+Metrics sink behavior:
+- receives synchronous snapshots after counter updates
+- callback sees a copy of `SapRunnerV0Metrics` (safe to retain)
+- sink should avoid blocking or re-entering runner APIs
+
+## Log sink (optional)
+
+`sap_runner_v0_set_log_sink(...)` installs an optional callback for structured
+runner lifecycle log events:
+- retryable/non-retryable step failures
+- disposition outcomes (requeue/dead-letter)
+- worker loop errors surfaced by `sap_runner_v0_worker_tick`/threaded loop
+
+Each `SapRunnerV0LogEvent` includes:
+- event kind
+- worker id
+- sequence (inbox/timer key sequence, or `0` for worker-level errors)
+- status code
+- detail field (`retry_count` for retry-path disposition events)
 
 ## Runner policy surface
 
@@ -136,7 +157,12 @@ per-step event records for postmortem reconstruction:
 - disposition actions (requeue, dead-letter move)
 
 Each event includes worker id, sequence (when applicable), step result code,
-and frame bytes for immediate capture by the callback.
+and frame bytes for immediate capture by the callback. Timer events now carry
+the timer key sequence from DBI 4.
+
+Replay hook frame-lifetime contract:
+- `event.frame` bytes are runner-owned and callback-scoped
+- hook implementations must copy frame bytes they need after callback return
 
 ## Worker shell
 

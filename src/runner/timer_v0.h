@@ -12,7 +12,7 @@
 
 #define SAP_RUNNER_TIMER_KEY_V0_SIZE 16u
 
-typedef int (*sap_runner_timer_v0_due_handler)(int64_t due_ts, const uint8_t *payload,
+typedef int (*sap_runner_timer_v0_due_handler)(int64_t due_ts, uint64_t seq, const uint8_t *payload,
                                                uint32_t payload_len, void *ctx);
 
 typedef struct

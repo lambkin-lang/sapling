@@ -12,7 +12,8 @@ Implemented foundation:
   schema-version guard, single-step dispatch callback integration, and
   DB-backed inbox polling with lease-aware claim/ack/requeue handling plus
   retry-budget dead-letter routing, reliability counters, stable policy knobs,
-  and optional replay event hooks.
+  optional replay event hooks, and host-configurable observability sinks
+  (metrics snapshots + structured log events).
 - `SapRunnerV0Worker` shell: runner tick/stop APIs and optional pthread
   start/join helpers (gated by `SAPLING_THREADED`), synchronized stop signaling,
   retryable handling of transient `SAP_BUSY`, and clock hooks applied to lease
@@ -28,6 +29,12 @@ Implemented foundation:
   adapter that executes message handling through `attempt_v0`.
 - `examples/native/runner_native_example.c`: non-WASI example worker path using
   `attempt_handler_v0` plus composed outbox/timer intent sink.
+- `bench_runner_phasee.c`: Phase E coupling-study benchmark comparing baseline
+  public-API polling against a study-only fused storage candidate path.
+- `docs/RUNNER_PHASEF_RUNBOOK.md`: operational playbook for startup, health,
+  failure handling, recovery, and shutdown.
+- `docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md`: release gate checklist for schema,
+  reliability, observability, and benchmark validation.
 - `tests/integration/runner_recovery_integration_test.c`: checkpoint/restore
   recovery continuity for inbox + dead-letter runner state.
 - `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue

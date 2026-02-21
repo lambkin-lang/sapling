@@ -15,6 +15,8 @@ current sorted key-value API, ordered by priority for the language runtime.
 - Cursor reuse (`cursor_renew`)
 - Key-only cursor access (`cursor_get_key`)
 - Range counting (`txn_count_range`, exact scan-backed)
+- Range delete (`txn_del_range`, exact scan-backed)
+- Merge helper (`txn_merge`, callback-defined)
 - Sorted-load API (`txn_load_sorted`, empty-DBI O(n) fast path)
 - Benchmark harness (`make bench-run`)
 - Benchmark CI guardrail (`make bench-ci`, baseline-backed)
@@ -22,6 +24,7 @@ current sorted key-value API, ordered by priority for the language runtime.
 - Snapshot checkpoint/restore (`db_checkpoint`, `db_restore`)
 - Watch notifications (`db_watch`, `db_unwatch`, commit-time delivery)
 - DupSort (`DBI_DUPSORT`) with duplicate navigation/count APIs
+- DupSort value comparator configuration (`dbi_set_dupsort`)
 - Prefix helpers (`cursor_seek_prefix`, `cursor_in_prefix`)
 - Thread safety (`SAPLING_THREADED`, TSan-clean)
 - Input validation (key/val length bounds)
@@ -482,7 +485,8 @@ Phase A status (started):
   no longer exits on transient `SAP_BUSY`; threaded regression coverage added
 - done: worker clock hooks now drive inbox lease-claim timing and timer/inbox
   step-latency measurements (not only scheduler idle-sleep decisions)
-- next: execute reprioritized backlog below (starting with replay timer-seq fidelity)
+- next: execute reprioritized backlog below (starting with future Priority 6
+  items based on product demand)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -528,7 +532,8 @@ Phase B status (started):
 - done: threaded worker stop/join signaling is now synchronized; worker loop
   now treats transient `SAP_BUSY` as retryable
 - done: worker clock hooks now cover lease timing + latency measurement paths
-- next: execute reprioritized backlog below (starting with replay timer-seq fidelity)
+- next: execute reprioritized backlog below (starting with future Priority 6
+  items based on product demand)
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -565,24 +570,24 @@ Phase C status (started):
   recovery in worker loop validated under threaded regression
 - done: worker time-hook usage expanded from scheduler-only to inbox lease and
   latency paths
-- next: execute reprioritized backlog below (starting with replay timer-seq fidelity)
+- next: execute reprioritized backlog below (starting with future Priority 6
+  items based on product demand)
 
 #### Reprioritized runner backlog (known issues + planned features)
-1. [Known issue][P1] Replay fidelity gap: timer replay events currently emit
-   `seq=0` instead of the timer key sequence; include timer sequence in replay
-   event records and assert it in lifecycle tests.
-2. [Known issue][P1] CI/threaded coverage gap: default sanitizer targets do not
-   gate threaded runner lifecycle behavior; add a threaded runner TSAN target
-   to CI-quality checks so stop/busy races are prevented from regressing.
-3. [Known issue][P2] Replay hook frame ownership contract is implicit; document
-   callback-lifetime rules explicitly (frame bytes are callback-scoped unless
-   copied by the hook implementation).
-4. [Planned feature][P2] Runner observability export surface: add explicit host
-   sink hooks for reliability metrics snapshots/log events so deployments can
-   consume counters without directly reading internal structs.
-5. [Planned feature][P3] Phase E profile-guided coupling study (optional):
-   benchmark targeted internal-coupling points while preserving the public-API
-   correctness baseline.
+1. [Done][P1] Replay fidelity gap fixed: timer replay events now preserve timer
+   key sequence, and lifecycle coverage asserts sequence-correct replay events.
+2. [Done][P1] CI/threaded coverage gap fixed: added a threaded runner lifecycle
+   TSan target and wired it into phase check dependencies for regression gating.
+3. [Done][P2] Replay hook frame ownership contract is now explicit in API/docs
+   (callback-scoped frame bytes; hooks must copy for post-callback retention).
+4. [Done][P2] Runner observability export surface is now available via explicit
+   host sink hooks for reliability metrics snapshots and structured log events.
+5. [Done][P3] Phase E profile-guided coupling study scaffold added via
+   `bench_runner_phasee.c` and `docs/RUNNER_PHASEE_COUPLING_STUDY.md`, with
+   benchmarked baseline public-API polling vs study-only fused storage path.
+6. [Done][P2] Phase F operational readiness package documented:
+   `docs/RUNNER_PHASEF_RUNBOOK.md` + `docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md`,
+   with automated checklist entry point `make runner-release-checklist`.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
@@ -594,10 +599,21 @@ Phase C status (started):
 - keep public API path as default correctness baseline
 - explicitly non-blocking for runner functional bring-up
 
+Phase E status:
+- done: introduced coupling-study benchmark harness
+  (`bench_runner_phasee.c`) comparing baseline runner public-API polling against
+  a study-only fused storage candidate path, plus usage/guardrail docs in
+  `docs/RUNNER_PHASEE_COUPLING_STUDY.md`
+
 #### Phase F — Packaging and operational readiness
 - stable config surface (worker counts, retry policy, lease durations)
 - deployment/runbook docs and failure-mode playbooks
 - release checklist with compatibility and migration verification
+
+Phase F status:
+- done: runner operations runbook added (`docs/RUNNER_PHASEF_RUNBOOK.md`)
+- done: release checklist document and automation entry point added
+  (`docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md`, `make runner-release-checklist`)
 
 ---
 
@@ -612,9 +628,10 @@ This is architecturally significant (changes how `txn_get` returns pointers,
 affects COW granularity, complicates split logic). Worth deferring until the
 language layer actually needs values > 4KB.
 
-### Value-level comparator (for DupSort)
-When DupSort is enabled, a separate comparator can define value ordering within
-each key. LMDB calls this `mdb_set_dupsort`.
+### Value-level comparator (for DupSort) (done)
+When DupSort is enabled, `dbi_set_dupsort` installs a value comparator that
+defines duplicate ordering for each key (including cursor duplicate traversal
+order and sorted-load validation).
 
 ```c
 int dbi_set_dupsort(DB *db, uint32_t dbi, keycmp_fn vcmp, void *vcmp_ctx);
@@ -625,10 +642,11 @@ Entries that expire after a duration. Useful for caches, sessions, and
 rate-limiting counters. Would require a background sweep or lazy deletion
 during cursor traversal.
 
-### Range delete
-Delete all entries in a key range without scanning entry-by-entry. Can be
-implemented efficiently by unlinking entire subtrees when they fall within the
-range.
+### Range delete (done, scan-backed for now)
+`txn_del_range` is available with half-open semantics `[lo, hi)` and currently
+uses cursor-driven deletion, so results are exact and predictable across DBI
+modes (including DUPSORT duplicates counted as separate entries). A future
+optimization can still replace this with subtree-unlink fast paths.
 
 ```c
 int txn_del_range(Txn *txn, DBI dbi,
@@ -637,9 +655,11 @@ int txn_del_range(Txn *txn, DBI dbi,
                   uint64_t *deleted_count);
 ```
 
-### Merge operator
-Apply a transformation to an existing value without read-modify-write. Useful
-for counters, append-only lists, and accumulation patterns.
+### Merge operator (done, callback-defined)
+`txn_merge` is available for non-DUPSORT DBIs and applies a callback-defined
+transform to the current value (or empty value when the key is missing).
+Callbacks receive output capacity in `*new_len` and report produced bytes; if
+the callback reports a larger result, `txn_merge` returns `SAP_FULL`.
 
 ```c
 typedef void (*sap_merge_fn)(const void *old_val, uint32_t old_len,

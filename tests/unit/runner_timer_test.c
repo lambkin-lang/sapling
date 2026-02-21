@@ -79,11 +79,13 @@ typedef struct
 {
     uint32_t calls;
     int64_t due_ts[8];
+    uint64_t seq[8];
     uint8_t payloads[8][16];
     uint32_t payload_lens[8];
 } DueCtx;
 
-static int collect_due(int64_t due_ts, const uint8_t *payload, uint32_t payload_len, void *ctx)
+static int collect_due(int64_t due_ts, uint64_t seq, const uint8_t *payload, uint32_t payload_len,
+                       void *ctx)
 {
     DueCtx *due = (DueCtx *)ctx;
     if (!due || !payload || payload_len == 0u || payload_len > 16u || due->calls >= 8u)
@@ -91,6 +93,7 @@ static int collect_due(int64_t due_ts, const uint8_t *payload, uint32_t payload_
         return SAP_ERROR;
     }
     due->due_ts[due->calls] = due_ts;
+    due->seq[due->calls] = seq;
     memcpy(due->payloads[due->calls], payload, payload_len);
     due->payload_lens[due->calls] = payload_len;
     due->calls++;
@@ -116,9 +119,11 @@ static int test_timer_append_and_drain_due(void)
     CHECK(processed == 2u);
     CHECK(due.calls == 2u);
     CHECK(due.due_ts[0] == 90);
+    CHECK(due.seq[0] == 1u);
     CHECK(due.payload_lens[0] == 1u);
     CHECK(due.payloads[0][0] == 'b');
     CHECK(due.due_ts[1] == 100);
+    CHECK(due.seq[1] == 2u);
     CHECK(due.payload_lens[1] == 1u);
     CHECK(due.payloads[1][0] == 'a');
 

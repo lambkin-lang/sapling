@@ -54,6 +54,34 @@ typedef struct
     uint32_t step_latency_max_ms;
 } SapRunnerV0Metrics;
 
+/*
+ * Metrics sink callback contract:
+ * - callback receives a by-value snapshot of counters after runner updates
+ * - callback runs synchronously on the calling runner thread
+ * - sink implementations should avoid blocking/re-entering runner APIs
+ */
+typedef void (*sap_runner_v0_metrics_sink)(const SapRunnerV0Metrics *metrics, void *ctx);
+
+typedef enum
+{
+    SAP_RUNNER_V0_LOG_EVENT_STEP_RETRYABLE_FAILURE = 0,
+    SAP_RUNNER_V0_LOG_EVENT_STEP_NON_RETRYABLE_FAILURE = 1,
+    SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_REQUEUE = 2,
+    SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_DEAD_LETTER = 3,
+    SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR = 4
+} SapRunnerV0LogEventKind;
+
+typedef struct
+{
+    uint8_t kind;
+    uint64_t worker_id;
+    uint64_t seq;
+    int32_t rc;
+    uint32_t detail;
+} SapRunnerV0LogEvent;
+
+typedef void (*sap_runner_v0_log_sink)(const SapRunnerV0LogEvent *event, void *ctx);
+
 typedef enum
 {
     SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT = 0,
@@ -74,6 +102,12 @@ typedef struct
     uint32_t frame_len;
 } SapRunnerV0ReplayEvent;
 
+/*
+ * Replay hook callback contract:
+ * - event->frame points to transient runner-owned bytes
+ * - bytes are valid only for the duration of the callback
+ * - hooks must copy bytes they need after callback return
+ */
 typedef void (*sap_runner_v0_replay_hook)(const SapRunnerV0ReplayEvent *event, void *ctx);
 
 typedef struct
@@ -86,6 +120,10 @@ typedef struct
     SapRunnerV0State state;
     SapRunnerV0Policy policy;
     SapRunnerV0Metrics metrics;
+    sap_runner_v0_metrics_sink metrics_sink;
+    void *metrics_sink_ctx;
+    sap_runner_v0_log_sink log_sink;
+    void *log_sink_ctx;
     sap_runner_v0_replay_hook replay_hook;
     void *replay_hook_ctx;
 } SapRunnerV0;
@@ -127,6 +165,9 @@ void sap_runner_v0_policy_default(SapRunnerV0Policy *policy);
 void sap_runner_v0_set_policy(SapRunnerV0 *runner, const SapRunnerV0Policy *policy);
 void sap_runner_v0_metrics_reset(SapRunnerV0 *runner);
 void sap_runner_v0_metrics_snapshot(const SapRunnerV0 *runner, SapRunnerV0Metrics *metrics_out);
+void sap_runner_v0_set_metrics_sink(SapRunnerV0 *runner, sap_runner_v0_metrics_sink sink,
+                                    void *sink_ctx);
+void sap_runner_v0_set_log_sink(SapRunnerV0 *runner, sap_runner_v0_log_sink sink, void *sink_ctx);
 void sap_runner_v0_set_replay_hook(SapRunnerV0 *runner, sap_runner_v0_replay_hook hook,
                                    void *hook_ctx);
 
