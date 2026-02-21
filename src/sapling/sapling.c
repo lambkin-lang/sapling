@@ -4213,6 +4213,10 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
         return SAP_FULL;
     struct DB *db = txn->db;
     uint32_t dbi = c->dbi;
+    if (flags != 0)
+        return SAP_ERROR;
+    if (db->dbs[dbi].flags & DBI_DUPSORT)
+        return SAP_ERROR;
 
     void *orig_lpg = db->pages[c->stack[c->depth]];
     int pos = c->idx[c->depth];
@@ -4237,8 +4241,7 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
 
     leaf_remove(lpg, pos);
 
-    void **rout = (flags & SAP_RESERVE) ? &orig_lpg : NULL; /* reuse orig_lpg as temp */
-    if (leaf_insert(lpg, pos, key_buf, klen, val, (uint16_t)val_len, rout) == 0)
+    if (leaf_insert(lpg, pos, key_buf, klen, val, (uint16_t)val_len, NULL) == 0)
     {
         (void)txn_track_change(txn, dbi, key_buf, klen);
         rc = SAP_OK;

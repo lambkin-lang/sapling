@@ -2970,6 +2970,7 @@ static void test_cursor_put(void)
 {
     SECTION("cursor_put");
     DB *db = new_db();
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
     Txn *txn = txn_begin(db, NULL, 0);
 
     for (int i = 0; i < 100; i++)
@@ -2988,6 +2989,35 @@ static void test_cursor_put(void)
         CHECK(cursor_put(cur, "UPDATED", 7, 0) == SAP_OK);
     } while (cursor_next(cur) == SAP_OK);
     cursor_close(cur);
+
+    {
+        const void *k;
+        const void *v;
+        uint32_t kl;
+        uint32_t vl;
+
+        cur = cursor_open(txn);
+        CHECK(cur != NULL);
+        CHECK(cursor_first(cur) == SAP_OK);
+        CHECK(cursor_put(cur, "IGNORED", 7, SAP_RESERVE) == SAP_ERROR);
+        CHECK(cursor_put(cur, "IGNORED", 7, SAP_NOOVERWRITE) == SAP_ERROR);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(vl == 7 && memcmp(v, "UPDATED", 7) == 0);
+        cursor_close(cur);
+    }
+
+    {
+        const void *v;
+        uint32_t vl;
+        CHECK(txn_put_dbi(txn, 1, "dup", 3, "a", 1) == SAP_OK);
+        cur = cursor_open_dbi(txn, 1);
+        CHECK(cur != NULL);
+        CHECK(cursor_first(cur) == SAP_OK);
+        CHECK(cursor_put(cur, "b", 1, 0) == SAP_ERROR);
+        cursor_close(cur);
+        CHECK(txn_get_dbi(txn, 1, "dup", 3, &v, &vl) == SAP_OK);
+        CHECK(vl == 1 && memcmp(v, "a", 1) == 0);
+    }
 
     /* Verify all values updated */
     int errors = 0;

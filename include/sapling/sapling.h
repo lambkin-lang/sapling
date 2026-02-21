@@ -242,6 +242,7 @@ int cursor_get_key(Cursor *cursor, const void **key_out, uint32_t *key_len_out);
 /* ------------------------------------------------------------------ */
 /* Cursor mutations                                                     */
 /* ------------------------------------------------------------------ */
+/* cursor_put currently supports only flags==0 on non-DUPSORT DBIs. */
 int cursor_put(Cursor *cursor, const void *val, uint32_t val_len, unsigned flags);
 int cursor_del(Cursor *cursor);
 
