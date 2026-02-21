@@ -66,6 +66,7 @@ runner_attempt_test
 runner_atomic_integration_test
 runner_mailbox_test
 runner_outbox_test
+runner_timer_test
 wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm
