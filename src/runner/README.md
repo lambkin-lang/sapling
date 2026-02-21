@@ -23,6 +23,8 @@ Implemented foundation:
   snapshot execution, root validation/apply, and post-commit intent sink.
 - `attempt_handler_v0.h` / `attempt_handler_v0.c`: generic runner-handler
   adapter that executes message handling through `attempt_v0`.
+- `examples/native/runner_native_example.c`: non-WASI example worker path using
+  `attempt_handler_v0` plus composed outbox/timer intent sink.
 - `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue
   scaffold with CAS-style lease token guards.
 - `dead_letter_v0.h` / `dead_letter_v0.c`: phase-C dead-letter move helpers for

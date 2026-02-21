@@ -71,6 +71,7 @@ runner_outbox_test
 runner_timer_test
 runner_scheduler_test
 runner_intent_sink_test
+runner_native_example
 wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm

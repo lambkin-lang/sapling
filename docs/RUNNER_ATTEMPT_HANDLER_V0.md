@@ -30,3 +30,11 @@ Atomic callback signature:
 `tests/unit/runner_attempt_handler_test.c` verifies:
 - successful commit path with post-commit intent sink delivery
 - conflict retry behavior and stats reporting
+
+## Non-WASI example path
+
+`examples/native/runner_native_example.c` wires `attempt_handler_v0` into a
+native worker path (no WASI runtime dependency), including:
+- DB-backed inbox polling via `sap_runner_v0_worker_tick(...)`
+- atomic callback staging writes with a nested child frame
+- post-commit intent publication through `intent_sink_v0` into outbox/timers

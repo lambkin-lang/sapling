@@ -29,6 +29,7 @@ and prefix watch notifications.
 - `make runner-timer-test` runs phase-C timer intent ingestion/drain tests
 - `make runner-scheduler-test` runs phase-C timer scheduling helper tests
 - `make runner-intent-sink-test` runs composed outbox+timer intent sink tests
+- `make runner-native-example` runs a non-WASI worker example wired through `attempt_handler_v0`
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
 - `make wasi-shim-test` runs phase-A runner<->wasi shim integration tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
@@ -60,6 +61,7 @@ Both require a WASI sysroot:
 - `docs/RUNNER_TXSTACK_V0.md` defines closed-nested atomic stack behavior.
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.
 - `docs/RUNNER_ATTEMPT_HANDLER_V0.md` defines generic runner-handler integration over `attempt_v0`.
+- `examples/native/runner_native_example.c` demonstrates a non-WASI worker path using `attempt_handler_v0`.
 - `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
 - `docs/RUNNER_DEAD_LETTER_V0.md` defines dead-letter move/record behavior.
 - `docs/RUNNER_OUTBOX_V0.md` defines outbox append/drain and intent-publisher behavior.

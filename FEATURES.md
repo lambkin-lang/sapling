@@ -465,7 +465,9 @@ Phase A status (started):
   committed intents via composed sink (`intent_sink_v0`)
 - done: generic attempt-backed runner handler contract exposed in
   `src/runner/attempt_handler_v0` for non-WASI integrations
-- next: integrate generic handler adapter into a non-WASI example path
+- done: non-WASI example runner path wired through `attempt_handler_v0`
+  (`examples/native/runner_native_example.c`)
+- next: add dead-letter replay/drain tooling path and operational policy docs
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -501,7 +503,9 @@ Phase B status (started):
   messages in runner inbox polling path
 - done: generic runner-level attempt handler contract (beyond WASI shim) via
   `attempt_handler_v0`
-- next: wire one additional runner integration path through `attempt_handler_v0`
+- done: additional runner integration path via non-WASI native example
+  (`examples/native/runner_native_example.c`)
+- next: add dead-letter replay/drain tooling path and operational policy docs
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
