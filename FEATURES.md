@@ -48,6 +48,8 @@ int cursor_del(Cursor *cur);
 `cursor_put` replaces the value at the current key. `cursor_del` removes the
 current entry and advances the cursor to the next position.
 Current `cursor_put` contract is `flags == 0` on non-DUPSORT DBIs.
+When a replacement would require overflow that cannot fit the key shape,
+`cursor_put` returns `SAP_FULL` without dropping the existing row.
 
 ### Put flags (NOOVERWRITE, RESERVE) (done)
 Distinguish insert-only from upsert, and enable zero-copy writes.

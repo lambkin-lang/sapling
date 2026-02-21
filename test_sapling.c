@@ -378,6 +378,33 @@ static void test_empty_tree(void)
 
     txn_abort(txn);
     db_close(db);
+
+    {
+        uint8_t key[235];
+        uint8_t big[64];
+        const void *v;
+        uint32_t vl;
+        DB *sdb = db_open(&g_alloc, 256, NULL, NULL);
+        CHECK(sdb != NULL);
+        memset(key, 'k', sizeof(key));
+        fill_pattern(big, (uint32_t)sizeof(big), 9);
+
+        txn = txn_begin(sdb, NULL, 0);
+        CHECK(txn != NULL);
+        CHECK(txn_put(txn, key, (uint32_t)sizeof(key), "x", 1) == SAP_OK);
+
+        cur = cursor_open(txn);
+        CHECK(cur != NULL);
+        CHECK(cursor_seek(cur, key, (uint32_t)sizeof(key)) == SAP_OK);
+        CHECK(cursor_put(cur, big, (uint32_t)sizeof(big), 0) == SAP_FULL);
+        cursor_close(cur);
+
+        CHECK(txn_get(txn, key, (uint32_t)sizeof(key), &v, &vl) == SAP_OK);
+        CHECK(vl == 1 && memcmp(v, "x", 1) == 0);
+
+        txn_abort(txn);
+        db_close(sdb);
+    }
 }
 
 /* ================================================================== */

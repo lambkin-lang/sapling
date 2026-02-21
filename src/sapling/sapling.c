@@ -4224,6 +4224,35 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
         return SAP_NOTFOUND;
     uint16_t off = (uint16_t)L_SLOT(orig_lpg, pos);
     uint16_t klen = L_CKLEN(orig_lpg, off);
+    uint16_t old_vlen = L_CVLEN(orig_lpg, off);
+    uint16_t store_vlen = (uint16_t)val_len;
+    uint32_t free_after_remove;
+    uint32_t need_after_insert;
+    uint8_t *key_buf = txn_scratch_copy(txn, L_CKEY(orig_lpg, off), klen);
+    int rc;
+    if (!key_buf)
+        return SAP_ERROR;
+
+    if (SLOT_SZ + leaf_cell_size(klen, store_vlen) + LEAF_HDR > db->page_size)
+    {
+        if (SLOT_SZ + leaf_cell_size(klen, OVERFLOW_VALUE_SENTINEL) + LEAF_HDR > db->page_size)
+        {
+            txn_scratch_release(txn, scratch_mark);
+            return SAP_FULL;
+        }
+        store_vlen = OVERFLOW_VALUE_SENTINEL;
+    }
+
+    free_after_remove = L_FREE(orig_lpg) + SLOT_SZ + leaf_cell_size(klen, old_vlen);
+    need_after_insert = SLOT_SZ + leaf_cell_size(klen, store_vlen);
+    if (store_vlen == OVERFLOW_VALUE_SENTINEL || need_after_insert > free_after_remove)
+    {
+        rc = txn_put_flags_dbi((Txn *)txn, dbi, key_buf, klen, val, val_len, 0, NULL);
+        if (rc == SAP_OK)
+            rc = cursor_seek(cp, key_buf, klen);
+        txn_scratch_release(txn, scratch_mark);
+        return rc;
+    }
 
     uint32_t leaf_pgno = cow_path(c);
     if (leaf_pgno == INVALID_PGNO)
@@ -4231,11 +4260,6 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
     void *lpg = db->pages[leaf_pgno];
 
     off = (uint16_t)L_SLOT(lpg, pos);
-    klen = L_CKLEN(lpg, off);
-    uint8_t *key_buf = txn_scratch_copy(txn, L_CKEY(lpg, off), klen);
-    int rc;
-    if (!key_buf)
-        return SAP_ERROR;
     if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
         return SAP_ERROR;
 
@@ -4248,7 +4272,7 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
         goto cleanup;
     }
 
-    /* Overflow: fall back to full txn_put */
+    /* Unexpected leaf-fit miss: fall back to full txn_put */
     txn->dbs[dbi].num_entries--;
     rc = txn_put_flags_dbi((Txn *)txn, dbi, key_buf, klen, val, val_len, flags, NULL);
     if (rc != SAP_OK)
