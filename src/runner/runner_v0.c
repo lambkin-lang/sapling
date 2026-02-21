@@ -19,9 +19,9 @@
 #define RUNNER_SCHEMA_KEY_STR "runner.schema.version"
 #define RUNNER_SCHEMA_KEY_LEN ((uint32_t)(sizeof(RUNNER_SCHEMA_KEY_STR) - 1u))
 #define RUNNER_SCHEMA_VAL_LEN 8u
-#define RUNNER_LEASE_TTL_MS 1000
-#define RUNNER_REQUEUE_MAX_ATTEMPTS 4u
-#define RUNNER_RETRY_BUDGET_MAX 4u
+#define RUNNER_DEFAULT_LEASE_TTL_MS 1000
+#define RUNNER_DEFAULT_REQUEUE_MAX_ATTEMPTS 4u
+#define RUNNER_DEFAULT_RETRY_BUDGET_MAX 4u
 #define RUNNER_RETRY_KEY_PREFIX "retry:"
 #define RUNNER_RETRY_KEY_PREFIX_LEN ((uint32_t)(sizeof(RUNNER_RETRY_KEY_PREFIX) - 1u))
 
@@ -654,7 +654,8 @@ static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_
 }
 
 static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t seq,
-                                         const SapRunnerLeaseV0 *expected_lease)
+                                         const SapRunnerLeaseV0 *expected_lease,
+                                         uint32_t max_attempts)
 {
     uint32_t attempt;
 
@@ -663,7 +664,12 @@ static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t se
         return SAP_ERROR;
     }
 
-    for (attempt = 0u; attempt < RUNNER_REQUEUE_MAX_ATTEMPTS; attempt++)
+    if (max_attempts == 0u)
+    {
+        return SAP_FULL;
+    }
+
+    for (attempt = 0u; attempt < max_attempts; attempt++)
     {
         uint64_t new_seq = 0u;
         int rc = next_inbox_seq_for_worker(db, worker_id, &new_seq);
@@ -839,8 +845,47 @@ int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg)
     runner->schema_minor = cfg->schema_minor;
     runner->steps_completed = 0u;
     runner->state = SAP_RUNNER_V0_STATE_RUNNING;
+    sap_runner_v0_policy_default(&runner->policy);
     sap_runner_v0_metrics_reset(runner);
     return SAP_OK;
+}
+
+void sap_runner_v0_policy_default(SapRunnerV0Policy *policy)
+{
+    if (!policy)
+    {
+        return;
+    }
+    memset(policy, 0, sizeof(*policy));
+    policy->lease_ttl_ms = RUNNER_DEFAULT_LEASE_TTL_MS;
+    policy->requeue_max_attempts = RUNNER_DEFAULT_REQUEUE_MAX_ATTEMPTS;
+    policy->retry_budget_max = RUNNER_DEFAULT_RETRY_BUDGET_MAX;
+}
+
+void sap_runner_v0_set_policy(SapRunnerV0 *runner, const SapRunnerV0Policy *policy)
+{
+    if (!runner)
+    {
+        return;
+    }
+    if (!policy)
+    {
+        sap_runner_v0_policy_default(&runner->policy);
+        return;
+    }
+    runner->policy = *policy;
+    if (runner->policy.lease_ttl_ms <= 0)
+    {
+        runner->policy.lease_ttl_ms = RUNNER_DEFAULT_LEASE_TTL_MS;
+    }
+    if (runner->policy.requeue_max_attempts == 0u)
+    {
+        runner->policy.requeue_max_attempts = RUNNER_DEFAULT_REQUEUE_MAX_ATTEMPTS;
+    }
+    if (runner->policy.retry_budget_max == 0u)
+    {
+        runner->policy.retry_budget_max = RUNNER_DEFAULT_RETRY_BUDGET_MAX;
+    }
 }
 
 void sap_runner_v0_metrics_reset(SapRunnerV0 *runner)
@@ -1026,7 +1071,7 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
 
         {
             int64_t now_ms = default_now_ms(NULL);
-            int64_t deadline_ms = now_ms + RUNNER_LEASE_TTL_MS;
+            int64_t deadline_ms = now_ms + runner->policy.lease_ttl_ms;
 
             rc = sap_runner_mailbox_v0_claim(runner->db, key_worker, key_seq, runner->worker_id,
                                              now_ms, deadline_ms, &lease);
@@ -1100,7 +1145,7 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
                     return retry_rc;
                 }
 
-                if (retry_count >= RUNNER_RETRY_BUDGET_MAX)
+                if (retry_count >= runner->policy.retry_budget_max)
                 {
                     disposition_rc = sap_runner_dead_letter_v0_move(
                         runner->db, key_worker, key_seq, &lease, (int32_t)step_rc, retry_count);
@@ -1122,7 +1167,8 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
                 else
                 {
                     disposition_rc =
-                        requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease);
+                        requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease,
+                                                      runner->policy.requeue_max_attempts);
                     if (disposition_rc == SAP_OK)
                     {
                         runner->metrics.requeues++;
@@ -1133,8 +1179,8 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
             }
             else
             {
-                disposition_rc =
-                    requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease);
+                disposition_rc = requeue_claimed_inbox_message(
+                    runner->db, key_worker, key_seq, &lease, runner->policy.requeue_max_attempts);
                 if (disposition_rc == SAP_OK)
                 {
                     runner->metrics.requeues++;
@@ -1287,6 +1333,15 @@ void sap_runner_v0_worker_set_idle_policy(SapRunnerV0Worker *worker, uint32_t ma
         return;
     }
     worker->max_idle_sleep_ms = (max_idle_sleep_ms == 0u) ? 1u : max_idle_sleep_ms;
+}
+
+void sap_runner_v0_worker_set_policy(SapRunnerV0Worker *worker, const SapRunnerV0Policy *policy)
+{
+    if (!worker)
+    {
+        return;
+    }
+    sap_runner_v0_set_policy(&worker->runner, policy);
 }
 
 void sap_runner_v0_worker_set_time_hooks(SapRunnerV0Worker *worker, int64_t (*now_ms_fn)(void *ctx),

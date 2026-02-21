@@ -109,6 +109,21 @@ API:
 Counters are updated by inbox and due-timer dispatch paths and are intended as
 the baseline observability substrate for Phase D.
 
+## Runner policy surface
+
+`SapRunnerV0Policy` defines stable runtime knobs:
+- `lease_ttl_ms`
+- `requeue_max_attempts`
+- `retry_budget_max`
+
+APIs:
+- `sap_runner_v0_policy_default(...)`
+- `sap_runner_v0_set_policy(...)`
+- `sap_runner_v0_worker_set_policy(...)`
+
+This allows tuning retry/dead-letter and lease behavior without editing
+internal constants.
+
 ## Deterministic replay hook (optional)
 
 `sap_runner_v0_set_replay_hook(...)` installs an optional callback that receives

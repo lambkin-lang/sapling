@@ -596,6 +596,53 @@ static int test_retry_budget_moves_to_dead_letter(void)
     return 0;
 }
 
+static int test_runner_policy_override_retry_budget(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    SapRunnerV0Policy policy;
+    SapRunnerV0Metrics metrics = {0};
+    TestDispatchCtx dispatch_state = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    uint32_t dead_letter_count = 0u;
+    uint32_t inbox_count = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    sap_runner_v0_policy_default(&policy);
+    policy.retry_budget_max = 1u;
+    sap_runner_v0_set_policy(&runner, &policy);
+
+    dispatch_state.fail_calls_remaining = 8u;
+    dispatch_state.fail_rc = SAP_CONFLICT;
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 60u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(processed == 0u);
+    CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == SAP_OK);
+    CHECK(dead_letter_count == 1u);
+    CHECK(count_worker_entries(db, SAP_WIT_DBI_INBOX, 7u, &inbox_count) == SAP_OK);
+    CHECK(inbox_count == 0u);
+
+    sap_runner_v0_metrics_snapshot(&runner, &metrics);
+    CHECK(metrics.retryable_failures == 1u);
+    CHECK(metrics.requeues == 0u);
+    CHECK(metrics.dead_letter_moves == 1u);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_runner_metrics_non_retryable_and_reset(void)
 {
     DB *db = new_db();
@@ -918,29 +965,33 @@ int main(void)
     {
         return 7;
     }
-    if (test_runner_metrics_non_retryable_and_reset() != 0)
+    if (test_runner_policy_override_retry_budget() != 0)
     {
         return 8;
     }
-    if (test_runner_metrics_retryable_dead_letter_path() != 0)
+    if (test_runner_metrics_non_retryable_and_reset() != 0)
     {
         return 9;
     }
-    if (test_runner_replay_hook_inbox_requeue_flow() != 0)
+    if (test_runner_metrics_retryable_dead_letter_path() != 0)
     {
         return 10;
     }
-    if (test_worker_shell_tick() != 0)
+    if (test_runner_replay_hook_inbox_requeue_flow() != 0)
     {
         return 11;
     }
-    if (test_worker_tick_drains_due_timers() != 0)
+    if (test_worker_shell_tick() != 0)
     {
         return 12;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+    if (test_worker_tick_drains_due_timers() != 0)
     {
         return 13;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 14;
     }
     return 0;
 }

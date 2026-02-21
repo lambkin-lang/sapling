@@ -34,6 +34,13 @@ typedef struct
 
 typedef struct
 {
+    int64_t lease_ttl_ms;
+    uint32_t requeue_max_attempts;
+    uint32_t retry_budget_max;
+} SapRunnerV0Policy;
+
+typedef struct
+{
     uint64_t step_attempts;
     uint64_t step_successes;
     uint64_t retryable_failures;
@@ -77,6 +84,7 @@ typedef struct
     uint16_t schema_minor;
     uint64_t steps_completed;
     SapRunnerV0State state;
+    SapRunnerV0Policy policy;
     SapRunnerV0Metrics metrics;
     sap_runner_v0_replay_hook replay_hook;
     void *replay_hook_ctx;
@@ -115,6 +123,8 @@ int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_
 /* Initialize lifecycle state and apply DBI/schema guards. */
 int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg);
 void sap_runner_v0_shutdown(SapRunnerV0 *runner);
+void sap_runner_v0_policy_default(SapRunnerV0Policy *policy);
+void sap_runner_v0_set_policy(SapRunnerV0 *runner, const SapRunnerV0Policy *policy);
 void sap_runner_v0_metrics_reset(SapRunnerV0 *runner);
 void sap_runner_v0_metrics_snapshot(const SapRunnerV0 *runner, SapRunnerV0Metrics *metrics_out);
 void sap_runner_v0_set_replay_hook(SapRunnerV0 *runner, sap_runner_v0_replay_hook hook,
@@ -145,6 +155,7 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
                               uint32_t max_batch);
 int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out);
 void sap_runner_v0_worker_set_idle_policy(SapRunnerV0Worker *worker, uint32_t max_idle_sleep_ms);
+void sap_runner_v0_worker_set_policy(SapRunnerV0Worker *worker, const SapRunnerV0Policy *policy);
 void sap_runner_v0_worker_set_time_hooks(SapRunnerV0Worker *worker, int64_t (*now_ms_fn)(void *ctx),
                                          void *now_ms_ctx,
                                          void (*sleep_ms_fn)(uint32_t sleep_ms, void *ctx),
