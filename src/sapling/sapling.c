@@ -3375,7 +3375,7 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
 }
 
 static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
-                               uint64_t *deleted_count_out)
+                               uint64_t max_to_delete, uint64_t *deleted_count_out)
 {
     struct TTLKeyList expired = {0};
     Cursor *cur;
@@ -3435,6 +3435,11 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
                                    kl - TTL_META_INDEX_OVERHEAD, expiry);
             if (rc != SAP_OK)
                 break;
+            if ((uint64_t)expired.count >= max_to_delete)
+            {
+                rc = SAP_OK;
+                break;
+            }
         }
         else
         {
@@ -3534,8 +3539,8 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
     return rc;
 }
 
-int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
-                      uint64_t *deleted_count_out)
+int txn_sweep_ttl_dbi_limit(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                            uint64_t max_to_delete, uint64_t *deleted_count_out)
 {
     struct Txn *txn = (struct Txn *)txn_pub;
     Txn *child;
@@ -3545,6 +3550,8 @@ int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_
     if (!deleted_count_out)
         return SAP_ERROR;
     *deleted_count_out = 0;
+    if (max_to_delete == 0)
+        return SAP_OK;
 
     rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 1);
     if (rc != SAP_OK)
@@ -3554,7 +3561,8 @@ int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_
     if (!child)
         return SAP_ERROR;
 
-    rc = txn_sweep_ttl_inner((struct Txn *)child, data_dbi, ttl_dbi, now_ms, &deleted);
+    rc = txn_sweep_ttl_inner((struct Txn *)child, data_dbi, ttl_dbi, now_ms, max_to_delete,
+                             &deleted);
     if (rc != SAP_OK)
     {
         txn_abort(child);
@@ -3564,6 +3572,13 @@ int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_
     if (rc == SAP_OK)
         *deleted_count_out = deleted;
     return rc;
+}
+
+int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                      uint64_t *deleted_count_out)
+{
+    return txn_sweep_ttl_dbi_limit(txn_pub, data_dbi, ttl_dbi, now_ms, UINT64_MAX,
+                                   deleted_count_out);
 }
 
 /* ================================================================== */

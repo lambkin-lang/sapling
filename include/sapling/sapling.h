@@ -244,6 +244,10 @@ int txn_put_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *k
 int txn_get_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
                     uint32_t key_len, uint64_t now_ms, const void **val_out,
                     uint32_t *val_len_out);
+/* Bounded sweep variant; max_to_delete==0 is a no-op success. */
+int txn_sweep_ttl_dbi_limit(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                            uint64_t max_to_delete, uint64_t *deleted_count_out);
+/* Unbounded sweep shorthand (equivalent to limit == UINT64_MAX). */
 int txn_sweep_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
                       uint64_t *deleted_count_out);
 

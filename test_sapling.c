@@ -2497,6 +2497,9 @@ static void test_ttl_helpers(void)
     deleted = 77;
     CHECK(txn_sweep_ttl_dbi(r, 1, 2, 200, &deleted) == SAP_READONLY);
     CHECK(deleted == 0);
+    deleted = 77;
+    CHECK(txn_sweep_ttl_dbi_limit(r, 1, 2, 200, 1, &deleted) == SAP_READONLY);
+    CHECK(deleted == 0);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
@@ -2544,6 +2547,10 @@ static void test_ttl_helpers(void)
     CHECK(txn_sweep_ttl_dbi(w, 99, 2, 500, &deleted) == SAP_ERROR);
     CHECK(txn_sweep_ttl_dbi(w, 1, 99, 500, &deleted) == SAP_ERROR);
     CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, NULL) == SAP_ERROR);
+    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 500, 1, NULL) == SAP_ERROR);
+    deleted = 11;
+    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 500, 0, &deleted) == SAP_OK);
+    CHECK(deleted == 0);
     CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == SAP_OK);
     CHECK(deleted == 1);
     CHECK(txn_commit(w) == SAP_OK);
@@ -2555,6 +2562,35 @@ static void test_ttl_helpers(void)
     CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == SAP_OK);
     CHECK(vl == 1 && memcmp(v, "p", 1) == 0);
     txn_abort(r);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "l1", 2, "1", 1, 900) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "l2", 2, "2", 1, 900) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "l3", 2, "3", 1, 900) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 1000, 2, &deleted) == SAP_OK);
+    CHECK(deleted == 2);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_dbi(r, 1, "l1", 2, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 1, "l2", 2, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "l3", 2, 0, &v, &vl) == SAP_OK);
+    CHECK(vl == 1 && memcmp(v, "3", 1) == 0);
+    txn_abort(r);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 1000, &deleted) == SAP_OK);
+    CHECK(deleted == 1);
+    CHECK(txn_commit(w) == SAP_OK);
 
     db_close(db);
 }

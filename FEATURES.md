@@ -665,6 +665,9 @@ int txn_get_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
                     const void *key, uint32_t key_len,
                     uint64_t now_ms,
                     const void **val_out, uint32_t *val_len_out);
+int txn_sweep_ttl_dbi_limit(Txn *txn, DBI data_dbi, DBI ttl_dbi,
+                            uint64_t now_ms, uint64_t max_to_delete,
+                            uint64_t *deleted_count_out);
 int txn_sweep_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
                       uint64_t now_ms, uint64_t *deleted_count_out);
 ```
@@ -672,6 +675,7 @@ int txn_sweep_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
 Current behavior:
 - `txn_put_ttl_dbi` performs atomic nested writes of data + expiry metadata.
 - `txn_get_ttl_dbi` returns `SAP_NOTFOUND` for expired/missing metadata rows.
+- `txn_sweep_ttl_dbi_limit` bounds per-call delete work via `max_to_delete`.
 - `txn_sweep_ttl_dbi` walks a time-ordered expiry index and removes expired keys
   from both DBIs in one atomic helper.
 
@@ -681,7 +685,7 @@ Current constraints:
 - TTL helper keys must satisfy `key_len <= UINT16_MAX - 9`.
 
 Next priorities:
-1. [P1] Add bounded sweep budgets (`max_to_delete`) to cap worst-case txn time.
+1. [P1] Add resumable sweep checkpoints to continue long expiration drains.
 2. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
 3. [P2] Add host-runner background sweep cadence and observability counters.
 
