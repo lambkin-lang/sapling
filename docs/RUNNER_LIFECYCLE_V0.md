@@ -109,6 +109,17 @@ API:
 Counters are updated by inbox and due-timer dispatch paths and are intended as
 the baseline observability substrate for Phase D.
 
+## Deterministic replay hook (optional)
+
+`sap_runner_v0_set_replay_hook(...)` installs an optional callback that receives
+per-step event records for postmortem reconstruction:
+- inbox attempt/result
+- timer attempt/result
+- disposition actions (requeue, dead-letter move)
+
+Each event includes worker id, sequence (when applicable), step result code,
+and frame bytes for immediate capture by the callback.
+
 ## Worker shell
 
 `SapRunnerV0Worker` wraps lifecycle + poll behavior for host scheduling:

@@ -47,6 +47,28 @@ typedef struct
     uint32_t step_latency_max_ms;
 } SapRunnerV0Metrics;
 
+typedef enum
+{
+    SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT = 0,
+    SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT = 1,
+    SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT = 2,
+    SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT = 3,
+    SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE = 4,
+    SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_DEAD_LETTER = 5
+} SapRunnerV0ReplayEventKind;
+
+typedef struct
+{
+    uint8_t kind;
+    uint64_t worker_id;
+    uint64_t seq;
+    int32_t rc;
+    const uint8_t *frame;
+    uint32_t frame_len;
+} SapRunnerV0ReplayEvent;
+
+typedef void (*sap_runner_v0_replay_hook)(const SapRunnerV0ReplayEvent *event, void *ctx);
+
 typedef struct
 {
     DB *db;
@@ -56,6 +78,8 @@ typedef struct
     uint64_t steps_completed;
     SapRunnerV0State state;
     SapRunnerV0Metrics metrics;
+    sap_runner_v0_replay_hook replay_hook;
+    void *replay_hook_ctx;
 } SapRunnerV0;
 
 typedef int (*sap_runner_v0_message_handler)(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg,
@@ -93,6 +117,8 @@ int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg);
 void sap_runner_v0_shutdown(SapRunnerV0 *runner);
 void sap_runner_v0_metrics_reset(SapRunnerV0 *runner);
 void sap_runner_v0_metrics_snapshot(const SapRunnerV0 *runner, SapRunnerV0Metrics *metrics_out);
+void sap_runner_v0_set_replay_hook(SapRunnerV0 *runner, sap_runner_v0_replay_hook hook,
+                                   void *hook_ctx);
 
 /* Inbox key helpers (DBI 1): [worker_id:u64be][seq:u64be] */
 void sap_runner_v0_inbox_key_encode(uint64_t worker_id, uint64_t seq,

@@ -36,6 +36,8 @@ typedef struct
 
 static void metrics_note_latency(SapRunnerV0 *runner, int64_t start_ms, int64_t end_ms);
 static void metrics_note_failure(SapRunnerV0 *runner, int rc);
+static void emit_replay_event(const SapRunnerV0 *runner, uint8_t kind, uint64_t seq, int32_t rc,
+                              const uint8_t *frame, uint32_t frame_len);
 
 static int64_t default_now_ms(void *ctx)
 {
@@ -105,10 +107,14 @@ static int timer_dispatch_handler(int64_t due_ts, const uint8_t *payload, uint32
     }
     step_start = default_now_ms(NULL);
     tctx->worker->runner.metrics.step_attempts++;
+    emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT, 0u, SAP_OK,
+                      payload, payload_len);
     step_rc = sap_runner_v0_run_step(&tctx->worker->runner, payload, payload_len,
                                      tctx->worker->handler, tctx->worker->handler_ctx);
     step_end = default_now_ms(NULL);
     metrics_note_latency(&tctx->worker->runner, step_start, step_end);
+    emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, 0u,
+                      (int32_t)step_rc, payload, payload_len);
     if (step_rc != SAP_OK)
     {
         metrics_note_failure(&tctx->worker->runner, step_rc);
@@ -339,6 +345,24 @@ static void metrics_note_failure(SapRunnerV0 *runner, int rc)
         return;
     }
     runner->metrics.non_retryable_failures++;
+}
+
+static void emit_replay_event(const SapRunnerV0 *runner, uint8_t kind, uint64_t seq, int32_t rc,
+                              const uint8_t *frame, uint32_t frame_len)
+{
+    SapRunnerV0ReplayEvent event = {0};
+
+    if (!runner || !runner->replay_hook)
+    {
+        return;
+    }
+    event.kind = kind;
+    event.worker_id = runner->worker_id;
+    event.seq = seq;
+    event.rc = rc;
+    event.frame = frame;
+    event.frame_len = frame_len;
+    runner->replay_hook(&event, runner->replay_hook_ctx);
 }
 
 static int extract_message_id_from_frame(const uint8_t *frame, uint32_t frame_len,
@@ -837,6 +861,17 @@ void sap_runner_v0_metrics_snapshot(const SapRunnerV0 *runner, SapRunnerV0Metric
     *metrics_out = runner->metrics;
 }
 
+void sap_runner_v0_set_replay_hook(SapRunnerV0 *runner, sap_runner_v0_replay_hook hook,
+                                   void *hook_ctx)
+{
+    if (!runner)
+    {
+        return;
+    }
+    runner->replay_hook = hook;
+    runner->replay_hook_ctx = hook_ctx;
+}
+
 void sap_runner_v0_shutdown(SapRunnerV0 *runner)
 {
     if (!runner)
@@ -1019,9 +1054,13 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
             int64_t step_start_ms = default_now_ms(NULL);
             int64_t step_end_ms;
             runner->metrics.step_attempts++;
+            emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT, key_seq, SAP_OK,
+                              frame, frame_len);
             rc = sap_runner_v0_run_step(runner, frame, frame_len, handler, ctx);
             step_end_ms = default_now_ms(NULL);
             metrics_note_latency(runner, step_start_ms, step_end_ms);
+            emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT, key_seq, (int32_t)rc,
+                              frame, frame_len);
         }
         if (rc != SAP_OK)
         {
@@ -1045,6 +1084,8 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
                 if (disposition_rc == SAP_OK)
                 {
                     runner->metrics.dead_letter_moves++;
+                    emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_DEAD_LETTER,
+                                      key_seq, (int32_t)step_rc, frame, frame_len);
                 }
             }
             else if (is_retryable_step_rc(step_rc))
@@ -1066,6 +1107,9 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
                     if (disposition_rc == SAP_OK)
                     {
                         runner->metrics.dead_letter_moves++;
+                        emit_replay_event(runner,
+                                          SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_DEAD_LETTER,
+                                          key_seq, (int32_t)step_rc, frame, frame_len);
                         int clear_rc = retry_count_clear(runner->db, message_id, message_id_len);
                         if (clear_rc != SAP_OK)
                         {
@@ -1082,6 +1126,8 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
                     if (disposition_rc == SAP_OK)
                     {
                         runner->metrics.requeues++;
+                        emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE,
+                                          key_seq, (int32_t)step_rc, frame, frame_len);
                     }
                 }
             }
@@ -1092,6 +1138,8 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
                 if (disposition_rc == SAP_OK)
                 {
                     runner->metrics.requeues++;
+                    emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE,
+                                      key_seq, (int32_t)step_rc, frame, frame_len);
                 }
             }
 

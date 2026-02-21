@@ -474,7 +474,9 @@ Phase A status (started):
   requeues/dead-letter moves, and step latency aggregation
 - done: runner checkpoint/restore recovery integration coverage for inbox and
   dead-letter continuity (`runner_recovery_integration_test.c`)
-- next: add deterministic replay hooks (optional) for postmortem debugging
+- done: optional deterministic replay hook surface on `runner_v0` for
+  inbox/timer/disposition event capture during debugging
+- next: define stable runner config surface (worker counts/retry/lease knobs)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -515,7 +517,8 @@ Phase B status (started):
 - done: dead-letter drain/replay tooling API and policy docs in Phase C
 - done: initial Phase D reliability counters surfaced on `SapRunnerV0`
 - done: crash-recovery checks around checkpoint/restore for runner flows
-- next: add deterministic replay hooks (optional) for postmortem debugging
+- done: deterministic replay hooks (optional) for postmortem debugging
+- next: define stable runner config surface (worker counts/retry/lease knobs)
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -544,7 +547,9 @@ Phase C status (started):
   and step latency in runner lifecycle path
 - done: runner checkpoint/restore integration checks for inbox + dead-letter
   state continuity and resumed dispatch behavior
-- next: add deterministic replay hooks (optional) for postmortem debugging
+- done: deterministic replay hook events for inbox/timer step flow and
+  disposition outcomes
+- next: define stable runner config surface (worker counts/retry/lease knobs)
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

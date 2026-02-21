@@ -29,6 +29,21 @@ typedef struct
     int fail_rc;
 } TestDispatchCtx;
 
+typedef struct
+{
+    uint8_t kind;
+    uint64_t seq;
+    int32_t rc;
+    uint32_t frame_len;
+    uint8_t frame[128];
+} ReplayEventLogEntry;
+
+typedef struct
+{
+    uint32_t count;
+    ReplayEventLogEntry events[32];
+} ReplayHookCtx;
+
 static void *test_alloc(void *ctx, uint32_t sz)
 {
     (void)ctx;
@@ -63,6 +78,28 @@ static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *
     state->calls++;
     state->last_to_worker = msg->to_worker;
     return SAP_OK;
+}
+
+static void on_replay_event(const SapRunnerV0ReplayEvent *event, void *ctx)
+{
+    ReplayHookCtx *log = (ReplayHookCtx *)ctx;
+    ReplayEventLogEntry *dst;
+
+    if (!event || !log || log->count >= 32u)
+    {
+        return;
+    }
+    dst = &log->events[log->count];
+    dst->kind = event->kind;
+    dst->seq = event->seq;
+    dst->rc = event->rc;
+    dst->frame_len = 0u;
+    if (event->frame && event->frame_len > 0u && event->frame_len <= sizeof(dst->frame))
+    {
+        memcpy(dst->frame, event->frame, event->frame_len);
+        dst->frame_len = event->frame_len;
+    }
+    log->count++;
 }
 
 static int encode_test_message(uint32_t to_worker, uint8_t *buf, uint32_t buf_len,
@@ -671,6 +708,55 @@ static int test_runner_metrics_retryable_dead_letter_path(void)
     return 0;
 }
 
+static int test_runner_replay_hook_inbox_requeue_flow(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    ReplayHookCtx replay = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    sap_runner_v0_set_replay_hook(&runner, on_replay_event, &replay);
+    dispatch_state.fail_calls_remaining = 1u;
+    dispatch_state.fail_rc = SAP_CONFLICT;
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_poll_inbox(&runner, 2u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+
+    CHECK(replay.count >= 5u);
+    CHECK(replay.events[0].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT);
+    CHECK(replay.events[0].seq == 1u);
+    CHECK(replay.events[0].frame_len > 0u);
+    CHECK(replay.events[1].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT);
+    CHECK(replay.events[1].seq == 1u);
+    CHECK(replay.events[1].rc == SAP_CONFLICT);
+    CHECK(replay.events[2].kind == SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE);
+    CHECK(replay.events[2].seq == 1u);
+    CHECK(replay.events[2].rc == SAP_CONFLICT);
+    CHECK(replay.events[3].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT);
+    CHECK(replay.events[3].seq == 2u);
+    CHECK(replay.events[4].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT);
+    CHECK(replay.events[4].seq == 2u);
+    CHECK(replay.events[4].rc == SAP_OK);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_worker_shell_tick(void)
 {
     DB *db = new_db();
@@ -840,17 +926,21 @@ int main(void)
     {
         return 9;
     }
-    if (test_worker_shell_tick() != 0)
+    if (test_runner_replay_hook_inbox_requeue_flow() != 0)
     {
         return 10;
     }
-    if (test_worker_tick_drains_due_timers() != 0)
+    if (test_worker_shell_tick() != 0)
     {
         return 11;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+    if (test_worker_tick_drains_due_timers() != 0)
     {
         return 12;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 13;
     }
     return 0;
 }
