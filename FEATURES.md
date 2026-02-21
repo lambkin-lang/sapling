@@ -449,7 +449,9 @@ Phase A status (started):
   (`src/runner/outbox_v0` + `tests/unit/runner_outbox_test.c`)
 - done: initial timer ingestion and due-drain path (`src/runner/timer_v0` +
   `tests/unit/runner_timer_test.c`)
-- next: wire timer wake scheduling into worker loop + lease/timer coordination
+- done: timer scheduling helper scaffold (`src/runner/scheduler_v0`) for
+  next-due lookup + bounded sleep-budget calculation
+- next: wire scheduler helper into worker thread idle/sleep loop
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -472,7 +474,9 @@ Phase B status (started):
   publisher integration for `OUTBOX_EMIT`
 - done: Phase C timer append/due-drain path and attempt intent-sink publisher
   integration for `TIMER_ARM`
-- next: timer wake scheduling integration and worker coordination loop
+- done: Phase C scheduler helper for next-due timer lookup and bounded sleep
+  budget decisions
+- next: integrate timer-aware wake/sleep into worker thread loop
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -486,7 +490,9 @@ Phase C status (started):
   attempt-intent publisher adapter
 - done: DBI 4 timer append/due-drain API with due-time key ordering and
   attempt-intent publisher adapter
-- next: timer wake scheduling and worker sleep/wake integration
+- done: scheduler helper to derive earliest due timestamp and bounded idle
+  sleep duration
+- next: worker-loop integration for timer-aware wake/sleep decisions
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

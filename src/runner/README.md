@@ -26,3 +26,5 @@ Implemented foundation:
   attempt-intent publisher adapter for committed outbox emission.
 - `timer_v0.h` / `timer_v0.c`: phase-C timer append/due-drain APIs plus
   attempt-intent publisher adapter for committed timer ingestion.
+- `scheduler_v0.h` / `scheduler_v0.c`: phase-C next-due lookup and sleep-budget
+  helpers for timer-aware worker idle behavior.
