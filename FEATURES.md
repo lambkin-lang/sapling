@@ -251,6 +251,23 @@ The host runner will be implemented in C (pthread-based), with possible tight
 coupling to Sapling internals when justified by performance or simpler control
 flow.
 
+Post-WIT roadmap update (current execution order):
+1. Runner correctness core first:
+   atomic-block semantics, retry behavior, and nested-atomic correctness are
+   the immediate critical path.
+2. Serialization and schema evolution policy is a gate:
+   freeze a v0 message/intent encoding and compatibility rules before broad
+   runner feature expansion.
+3. Tooling expansion is parallel/background:
+   widen lint/static-analysis scope incrementally without blocking core runner
+   correctness milestones.
+4. Optimization and internal coupling are deferred:
+   profile-guided tight coupling happens only after correctness + observability
+   baselines are in place.
+5. Component-model runtime path is deferred:
+   WIT remains source-of-truth for schema/codegen, but runtime execution does
+   not depend on component-model machinery.
+
 Worker model:
 - one OS thread per worker
 - one Wasm instance/Store per worker
@@ -395,13 +412,15 @@ Phase 0 status (initiated):
 
 #### Phase A — Runner skeleton + contracts
 - C host process with worker threads and Wasm instance lifecycle
-- canonical message envelope format and dispatch loop
+- v0 message/intent serialization format and compatibility contract
+- dispatch loop with explicit schema/version guardrails
 - DBI bootstrap and schema/version guard
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
 - nested atomic context stack (closed nesting/savepoints)
 - commit/abort/retry engine with bounded policy
+- deterministic integration tests for conflict retry + nested rollback/commit
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -416,6 +435,7 @@ Phase 0 status (initiated):
 #### Phase E — Optimization (optional tight coupling)
 - profile-guided coupling points with Sapling internals
 - keep public API path as default correctness baseline
+- explicitly non-blocking for runner functional bring-up
 
 #### Phase F — Packaging and operational readiness
 - stable config surface (worker counts, retry policy, lease durations)
