@@ -219,7 +219,7 @@ static int test_worker_shim_outbox_path(void)
     return 0;
 }
 
-static int test_worker_shim_error_retains_inbox(void)
+static int test_worker_shim_retryable_error_requeues_inbox(void)
 {
     DB *db = new_db();
     SapRunnerV0Config cfg;
@@ -248,14 +248,61 @@ static int test_worker_shim_error_retains_inbox(void)
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
     CHECK(sap_runner_v0_inbox_put(db, 7u, 55u, frame, frame_len) == SAP_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_CONFLICT);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
     CHECK(processed == 0u);
-    CHECK(worker.last_error == SAP_CONFLICT);
+    CHECK(worker.last_error == SAP_OK);
     CHECK(guest.calls == 1u);
     CHECK(runtime.calls == 1u);
     CHECK(runtime.last_rc == SAP_CONFLICT);
 
     CHECK(inbox_exists(db, 7u, 55u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(inbox_exists(db, 7u, 56u, &exists) == SAP_OK);
+    CHECK(exists == 1);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_worker_shim_fatal_error_requeues_and_returns_error(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Config cfg;
+    SapRunnerV0Worker worker;
+    SapWasiShimV0 shim;
+    SapWasiRuntimeV0 runtime;
+    GuestCtx guest = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    int exists = 0;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+
+    guest.rc = SAP_ERROR;
+    guest.reply_len = 0u;
+
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 1) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
+    CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 77u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_ERROR);
+    CHECK(processed == 0u);
+    CHECK(worker.last_error == SAP_ERROR);
+    CHECK(guest.calls == 1u);
+    CHECK(runtime.calls == 1u);
+    CHECK(runtime.last_rc == SAP_ERROR);
+
+    CHECK(inbox_exists(db, 7u, 77u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(inbox_exists(db, 7u, 78u, &exists) == SAP_OK);
     CHECK(exists == 1);
 
     db_close(db);
@@ -268,9 +315,13 @@ int main(void)
     {
         return 1;
     }
-    if (test_worker_shim_error_retains_inbox() != 0)
+    if (test_worker_shim_retryable_error_requeues_inbox() != 0)
     {
         return 2;
+    }
+    if (test_worker_shim_fatal_error_requeues_and_returns_error() != 0)
+    {
+        return 3;
     }
     return 0;
 }

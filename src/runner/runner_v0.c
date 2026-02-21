@@ -19,6 +19,7 @@
 #define RUNNER_SCHEMA_KEY_LEN ((uint32_t)(sizeof(RUNNER_SCHEMA_KEY_STR) - 1u))
 #define RUNNER_SCHEMA_VAL_LEN 8u
 #define RUNNER_LEASE_TTL_MS 1000
+#define RUNNER_REQUEUE_MAX_ATTEMPTS 4u
 
 static const uint8_t k_runner_schema_key[] = RUNNER_SCHEMA_KEY_STR;
 static const uint8_t k_runner_schema_magic[4] = {'R', 'S', 'V', '0'};
@@ -262,6 +263,149 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
     cursor_close(cur);
     txn_abort(txn);
     return SAP_OK;
+}
+
+static int is_retryable_step_rc(int rc) { return rc == SAP_BUSY || rc == SAP_CONFLICT; }
+
+static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_seq_out)
+{
+    Txn *txn;
+    Cursor *cur;
+    uint8_t prefix[SAP_RUNNER_INBOX_KEY_V0_SIZE];
+    uint64_t last_seq = 0u;
+    int have_any = 0;
+    int rc;
+
+    if (!db || !next_seq_out)
+    {
+        return SAP_ERROR;
+    }
+    *next_seq_out = 0u;
+
+    txn = txn_begin(db, NULL, TXN_RDONLY);
+    if (!txn)
+    {
+        return SAP_ERROR;
+    }
+    cur = cursor_open_dbi(txn, SAP_WIT_DBI_INBOX);
+    if (!cur)
+    {
+        txn_abort(txn);
+        return SAP_ERROR;
+    }
+
+    sap_runner_v0_inbox_key_encode(worker_id, 0u, prefix);
+    rc = cursor_seek_prefix(cur, prefix, 8u);
+    if (rc == SAP_NOTFOUND)
+    {
+        cursor_close(cur);
+        txn_abort(txn);
+        return SAP_OK;
+    }
+    if (rc != SAP_OK)
+    {
+        cursor_close(cur);
+        txn_abort(txn);
+        return rc;
+    }
+
+    for (;;)
+    {
+        const void *key = NULL;
+        const void *val = NULL;
+        uint32_t key_len = 0u;
+        uint32_t val_len = 0u;
+        uint64_t key_worker = 0u;
+        uint64_t key_seq = 0u;
+
+        rc = cursor_get(cur, &key, &key_len, &val, &val_len);
+        (void)val;
+        (void)val_len;
+        if (rc != SAP_OK)
+        {
+            cursor_close(cur);
+            txn_abort(txn);
+            return rc;
+        }
+        rc = sap_runner_v0_inbox_key_decode((const uint8_t *)key, key_len, &key_worker, &key_seq);
+        if (rc != SAP_OK)
+        {
+            cursor_close(cur);
+            txn_abort(txn);
+            return rc;
+        }
+        if (key_worker != worker_id)
+        {
+            break;
+        }
+
+        have_any = 1;
+        last_seq = key_seq;
+
+        rc = cursor_next(cur);
+        if (rc == SAP_NOTFOUND)
+        {
+            break;
+        }
+        if (rc != SAP_OK)
+        {
+            cursor_close(cur);
+            txn_abort(txn);
+            return rc;
+        }
+    }
+
+    cursor_close(cur);
+    txn_abort(txn);
+
+    if (!have_any)
+    {
+        *next_seq_out = 0u;
+        return SAP_OK;
+    }
+    if (last_seq == UINT64_MAX)
+    {
+        return SAP_FULL;
+    }
+    *next_seq_out = last_seq + 1u;
+    return SAP_OK;
+}
+
+static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t seq,
+                                         const SapRunnerLeaseV0 *expected_lease)
+{
+    uint32_t attempt;
+
+    if (!db || !expected_lease)
+    {
+        return SAP_ERROR;
+    }
+
+    for (attempt = 0u; attempt < RUNNER_REQUEUE_MAX_ATTEMPTS; attempt++)
+    {
+        uint64_t new_seq = 0u;
+        int rc = next_inbox_seq_for_worker(db, worker_id, &new_seq);
+        if (rc != SAP_OK)
+        {
+            return rc;
+        }
+        if (new_seq == seq)
+        {
+            if (new_seq == UINT64_MAX)
+            {
+                return SAP_FULL;
+            }
+            new_seq++;
+        }
+
+        rc = sap_runner_mailbox_v0_requeue(db, worker_id, seq, expected_lease, new_seq);
+        if (rc == SAP_EXISTS || rc == SAP_CONFLICT || rc == SAP_BUSY)
+        {
+            continue;
+        }
+        return rc;
+    }
+    return SAP_BUSY;
 }
 
 int sap_runner_v0_bootstrap_dbis(DB *db)
@@ -597,9 +741,19 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         rc = sap_runner_v0_run_step(runner, frame, frame_len, handler, ctx);
         if (rc != SAP_OK)
         {
+            int step_rc = rc;
+            int requeue_rc = requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease);
             free(key);
             free(frame);
-            return rc;
+            if (requeue_rc != SAP_OK)
+            {
+                return requeue_rc;
+            }
+            if (is_retryable_step_rc(step_rc))
+            {
+                continue;
+            }
+            return step_rc;
         }
 
         rc = sap_runner_mailbox_v0_ack(runner->db, key_worker, key_seq, &lease);

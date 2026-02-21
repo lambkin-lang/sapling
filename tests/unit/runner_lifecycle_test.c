@@ -22,8 +22,11 @@
 
 typedef struct
 {
+    uint32_t invocations;
     uint32_t calls;
     int64_t last_to_worker;
+    uint32_t fail_calls_remaining;
+    int fail_rc;
 } TestDispatchCtx;
 
 static void *test_alloc(void *ctx, uint32_t sz)
@@ -50,6 +53,12 @@ static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *
     if (!state || !msg)
     {
         return SAP_ERROR;
+    }
+    state->invocations++;
+    if (state->fail_calls_remaining > 0u)
+    {
+        state->fail_calls_remaining--;
+        return state->fail_rc;
     }
     state->calls++;
     state->last_to_worker = msg->to_worker;
@@ -306,6 +315,107 @@ static int test_runner_poll_inbox(void)
     return 0;
 }
 
+static int test_poll_inbox_retryable_requeues_and_recovers(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    int exists = 0;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    dispatch_state.fail_calls_remaining = 1u;
+    dispatch_state.fail_rc = SAP_CONFLICT;
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 2u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_poll_inbox(&runner, 4u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(processed == 2u);
+    CHECK(dispatch_state.invocations == 3u);
+    CHECK(dispatch_state.calls == 2u);
+    CHECK(runner.steps_completed == 2u);
+
+    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(inbox_entry_exists(db, 7u, 2u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(inbox_entry_exists(db, 7u, 3u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(lease_entry_exists(db, 7u, 2u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(lease_entry_exists(db, 7u, 3u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_poll_inbox_non_retryable_requeues_and_returns_error(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    int exists = 0;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    dispatch_state.fail_calls_remaining = 1u;
+    dispatch_state.fail_rc = SAP_ERROR;
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) ==
+          SAP_ERROR);
+    CHECK(processed == 0u);
+    CHECK(dispatch_state.invocations == 1u);
+    CHECK(dispatch_state.calls == 0u);
+    CHECK(runner.steps_completed == 0u);
+
+    CHECK(inbox_entry_exists(db, 7u, 10u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == SAP_OK);
+    CHECK(exists == 1);
+    CHECK(lease_entry_exists(db, 7u, 10u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+    CHECK(lease_entry_exists(db, 7u, 11u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+    CHECK(dispatch_state.invocations == 2u);
+    CHECK(dispatch_state.calls == 1u);
+    CHECK(runner.steps_completed == 1u);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_worker_shell_tick(void)
 {
     DB *db = new_db();
@@ -455,17 +565,25 @@ int main(void)
     {
         return 4;
     }
-    if (test_worker_shell_tick() != 0)
+    if (test_poll_inbox_retryable_requeues_and_recovers() != 0)
     {
         return 5;
     }
-    if (test_worker_tick_drains_due_timers() != 0)
+    if (test_poll_inbox_non_retryable_requeues_and_returns_error() != 0)
     {
         return 6;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+    if (test_worker_shell_tick() != 0)
     {
         return 7;
+    }
+    if (test_worker_tick_drains_due_timers() != 0)
+    {
+        return 8;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 9;
     }
     return 0;
 }

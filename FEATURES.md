@@ -455,7 +455,10 @@ Phase A status (started):
   helper for timer-aware idle sleep budgeting in threaded loop
 - done: composed attempt intent sink (`src/runner/intent_sink_v0`) routes both
   `OUTBOX_EMIT` and `TIMER_ARM` through one callback path
-- next: wire composed sink and lease/timer claim coordination into host runner flow
+- done: lease-aware inbox handling now requeues claimed messages on handler
+  failure, clears lease state, and keeps retryable failures in-band
+- next: wire attempt-engine execution + composed intent sink into worker handler
+  flow
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -483,7 +486,10 @@ Phase B status (started):
 - done: timer-aware wake/sleep integrated into worker thread loop and due-timer
   dispatch integrated into worker tick path
 - done: composed intent sink for outbox+timer publication
-- next: integrate mailbox lease claim/ack/requeue with attempt execution loop
+- done: mailbox lease claim/ack/requeue integrated into inbox polling with
+  retry-aware requeue semantics
+- next: integrate mailbox-claimed message execution through `attempt_v0` in the
+  live worker path
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -502,7 +508,9 @@ Phase C status (started):
 - done: worker-loop integration for timer-aware wake/sleep decisions and due
   timer dispatch
 - done: composed intent-sink adapter for mixed outbox+timer intent streams
-- next: lease-aware worker coordination and retry/claim integration
+- done: lease-aware worker coordination for retryable and fatal callback errors
+  now preserves message durability while clearing stale lease records
+- next: add retry-budget/dead-letter policy for repeatedly failing messages
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

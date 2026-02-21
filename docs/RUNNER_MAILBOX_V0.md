@@ -43,5 +43,6 @@ Lease value:
 
 ## Status
 
-This is a Phase-C scaffold focused on deterministic state transitions and CAS
-guards. Lease timeouts, timer wakeups, and dispatcher wiring are next steps.
+This is now wired into `runner_v0` inbox polling for claim/ack/requeue
+coordination. Lease timeouts, timer wakeups, and full attempt-engine execution
+integration remain next steps.

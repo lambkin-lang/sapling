@@ -64,11 +64,20 @@ dispatch loop.
 Per message attempt:
 1. read oldest matching worker-prefixed key under a read txn
 2. copy key/frame bytes out of txn memory
-3. run message decode + callback outside write txn
-4. open short write txn and delete the inbox entry if key/value still match
+3. claim the message lease in DBI 3 (short write txn)
+4. run message decode + callback outside write txn
+5. on success, ack (delete inbox + lease atomically)
+6. on callback failure, requeue to tail sequence with lease-token guard
+   (clears lease while keeping message durable)
 
 This keeps handler execution outside write transactions while still using inbox
-records as the source of truth.
+records as the source of truth and avoiding stale lease buildup.
+
+Retry behavior in the scaffold:
+- retryable callback errors (`SAP_BUSY`, `SAP_CONFLICT`) are requeued and kept
+  in-band for later retry
+- non-retryable callback errors are also requeued for durability, then returned
+  to the caller so worker policy can decide whether to stop/escalate
 
 ## Due-timer dispatch scaffold
 
