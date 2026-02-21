@@ -363,6 +363,7 @@ $(RUNNER_LIFECYCLE_TSAN_TEST_BIN): $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_LIFECYC
 
 runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
 	./$(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
+	rm -f $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
 
 runner-txctx-test: CFLAGS += -O2 -g
 runner-txctx-test: $(RUNNER_TXCTX_TEST_BIN)
