@@ -23,6 +23,7 @@ and prefix watch notifications.
 - `make runner-attempt-test` runs phase-B bounded retry attempt tests
 - `make runner-integration-test` runs deterministic phase-B retry+nested integration tests
 - `make runner-mailbox-test` runs phase-C mailbox claim/ack/requeue tests
+- `make runner-dead-letter-test` runs phase-C dead-letter move tests
 - `make runner-outbox-test` runs phase-C outbox append/drain tests
 - `make runner-timer-test` runs phase-C timer intent ingestion/drain tests
 - `make runner-scheduler-test` runs phase-C timer scheduling helper tests
@@ -32,7 +33,7 @@ and prefix watch notifications.
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
 - `make phasea-check` runs phase-0 checks plus phase-A runner tests
 - `make phaseb-check` runs phase-A checks plus phase-B tx context tests
-- `make phasec-check` runs phase-B checks plus phase-C mailbox tests
+- `make phasec-check` runs phase-B checks plus phase-C mailbox/dead-letter/outbox/timer tests
 
 Benchmark guardrail overrides:
 - `BENCH_BASELINE=benchmarks/baseline.env` selects the baseline file
@@ -58,6 +59,7 @@ Both require a WASI sysroot:
 - `docs/RUNNER_TXSTACK_V0.md` defines closed-nested atomic stack behavior.
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.
 - `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
+- `docs/RUNNER_DEAD_LETTER_V0.md` defines dead-letter move/record behavior.
 - `docs/RUNNER_OUTBOX_V0.md` defines outbox append/drain and intent-publisher behavior.
 - `docs/RUNNER_TIMER_V0.md` defines timer intent ingestion and due-time draining.
 - `docs/RUNNER_SCHEDULER_V0.md` defines timer next-due and sleep-budget helpers.

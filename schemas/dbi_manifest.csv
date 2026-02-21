@@ -5,3 +5,4 @@ dbi,name,key_format,value_format,owner,status
 3,leases,wit:dbi3-leases-key,wit:dbi3-leases-value,runtime,planned
 4,timers,wit:dbi4-timers-key,wit:dbi4-timers-value,runtime,planned
 5,dedupe,wit:dbi5-dedupe-key,wit:dbi5-dedupe-value,runtime,planned
+6,dead_letter,wit:dbi6-dead-letter-key,wit:dbi6-dead-letter-value,runtime,planned

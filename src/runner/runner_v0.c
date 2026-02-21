@@ -6,6 +6,7 @@
 #include "runner/runner_v0.h"
 
 #include "generated/wit_schema_dbis.h"
+#include "runner/dead_letter_v0.h"
 #include "runner/mailbox_v0.h"
 #include "runner/scheduler_v0.h"
 #include "runner/timer_v0.h"
@@ -20,6 +21,9 @@
 #define RUNNER_SCHEMA_VAL_LEN 8u
 #define RUNNER_LEASE_TTL_MS 1000
 #define RUNNER_REQUEUE_MAX_ATTEMPTS 4u
+#define RUNNER_RETRY_BUDGET_MAX 4u
+#define RUNNER_RETRY_KEY_PREFIX "retry:"
+#define RUNNER_RETRY_KEY_PREFIX_LEN ((uint32_t)(sizeof(RUNNER_RETRY_KEY_PREFIX) - 1u))
 
 static const uint8_t k_runner_schema_key[] = RUNNER_SCHEMA_KEY_STR;
 static const uint8_t k_runner_schema_magic[4] = {'R', 'S', 'V', '0'};
@@ -110,6 +114,19 @@ static void wr16(uint8_t *p, uint16_t v)
 {
     p[0] = (uint8_t)(v & 0xffu);
     p[1] = (uint8_t)((v >> 8) & 0xffu);
+}
+
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void wr32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)(v & 0xffu);
+    p[1] = (uint8_t)((v >> 8) & 0xffu);
+    p[2] = (uint8_t)((v >> 16) & 0xffu);
+    p[3] = (uint8_t)((v >> 24) & 0xffu);
 }
 
 static uint64_t rd64be(const uint8_t *p)
@@ -266,6 +283,190 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
 }
 
 static int is_retryable_step_rc(int rc) { return rc == SAP_BUSY || rc == SAP_CONFLICT; }
+
+static int extract_message_id_from_frame(const uint8_t *frame, uint32_t frame_len,
+                                         const uint8_t **message_id_out,
+                                         uint32_t *message_id_len_out)
+{
+    SapRunnerMessageV0 msg = {0};
+    int rc;
+
+    if (message_id_out)
+    {
+        *message_id_out = NULL;
+    }
+    if (message_id_len_out)
+    {
+        *message_id_len_out = 0u;
+    }
+    if (!frame || frame_len == 0u || !message_id_out || !message_id_len_out)
+    {
+        return SAP_ERROR;
+    }
+
+    rc = sap_runner_message_v0_decode(frame, frame_len, &msg);
+    if (rc != SAP_RUNNER_WIRE_OK)
+    {
+        return SAP_ERROR;
+    }
+    if (!msg.message_id || msg.message_id_len == 0u)
+    {
+        return SAP_ERROR;
+    }
+
+    *message_id_out = msg.message_id;
+    *message_id_len_out = msg.message_id_len;
+    return SAP_OK;
+}
+
+static int make_retry_key(const uint8_t *message_id, uint32_t message_id_len, uint8_t **key_out,
+                          uint32_t *key_len_out)
+{
+    uint8_t *key = NULL;
+    uint32_t key_len;
+
+    if (!message_id || message_id_len == 0u || !key_out || !key_len_out)
+    {
+        return SAP_ERROR;
+    }
+    if (message_id_len > (UINT32_MAX - RUNNER_RETRY_KEY_PREFIX_LEN))
+    {
+        return SAP_FULL;
+    }
+    key_len = RUNNER_RETRY_KEY_PREFIX_LEN + message_id_len;
+    key = (uint8_t *)malloc((size_t)key_len);
+    if (!key)
+    {
+        return SAP_ERROR;
+    }
+    memcpy(key, RUNNER_RETRY_KEY_PREFIX, RUNNER_RETRY_KEY_PREFIX_LEN);
+    memcpy(key + RUNNER_RETRY_KEY_PREFIX_LEN, message_id, message_id_len);
+    *key_out = key;
+    *key_len_out = key_len;
+    return SAP_OK;
+}
+
+static int retry_count_increment(DB *db, const uint8_t *message_id, uint32_t message_id_len,
+                                 uint32_t *count_out)
+{
+    Txn *txn;
+    uint8_t *key = NULL;
+    uint32_t key_len = 0u;
+    const void *cur = NULL;
+    uint32_t cur_len = 0u;
+    uint8_t raw_count[4];
+    uint32_t count = 0u;
+    int rc;
+
+    if (count_out)
+    {
+        *count_out = 0u;
+    }
+    if (!db || !message_id || message_id_len == 0u)
+    {
+        return SAP_ERROR;
+    }
+    rc = make_retry_key(message_id, message_id_len, &key, &key_len);
+    if (rc != SAP_OK)
+    {
+        return rc;
+    }
+
+    txn = txn_begin(db, NULL, 0u);
+    if (!txn)
+    {
+        free(key);
+        return SAP_BUSY;
+    }
+
+    rc = txn_get_dbi(txn, SAP_WIT_DBI_DEDUPE, key, key_len, &cur, &cur_len);
+    if (rc == SAP_NOTFOUND)
+    {
+        count = 1u;
+    }
+    else if (rc == SAP_OK)
+    {
+        if (cur_len != sizeof(raw_count))
+        {
+            free(key);
+            txn_abort(txn);
+            return SAP_ERROR;
+        }
+        count = rd32((const uint8_t *)cur);
+        if (count == UINT32_MAX)
+        {
+            free(key);
+            txn_abort(txn);
+            return SAP_FULL;
+        }
+        count++;
+    }
+    else
+    {
+        free(key);
+        txn_abort(txn);
+        return rc;
+    }
+
+    wr32(raw_count, count);
+    rc = txn_put_dbi(txn, SAP_WIT_DBI_DEDUPE, key, key_len, raw_count, sizeof(raw_count));
+    free(key);
+    if (rc != SAP_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+    rc = txn_commit(txn);
+    if (rc != SAP_OK)
+    {
+        return rc;
+    }
+    if (count_out)
+    {
+        *count_out = count;
+    }
+    return SAP_OK;
+}
+
+static int retry_count_clear(DB *db, const uint8_t *message_id, uint32_t message_id_len)
+{
+    Txn *txn;
+    uint8_t *key = NULL;
+    uint32_t key_len = 0u;
+    int rc;
+
+    if (!db || !message_id || message_id_len == 0u)
+    {
+        return SAP_ERROR;
+    }
+    rc = make_retry_key(message_id, message_id_len, &key, &key_len);
+    if (rc != SAP_OK)
+    {
+        return rc;
+    }
+
+    txn = txn_begin(db, NULL, 0u);
+    if (!txn)
+    {
+        free(key);
+        return SAP_BUSY;
+    }
+
+    rc = txn_del_dbi(txn, SAP_WIT_DBI_DEDUPE, key, key_len);
+    free(key);
+    if (rc == SAP_NOTFOUND)
+    {
+        txn_abort(txn);
+        return SAP_OK;
+    }
+    if (rc != SAP_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+    rc = txn_commit(txn);
+    return rc;
+}
 
 static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_seq_out)
 {
@@ -742,12 +943,70 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         if (rc != SAP_OK)
         {
             int step_rc = rc;
-            int requeue_rc = requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease);
+            int disposition_rc = SAP_OK;
+            int extracted = 0;
+            const uint8_t *message_id = NULL;
+            uint32_t message_id_len = 0u;
+
+            if (extract_message_id_from_frame(frame, frame_len, &message_id, &message_id_len) ==
+                SAP_OK)
+            {
+                extracted = 1;
+            }
+
+            if (!extracted)
+            {
+                disposition_rc = sap_runner_dead_letter_v0_move(runner->db, key_worker, key_seq,
+                                                                &lease, (int32_t)step_rc, 0u);
+            }
+            else if (is_retryable_step_rc(step_rc))
+            {
+                uint32_t retry_count = 0u;
+                int retry_rc =
+                    retry_count_increment(runner->db, message_id, message_id_len, &retry_count);
+                if (retry_rc != SAP_OK)
+                {
+                    free(key);
+                    free(frame);
+                    return retry_rc;
+                }
+
+                if (retry_count >= RUNNER_RETRY_BUDGET_MAX)
+                {
+                    disposition_rc = sap_runner_dead_letter_v0_move(
+                        runner->db, key_worker, key_seq, &lease, (int32_t)step_rc, retry_count);
+                    if (disposition_rc == SAP_OK)
+                    {
+                        int clear_rc = retry_count_clear(runner->db, message_id, message_id_len);
+                        if (clear_rc != SAP_OK)
+                        {
+                            free(key);
+                            free(frame);
+                            return clear_rc;
+                        }
+                    }
+                }
+                else
+                {
+                    disposition_rc =
+                        requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease);
+                }
+            }
+            else
+            {
+                disposition_rc =
+                    requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease);
+            }
+
             free(key);
             free(frame);
-            if (requeue_rc != SAP_OK)
+            if (disposition_rc != SAP_OK)
             {
-                return requeue_rc;
+                return disposition_rc;
+            }
+            if (!extracted)
+            {
+                continue;
             }
             if (is_retryable_step_rc(step_rc))
             {
@@ -757,12 +1016,30 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         }
 
         rc = sap_runner_mailbox_v0_ack(runner->db, key_worker, key_seq, &lease);
-        free(key);
-        free(frame);
         if (rc != SAP_OK)
         {
+            free(key);
+            free(frame);
             return rc;
         }
+
+        {
+            const uint8_t *message_id = NULL;
+            uint32_t message_id_len = 0u;
+            if (extract_message_id_from_frame(frame, frame_len, &message_id, &message_id_len) ==
+                SAP_OK)
+            {
+                int clear_rc = retry_count_clear(runner->db, message_id, message_id_len);
+                if (clear_rc != SAP_OK)
+                {
+                    free(key);
+                    free(frame);
+                    return clear_rc;
+                }
+            }
+        }
+        free(key);
+        free(frame);
         processed++;
     }
 

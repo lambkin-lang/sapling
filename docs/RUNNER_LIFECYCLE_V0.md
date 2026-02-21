@@ -67,15 +67,18 @@ Per message attempt:
 3. claim the message lease in DBI 3 (short write txn)
 4. run message decode + callback outside write txn
 5. on success, ack (delete inbox + lease atomically)
-6. on callback failure, requeue to tail sequence with lease-token guard
-   (clears lease while keeping message durable)
+6. on callback failure:
+   - retryable failures are counted in DBI 5 (`dedupe`) via `retry:<message_id>`
+   - when retry budget is not exhausted: requeue to tail with lease-token guard
+   - when retry budget is exhausted (or frame decode fails): move to DBI 6
+     dead-letter and clear inbox+lease atomically
 
 This keeps handler execution outside write transactions while still using inbox
 records as the source of truth and avoiding stale lease buildup.
 
 Retry behavior in the scaffold:
-- retryable callback errors (`SAP_BUSY`, `SAP_CONFLICT`) are requeued and kept
-  in-band for later retry
+- retryable callback errors (`SAP_BUSY`, `SAP_CONFLICT`) are requeued until
+  retry budget is hit; then they are dead-lettered
 - non-retryable callback errors are also requeued for durability, then returned
   to the caller so worker policy can decide whether to stop/escalate
 

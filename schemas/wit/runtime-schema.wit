@@ -123,6 +123,18 @@ interface types {
     last-seen-ts: timestamp,
     checksum: bytes,
   }
+
+  record dbi6-dead-letter-key {
+    worker: worker-id,
+    seq: s64,
+  }
+
+  record dbi6-dead-letter-value {
+    envelope: message-envelope,
+    failure-code: s64,
+    attempts: s64,
+    failed-at: timestamp,
+  }
 }
 
 world runtime-schema {

@@ -316,7 +316,8 @@ Proposed baseline DBIs:
 - DBI 2: outbox (`(seq)` -> message/event)
 - DBI 3: leases (`msg_id` -> owner/deadline/attempts)
 - DBI 4: timers (`(due_ts, msg_id)` -> payload)
-- DBI 5: dedupe/idempotency keys
+- DBI 5: dedupe/idempotency + retry budget counters
+- DBI 6: dead-letter (`(worker_id, seq)` -> failed frame + failure metadata)
 
 Watcher usage:
 - `db_watch_dbi` on inbox/timer prefixes for wake-up hints
@@ -457,6 +458,9 @@ Phase A status (started):
   `OUTBOX_EMIT` and `TIMER_ARM` through one callback path
 - done: lease-aware inbox handling now requeues claimed messages on handler
   failure, clears lease state, and keeps retryable failures in-band
+- done: retry-budget/dead-letter routing scaffold
+  (`src/runner/dead_letter_v0`) with DBI 5 retry counters and DBI 6 dead-letter
+  records for exhausted retryable failures or invalid frames
 - done: WASI shim handler now executes through `attempt_v0` and publishes
   committed intents via composed sink (`intent_sink_v0`)
 - next: generalize attempt-backed handler wiring for non-WASI runner handlers
@@ -491,6 +495,8 @@ Phase B status (started):
   retry-aware requeue semantics
 - done: mailbox-claimed message execution through `attempt_v0` in live WASI
   worker flow with retry stats captured in shim state
+- done: retry-budget/dead-letter policy for repeatedly failing retryable
+  messages in runner inbox polling path
 - next: expose a generic runner-level attempt handler contract (beyond WASI shim)
 
 #### Phase C — Mailbox, leases, timers
@@ -512,7 +518,9 @@ Phase C status (started):
 - done: composed intent-sink adapter for mixed outbox+timer intent streams
 - done: lease-aware worker coordination for retryable and fatal callback errors
   now preserves message durability while clearing stale lease records
-- next: add retry-budget/dead-letter policy for repeatedly failing messages
+- done: retry-budget counter tracking in DBI 5 and dead-letter diversion to DBI 6
+  for exhausted retryable failures
+- next: add dead-letter replay/drain tooling path and operational policy docs
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

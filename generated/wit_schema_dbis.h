@@ -17,6 +17,7 @@ typedef struct {
 #define SAP_WIT_DBI_LEASES 3u
 #define SAP_WIT_DBI_TIMERS 4u
 #define SAP_WIT_DBI_DEDUPE 5u
+#define SAP_WIT_DBI_DEAD_LETTER 6u
 
 extern const SapWitDbiSchema sap_wit_dbi_schema[];
 extern const uint32_t sap_wit_dbi_schema_count;

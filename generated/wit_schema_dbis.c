@@ -8,6 +8,7 @@ const SapWitDbiSchema sap_wit_dbi_schema[] = {
     {3u, "leases", "dbi3-leases-key", "dbi3-leases-value"},
     {4u, "timers", "dbi4-timers-key", "dbi4-timers-value"},
     {5u, "dedupe", "dbi5-dedupe-key", "dbi5-dedupe-value"},
+    {6u, "dead_letter", "dbi6-dead-letter-key", "dbi6-dead-letter-value"},
 };
 
 const uint32_t sap_wit_dbi_schema_count = (uint32_t)(sizeof(sap_wit_dbi_schema) / sizeof(sap_wit_dbi_schema[0]));

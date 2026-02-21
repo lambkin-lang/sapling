@@ -192,6 +192,100 @@ static int lease_entry_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exi
     return rc;
 }
 
+static int count_worker_entries(DB *db, uint32_t dbi, uint64_t worker_id, uint32_t *count_out)
+{
+    Txn *txn;
+    Cursor *cur;
+    uint8_t prefix[SAP_RUNNER_INBOX_KEY_V0_SIZE];
+    uint32_t count = 0u;
+    int rc;
+
+    if (!db || !count_out)
+    {
+        return SAP_ERROR;
+    }
+    *count_out = 0u;
+
+    txn = txn_begin(db, NULL, TXN_RDONLY);
+    if (!txn)
+    {
+        return SAP_ERROR;
+    }
+    cur = cursor_open_dbi(txn, dbi);
+    if (!cur)
+    {
+        txn_abort(txn);
+        return SAP_ERROR;
+    }
+
+    sap_runner_v0_inbox_key_encode(worker_id, 0u, prefix);
+    rc = cursor_seek_prefix(cur, prefix, 8u);
+    if (rc == SAP_NOTFOUND)
+    {
+        cursor_close(cur);
+        txn_abort(txn);
+        return SAP_OK;
+    }
+    if (rc != SAP_OK)
+    {
+        cursor_close(cur);
+        txn_abort(txn);
+        return rc;
+    }
+
+    for (;;)
+    {
+        const void *key = NULL;
+        const void *val = NULL;
+        uint32_t key_len = 0u;
+        uint32_t val_len = 0u;
+        uint64_t found_worker = 0u;
+        uint64_t found_seq = 0u;
+
+        rc = cursor_get(cur, &key, &key_len, &val, &val_len);
+        (void)val;
+        (void)val_len;
+        if (rc != SAP_OK)
+        {
+            cursor_close(cur);
+            txn_abort(txn);
+            return rc;
+        }
+
+        rc = sap_runner_v0_inbox_key_decode((const uint8_t *)key, key_len, &found_worker,
+                                            &found_seq);
+        (void)found_seq;
+        if (rc != SAP_OK)
+        {
+            cursor_close(cur);
+            txn_abort(txn);
+            return rc;
+        }
+        if (found_worker != worker_id)
+        {
+            break;
+        }
+        count++;
+
+        rc = cursor_next(cur);
+        if (rc == SAP_NOTFOUND)
+        {
+            break;
+        }
+        if (rc != SAP_OK)
+        {
+            cursor_close(cur);
+            txn_abort(txn);
+            return rc;
+        }
+    }
+
+    cursor_close(cur);
+    txn_abort(txn);
+    *count_out = count;
+    return SAP_OK;
+}
+
 static int test_inbox_key_codec(void)
 {
     uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
@@ -416,6 +510,55 @@ static int test_poll_inbox_non_retryable_requeues_and_returns_error(void)
     return 0;
 }
 
+static int test_retry_budget_moves_to_dead_letter(void)
+{
+    DB *db = new_db();
+    SapRunnerV0 runner = {0};
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    uint32_t inbox_count = 0u;
+    uint32_t dead_letter_count = 0u;
+    uint32_t rounds;
+    int rc = SAP_OK;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+
+    dispatch_state.fail_calls_remaining = 32u;
+    dispatch_state.fail_rc = SAP_CONFLICT;
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 50u, frame, frame_len) == SAP_OK);
+
+    for (rounds = 0u; rounds < 16u; rounds++)
+    {
+        rc = sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed);
+        CHECK(rc == SAP_OK);
+        CHECK(processed == 0u);
+
+        CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == SAP_OK);
+        if (dead_letter_count > 0u)
+        {
+            break;
+        }
+    }
+
+    CHECK(dead_letter_count == 1u);
+    CHECK(count_worker_entries(db, SAP_WIT_DBI_INBOX, 7u, &inbox_count) == SAP_OK);
+    CHECK(inbox_count == 0u);
+
+    db_close(db);
+    return 0;
+}
+
 static int test_worker_shell_tick(void)
 {
     DB *db = new_db();
@@ -573,17 +716,21 @@ int main(void)
     {
         return 6;
     }
-    if (test_worker_shell_tick() != 0)
+    if (test_retry_budget_moves_to_dead_letter() != 0)
     {
         return 7;
     }
-    if (test_worker_tick_drains_due_timers() != 0)
+    if (test_worker_shell_tick() != 0)
     {
         return 8;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+    if (test_worker_tick_drains_due_timers() != 0)
     {
         return 9;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 10;
     }
     return 0;
 }
