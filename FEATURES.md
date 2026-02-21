@@ -635,6 +635,8 @@ Current scope:
 - deterministic failure-atomicity coverage for overflow allocation failures
   (abort/commit and checkpoint/restore continuity)
 - tree-rewrite cleanup paths and checkpoint/restore compatibility
+- explicit contract-matrix coverage across `txn_put*`, `txn_load_sorted`,
+  `cursor_put`, and `txn_merge` for non-DUPSORT vs DUPSORT overflow behavior
 
 Current constraints:
 - DUPSORT values remain inline-only

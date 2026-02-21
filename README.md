@@ -90,6 +90,13 @@ Both require a WASI sysroot:
 - `db_open` requires `page_size` in `[256, 65535]`.
 - `dbi_open` and `dbi_set_dupsort` are metadata operations and require no
   active transactions; otherwise they return `SAP_BUSY`.
+- Non-DUPSORT DBIs support overflow-value storage for large values (up to
+  `UINT16_MAX` logical bytes).
+- DUPSORT DBIs remain inline-only; oversized writes/load rows return `SAP_FULL`.
+- `SAP_RESERVE` is inline-only and returns `SAP_ERROR` if a write would require
+  overflow storage (including DUPSORT DBIs).
+- Corrupt overflow metadata/chains are treated as decode errors and read paths
+  return `SAP_ERROR`.
 - `cursor_open_dbi` returns `NULL` for invalid DBI handles.
 - Watch callbacks are driven by top-level commits for keys in the watched DBI.
   Watch registrations affect write transactions started after registration.

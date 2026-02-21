@@ -64,7 +64,7 @@ typedef int (*keycmp_fn)(const void *a, uint32_t a_len, const void *b, uint32_t 
 /* Put flags (for txn_put_flags / txn_put_flags_dbi)                    */
 /* ------------------------------------------------------------------ */
 #define SAP_NOOVERWRITE 0x01u /* fail with SAP_EXISTS if key present */
-#define SAP_RESERVE 0x02u     /* allocate space, return pointer      */
+#define SAP_RESERVE 0x02u     /* inline reserve only; overflow => SAP_ERROR */
 
 /* ------------------------------------------------------------------ */
 /* Opaque types                                                         */
@@ -165,12 +165,21 @@ int txn_del(Txn *txn, const void *key, uint32_t key_len);
 /* ------------------------------------------------------------------ */
 /* Key/value operations (explicit DBI)                                  */
 /* ------------------------------------------------------------------ */
+/* Returns SAP_ERROR for decode failures (for example corrupt overflow
+ * metadata or overflow page chains).
+ */
 int txn_get_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void **val_out,
                 uint32_t *val_len_out);
 
+/* non-DUPSORT DBIs may spill large values to overflow pages (up to UINT16_MAX).
+ * DUPSORT DBIs remain inline-only and return SAP_FULL when key+value cannot fit.
+ */
 int txn_put_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *val,
                 uint32_t val_len);
 
+/* SAP_RESERVE requires inline leaf storage and returns SAP_ERROR when the write
+ * would require overflow storage. DUPSORT DBIs also return SAP_ERROR for reserve.
+ */
 int txn_put_flags_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *val,
                       uint32_t val_len, unsigned flags, void **reserved_out);
 
@@ -190,6 +199,8 @@ int txn_del_dup_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, c
 /* Bulk-load sorted entries.
  * keys/vals are arrays of pointers with matching lens arrays.
  * Returns SAP_EXISTS if duplicate keys are present for a non-DUPSORT DBI.
+ * non-DUPSORT rows may use overflow pages; DUPSORT rows remain inline-only and
+ * return SAP_FULL when oversized.
  */
 int txn_load_sorted(Txn *txn, uint32_t dbi, const void *const *keys, const uint32_t *key_lens,
                     const void *const *vals, const uint32_t *val_lens, uint32_t count);
@@ -242,7 +253,10 @@ int cursor_get_key(Cursor *cursor, const void **key_out, uint32_t *key_len_out);
 /* ------------------------------------------------------------------ */
 /* Cursor mutations                                                     */
 /* ------------------------------------------------------------------ */
-/* cursor_put currently supports only flags==0 on non-DUPSORT DBIs. */
+/* cursor_put currently supports only flags==0 on non-DUPSORT DBIs.
+ * Oversized replacements that cannot be represented for the key shape return
+ * SAP_FULL without dropping the existing row.
+ */
 int cursor_put(Cursor *cursor, const void *val, uint32_t val_len, unsigned flags);
 int cursor_del(Cursor *cursor);
 

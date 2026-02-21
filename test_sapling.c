@@ -1548,6 +1548,86 @@ static void test_overflow_failure_atomicity(void)
     CHECK(fa.live_pages == 0);
 }
 
+static void test_overflow_contract_matrix(void)
+{
+    SECTION("overflow contract matrix");
+    DB *db = db_open(&g_alloc, 256, NULL, NULL);
+    uint8_t ov_a[700];
+    uint8_t ov_b[900];
+    uint8_t dupsort_big[5000];
+    const void *kz[] = {"lz"};
+    const uint32_t kz_len[] = {2};
+    const void *vz_overflow[] = {ov_a};
+    const uint32_t vz_overflow_len[] = {(uint32_t)sizeof(ov_a)};
+    const void *vz_dupsort_big[] = {dupsort_big};
+    const uint32_t vz_dupsort_big_len[] = {(uint32_t)sizeof(dupsort_big)};
+    const void *v;
+    uint32_t vl;
+    void *reserved = (void *)0x1;
+    Txn *w;
+    Txn *r;
+    Cursor *cur;
+
+    CHECK(db != NULL);
+    if (!db)
+        return;
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+
+    fill_pattern(ov_a, (uint32_t)sizeof(ov_a), 3);
+    fill_pattern(ov_b, (uint32_t)sizeof(ov_b), 21);
+    fill_pattern(dupsort_big, (uint32_t)sizeof(dupsort_big), 55);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+
+    /* non-DUPSORT writes can spill to overflow */
+    CHECK(txn_put_dbi(w, 0, "n0", 2, ov_a, (uint32_t)sizeof(ov_a)) == SAP_OK);
+
+    /* SAP_RESERVE requires inline storage and rejects overflow needs */
+    CHECK(txn_put_flags_dbi(w, 0, "nr", 2, NULL, (uint32_t)sizeof(ov_b), SAP_RESERVE, &reserved) ==
+          SAP_ERROR);
+    CHECK(reserved == (void *)0x1);
+
+    /* DUPSORT remains inline-only and rejects large composite key/value cells */
+    CHECK(txn_put_dbi(w, 1, "d0", 2, dupsort_big, (uint32_t)sizeof(dupsort_big)) == SAP_FULL);
+    CHECK(txn_put_flags_dbi(w, 1, "d1", 2, NULL, 4, SAP_RESERVE, &reserved) == SAP_ERROR);
+
+    /* Other contracts remain intact with overflow-enabled DBIs */
+    CHECK(txn_put_flags_dbi(w, 0, "n0", 2, ov_b, (uint32_t)sizeof(ov_b), SAP_NOOVERWRITE, NULL) ==
+          SAP_EXISTS);
+    CHECK(txn_merge(w, 0, "m0", 2, ov_b, (uint32_t)sizeof(ov_b), merge_concat, NULL) == SAP_OK);
+    CHECK(txn_merge(w, 1, "m0", 2, "x", 1, merge_concat, NULL) == SAP_ERROR);
+
+    cur = cursor_open_dbi(w, 0);
+    CHECK(cur != NULL);
+    CHECK(cursor_seek(cur, "n0", 2) == SAP_OK);
+    CHECK(cursor_put(cur, ov_b, (uint32_t)sizeof(ov_b), 0) == SAP_OK);
+    cursor_close(cur);
+
+    CHECK(txn_put_dbi(w, 1, "dk", 2, "v", 1) == SAP_OK);
+    cur = cursor_open_dbi(w, 1);
+    CHECK(cur != NULL);
+    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_put(cur, "x", 1, 0) == SAP_ERROR);
+    cursor_close(cur);
+
+    CHECK(txn_load_sorted(w, 0, kz, kz_len, vz_overflow, vz_overflow_len, 1) == SAP_OK);
+    CHECK(txn_load_sorted(w, 1, kz, kz_len, vz_dupsort_big, vz_dupsort_big_len, 1) == SAP_FULL);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_dbi(r, 0, "n0", 2, &v, &vl) == SAP_OK);
+    CHECK(vl == (uint32_t)sizeof(ov_b));
+    CHECK(memcmp(v, ov_b, sizeof(ov_b)) == 0);
+    CHECK(txn_get_dbi(r, 0, "m0", 2, &v, &vl) == SAP_OK);
+    CHECK(vl == (uint32_t)sizeof(ov_b));
+    CHECK(memcmp(v, ov_b, sizeof(ov_b)) == 0);
+    txn_abort(r);
+
+    db_close(db);
+}
+
 /* ================================================================== */
 /* Test: runtime page-size safety invariants                            */
 /* ================================================================== */
@@ -3740,6 +3820,7 @@ int main(void)
     test_sap_full();
     test_overflow_values();
     test_overflow_failure_atomicity();
+    test_overflow_contract_matrix();
     test_runtime_page_size_safety();
     test_write_contention();
     test_leaf_capacity();
