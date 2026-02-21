@@ -65,6 +65,7 @@ runner_txstack_test
 runner_attempt_test
 runner_attempt_handler_test
 runner_atomic_integration_test
+runner_recovery_integration_test
 runner_mailbox_test
 runner_dead_letter_test
 runner_outbox_test

@@ -23,6 +23,7 @@ and prefix watch notifications.
 - `make runner-attempt-test` runs phase-B bounded retry attempt tests
 - `make runner-attempt-handler-test` runs generic attempt-backed handler adapter tests
 - `make runner-integration-test` runs deterministic phase-B retry+nested integration tests
+- `make runner-recovery-test` runs runner checkpoint/restore recovery integration tests
 - `make runner-mailbox-test` runs phase-C mailbox claim/ack/requeue tests
 - `make runner-dead-letter-test` runs phase-C dead-letter move tests
 - `make runner-outbox-test` runs phase-C outbox append/drain tests
@@ -65,6 +66,7 @@ Both require a WASI sysroot:
 - `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
 - `docs/RUNNER_DEAD_LETTER_V0.md` defines dead-letter move/record behavior.
 - `docs/RUNNER_DEAD_LETTER_POLICY.md` defines dead-letter drain/replay operations and policy.
+- `docs/RUNNER_RECOVERY_V0.md` defines runner checkpoint/restore recovery checks.
 - `docs/RUNNER_OUTBOX_V0.md` defines outbox append/drain and intent-publisher behavior.
 - `docs/RUNNER_TIMER_V0.md` defines timer intent ingestion and due-time draining.
 - `docs/RUNNER_SCHEDULER_V0.md` defines timer next-due and sleep-budget helpers.

@@ -25,6 +25,8 @@ Implemented foundation:
   adapter that executes message handling through `attempt_v0`.
 - `examples/native/runner_native_example.c`: non-WASI example worker path using
   `attempt_handler_v0` plus composed outbox/timer intent sink.
+- `tests/integration/runner_recovery_integration_test.c`: checkpoint/restore
+  recovery continuity for inbox + dead-letter runner state.
 - `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue
   scaffold with CAS-style lease token guards.
 - `dead_letter_v0.h` / `dead_letter_v0.c`: phase-C dead-letter move helpers for
