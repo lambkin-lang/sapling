@@ -18,3 +18,5 @@ Implemented foundation:
   validate/apply helpers for short write-txn commit phases.
 - `txstack_v0.h` / `txstack_v0.c`: phase-B nested atomic stack scaffold with
   closed-nesting push/commit/abort semantics and root commit guards.
+- `attempt_v0.h` / `attempt_v0.c`: phase-B bounded retry attempt engine around
+  snapshot execution, root validation/apply, and post-commit intent sink.

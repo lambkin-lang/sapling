@@ -438,7 +438,10 @@ Phase A status (started):
 - done: nested atomic context stack scaffold (`src/runner/txstack_v0`) with
   closed-nesting push/commit/abort flow and root commit guards
   (`tests/unit/runner_txstack_test.c`)
-- next: commit/abort/retry loop with bounded policy around root validation/apply
+- done: bounded retry attempt engine scaffold (`src/runner/attempt_v0`) around
+  snapshot execution, root validate/apply, and post-commit intent sink
+  (`tests/unit/runner_attempt_test.c`)
+- next: deterministic integration tests for conflict retry + nested rollback/commit
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -451,7 +454,9 @@ Phase B status (started):
   intent frame buffering, read validation, and staged write apply
 - done: `txstack_v0` nested frame push/commit/abort with child->parent merge
   semantics and nested read-your-write behavior across frame depth
-- next: bounded retry engine + deterministic conflict integration tests
+- done: `attempt_v0` bounded retry loop (`SAP_BUSY`/`SAP_CONFLICT`) with
+  backoff policy hooks and run stats
+- next: deterministic integration tests for retry + nested rollback/commit
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
