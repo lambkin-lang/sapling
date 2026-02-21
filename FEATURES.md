@@ -632,6 +632,8 @@ Current scope:
 - non-DUPSORT `txn_put` / `txn_get` / cursor reads
 - update/delete/range-delete cleanup of old overflow chains
 - CAS (`txn_put_if`) and merge (`txn_merge`) paths operate on overflow values
+- deterministic failure-atomicity coverage for overflow allocation failures
+  (abort/commit and checkpoint/restore continuity)
 - tree-rewrite cleanup paths and checkpoint/restore compatibility
 
 Current constraints:

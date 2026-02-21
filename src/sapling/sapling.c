@@ -3262,6 +3262,43 @@ int txn_commit(Txn *txn_pub)
     return SAP_OK;
 }
 
+static void txn_abort_free_untracked_new_pages(struct Txn *txn)
+{
+    struct DB *db;
+    uint32_t pgno;
+    uint32_t steps = 0;
+    uint32_t max_steps;
+
+    if (!txn)
+        return;
+    db = txn->db;
+    pgno = txn->free_pgno;
+    max_steps = txn->num_pages ? txn->num_pages : 1u;
+
+    while (pgno != INVALID_PGNO && steps <= max_steps)
+    {
+        void *pg;
+        uint32_t next;
+        if (pgno >= txn->saved_npages && !u32_find(txn->new_pages, txn->new_cnt, pgno, NULL))
+        {
+            if (pgno >= db->pages_cap || !db->pages[pgno])
+                break;
+            pg = db->pages[pgno];
+            next = rd32(pg);
+            db->alloc->free_page(db->alloc->ctx, pg, db->page_size);
+            db->pages[pgno] = NULL;
+            pgno = next;
+        }
+        else
+        {
+            if (pgno >= db->pages_cap || !db->pages[pgno])
+                break;
+            pgno = rd32(db->pages[pgno]);
+        }
+        steps++;
+    }
+}
+
 void txn_abort(Txn *txn_pub)
 {
     struct Txn *txn = (struct Txn *)txn_pub;
@@ -3272,6 +3309,9 @@ void txn_abort(Txn *txn_pub)
         txn_free_mem(txn);
         return;
     }
+
+    txn_abort_free_untracked_new_pages(txn);
+
     for (uint32_t i = 0; i < txn->new_cnt; i++)
     {
         uint32_t pgno = txn->new_pages[i];

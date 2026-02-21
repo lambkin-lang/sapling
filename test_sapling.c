@@ -31,6 +31,61 @@ static void test_free(void *ctx, void *p, uint32_t sz)
 
 static PageAllocator g_alloc = {test_alloc, test_free, NULL};
 
+struct FailingAllocCtx
+{
+    uint32_t live_pages;
+    uint32_t armed_hits;
+    uint32_t fail_at_hit;
+    uint8_t armed;
+};
+
+static void *failing_alloc_page(void *ctx, uint32_t sz)
+{
+    struct FailingAllocCtx *fa = (struct FailingAllocCtx *)ctx;
+    void *p;
+    if (!fa)
+        return NULL;
+    if (fa->armed)
+    {
+        fa->armed_hits++;
+        if (fa->fail_at_hit > 0 && fa->armed_hits == fa->fail_at_hit)
+            return NULL;
+    }
+    p = malloc((size_t)sz);
+    if (p)
+        fa->live_pages++;
+    return p;
+}
+
+static void failing_free_page(void *ctx, void *p, uint32_t sz)
+{
+    struct FailingAllocCtx *fa = (struct FailingAllocCtx *)ctx;
+    (void)sz;
+    if (!p)
+        return;
+    if (fa && fa->live_pages > 0)
+        fa->live_pages--;
+    free(p);
+}
+
+static void failing_alloc_arm(struct FailingAllocCtx *fa, uint32_t fail_at_hit)
+{
+    if (!fa)
+        return;
+    fa->armed = 1u;
+    fa->armed_hits = 0;
+    fa->fail_at_hit = fail_at_hit;
+}
+
+static void failing_alloc_disarm(struct FailingAllocCtx *fa)
+{
+    if (!fa)
+        return;
+    fa->armed = 0u;
+    fa->armed_hits = 0;
+    fa->fail_at_hit = 0;
+}
+
 /* ================================================================== */
 /* Simple test framework                                                */
 /* ================================================================== */
@@ -1255,6 +1310,95 @@ static void test_overflow_values(void)
     }
 
     db_close(db);
+}
+
+static void test_overflow_failure_atomicity(void)
+{
+    SECTION("overflow failure atomicity");
+    struct FailingAllocCtx fa = {0};
+    PageAllocator alloc = {failing_alloc_page, failing_free_page, &fa};
+    DB *db = db_open(&alloc, 256, NULL, NULL);
+    uint8_t oldv[48];
+    uint8_t bigv[900];
+    uint32_t live_before_abort;
+    struct MemBuf snap = {0};
+    Txn *w;
+    Txn *r;
+    const void *v;
+    uint32_t vl;
+
+    CHECK(db != NULL);
+    if (!db)
+        return;
+
+    fill_pattern(oldv, (uint32_t)sizeof(oldv), 41);
+    fill_pattern(bigv, (uint32_t)sizeof(bigv), 99);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put(w, "k", 1, oldv, (uint32_t)sizeof(oldv)) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    failing_alloc_arm(&fa, 2);
+    CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == SAP_ERROR);
+    failing_alloc_disarm(&fa);
+    CHECK(txn_put(w, "side", 4, "ok", 2) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get(r, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(vl == (uint32_t)sizeof(oldv));
+    CHECK(memcmp(v, oldv, sizeof(oldv)) == 0);
+    CHECK(txn_get(r, "side", 4, &v, &vl) == SAP_OK);
+    CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
+    txn_abort(r);
+
+    live_before_abort = fa.live_pages;
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    failing_alloc_arm(&fa, 2);
+    CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == SAP_ERROR);
+    failing_alloc_disarm(&fa);
+    txn_abort(w);
+    CHECK(fa.live_pages == live_before_abort);
+
+    CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_OK);
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put(w, "k", 1, "mut", 3) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    snap.pos = 0;
+    failing_alloc_arm(&fa, 2);
+    CHECK(db_restore(db, membuf_read, &snap) == SAP_ERROR);
+    failing_alloc_disarm(&fa);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get(r, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(vl == 3 && memcmp(v, "mut", 3) == 0);
+    CHECK(txn_get(r, "side", 4, &v, &vl) == SAP_OK);
+    CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
+    txn_abort(r);
+
+    snap.pos = 0;
+    CHECK(db_restore(db, membuf_read, &snap) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get(r, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(vl == (uint32_t)sizeof(oldv));
+    CHECK(memcmp(v, oldv, sizeof(oldv)) == 0);
+    CHECK(txn_get(r, "side", 4, &v, &vl) == SAP_OK);
+    CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
+    txn_abort(r);
+
+    free(snap.data);
+    db_close(db);
+    CHECK(fa.live_pages == 0);
 }
 
 /* ================================================================== */
@@ -3431,6 +3575,7 @@ int main(void)
     test_input_validation();
     test_sap_full();
     test_overflow_values();
+    test_overflow_failure_atomicity();
     test_runtime_page_size_safety();
     test_write_contention();
     test_leaf_capacity();
