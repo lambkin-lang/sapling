@@ -146,6 +146,56 @@ static int membuf_read(void *buf, uint32_t len, void *ctx)
     return 0;
 }
 
+static uint32_t read_u32_le(const uint8_t *p)
+{
+    uint32_t v = 0;
+    if (p)
+        memcpy(&v, p, sizeof(v));
+    return v;
+}
+
+static void write_u16_le(uint8_t *p, uint16_t v)
+{
+    if (p)
+        memcpy(p, &v, sizeof(v));
+}
+
+static void write_u32_le(uint8_t *p, uint32_t v)
+{
+    if (p)
+        memcpy(p, &v, sizeof(v));
+}
+
+static int snapshot_find_first_page_type(const struct MemBuf *mb, uint8_t page_type,
+                                         uint32_t *page_size_out, uint32_t *page_index_out)
+{
+    uint32_t page_size;
+    uint32_t num_pages;
+    uint64_t total;
+    if (!mb || !mb->data || mb->len < 16)
+        return 0;
+    page_size = read_u32_le(mb->data + 8);
+    num_pages = read_u32_le(mb->data + 12);
+    if (page_size == 0 || num_pages < 2)
+        return 0;
+    total = 16ull + (uint64_t)page_size * (uint64_t)num_pages;
+    if (total > mb->len)
+        return 0;
+    for (uint32_t i = 0; i < num_pages; i++)
+    {
+        uint64_t base = 16ull + (uint64_t)i * (uint64_t)page_size;
+        if (mb->data[base] == page_type)
+        {
+            if (page_size_out)
+                *page_size_out = page_size;
+            if (page_index_out)
+                *page_index_out = i;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 struct WatchEvent
 {
     uint8_t key[64];
@@ -1012,12 +1062,17 @@ static void test_overflow_values(void)
 
     {
         const void *v;
+        const void *v_again;
         uint32_t vl;
+        uint32_t vl_again;
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
         CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_OK);
         CHECK(vl == (uint32_t)sizeof(v1));
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
+        CHECK(txn_get(r, "k1", 2, &v_again, &vl_again) == SAP_OK);
+        CHECK(vl_again == vl);
+        CHECK(v_again == v);
 
         Cursor *cur = cursor_open(r);
         const void *k;
@@ -1028,6 +1083,7 @@ static void test_overflow_values(void)
         CHECK(kl == 2 && memcmp(k, "k1", 2) == 0);
         CHECK(vl == (uint32_t)sizeof(v1));
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
+        CHECK(v == v_again);
         cursor_close(cur);
         txn_abort(r);
     }
@@ -1123,6 +1179,66 @@ static void test_overflow_values(void)
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
         txn_abort(r);
         db_close(db2);
+    }
+
+    {
+        DB *db3 = db_open(&g_alloc, 256, NULL, NULL);
+        struct MemBuf snap = {0};
+        uint32_t page_size = 0;
+        uint32_t page_index = 0;
+        const void *v;
+        uint32_t vl;
+        CHECK(db3 != NULL);
+        w = txn_begin(db3, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put(w, "kc", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(db_checkpoint(db3, membuf_write, &snap) == SAP_OK);
+        CHECK(snapshot_find_first_page_type(&snap, 3u, &page_size, &page_index) == 1);
+        if (page_size > 0)
+        {
+            uint8_t *pg = snap.data + 16u + page_index * page_size;
+            /* Truncate chain early while logical length remains large. */
+            write_u32_le(pg + 8, 0xFFFFFFFFu);
+        }
+        snap.pos = 0;
+        CHECK(db_restore(db3, membuf_read, &snap) == SAP_OK);
+        Txn *r = txn_begin(db3, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "kc", 2, &v, &vl) == SAP_ERROR);
+        txn_abort(r);
+        free(snap.data);
+        db_close(db3);
+    }
+
+    {
+        DB *db4 = db_open(&g_alloc, 256, NULL, NULL);
+        struct MemBuf snap = {0};
+        uint32_t page_size = 0;
+        uint32_t page_index = 0;
+        const void *v;
+        uint32_t vl;
+        CHECK(db4 != NULL);
+        w = txn_begin(db4, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put(w, "kd", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(db_checkpoint(db4, membuf_write, &snap) == SAP_OK);
+        CHECK(snapshot_find_first_page_type(&snap, 3u, &page_size, &page_index) == 1);
+        if (page_size > 0)
+        {
+            uint8_t *pg = snap.data + 16u + page_index * page_size;
+            /* Corrupt chunk length to an invalid zero-length segment. */
+            write_u16_le(pg + 12, 0);
+        }
+        snap.pos = 0;
+        CHECK(db_restore(db4, membuf_read, &snap) == SAP_OK);
+        Txn *r = txn_begin(db4, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "kd", 2, &v, &vl) == SAP_ERROR);
+        txn_abort(r);
+        free(snap.data);
+        db_close(db4);
     }
 
     db_close(db);

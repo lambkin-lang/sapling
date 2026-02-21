@@ -239,6 +239,8 @@ struct TxnChange
 struct TxnReadBuf
 {
     uint8_t *buf;
+    uint32_t len;
+    uint32_t first_pgno;
     struct TxnReadBuf *next;
 };
 
@@ -464,7 +466,7 @@ static void txn_readbuf_clear(struct Txn *txn)
     txn->read_bufs = NULL;
 }
 
-static int txn_readbuf_hold(struct Txn *txn, uint8_t *buf)
+static int txn_readbuf_hold(struct Txn *txn, uint8_t *buf, uint32_t len, uint32_t first_pgno)
 {
     struct TxnReadBuf *node;
     if (!txn || !buf)
@@ -473,9 +475,26 @@ static int txn_readbuf_hold(struct Txn *txn, uint8_t *buf)
     if (!node)
         return -1;
     node->buf = buf;
+    node->len = len;
+    node->first_pgno = first_pgno;
     node->next = txn->read_bufs;
     txn->read_bufs = node;
     return 0;
+}
+
+static const uint8_t *txn_readbuf_find(const struct Txn *txn, uint32_t len, uint32_t first_pgno)
+{
+    const struct TxnReadBuf *cur;
+    if (!txn)
+        return NULL;
+    cur = txn->read_bufs;
+    while (cur)
+    {
+        if (cur->len == len && cur->first_pgno == first_pgno)
+            return cur->buf;
+        cur = cur->next;
+    }
+    return NULL;
 }
 
 /* DUPSORT key-only seek helper used by key-prefix operations. */
@@ -962,7 +981,9 @@ static int overflow_read_value(struct Txn *txn, const void *meta, const void **v
 {
     struct DB *db;
     uint32_t val_len;
+    uint32_t first_pgno;
     uint32_t pgno;
+    const uint8_t *cached;
     uint8_t *buf;
     uint32_t copied = 0;
     uint32_t steps = 0;
@@ -971,7 +992,8 @@ static int overflow_read_value(struct Txn *txn, const void *meta, const void **v
         return SAP_ERROR;
 
     val_len = rd32(meta);
-    pgno = rd32((const uint8_t *)meta + 4);
+    first_pgno = rd32((const uint8_t *)meta + 4);
+    pgno = first_pgno;
     if (val_len == 0)
     {
         *val_out = "";
@@ -980,6 +1002,14 @@ static int overflow_read_value(struct Txn *txn, const void *meta, const void **v
     }
     if (pgno == INVALID_PGNO)
         return SAP_ERROR;
+
+    cached = txn_readbuf_find(txn, val_len, first_pgno);
+    if (cached)
+    {
+        *val_out = cached;
+        *val_len_out = val_len;
+        return SAP_OK;
+    }
 
     buf = (uint8_t *)malloc(val_len);
     if (!buf)
@@ -1022,7 +1052,7 @@ static int overflow_read_value(struct Txn *txn, const void *meta, const void **v
         free(buf);
         return SAP_ERROR;
     }
-    if (txn_readbuf_hold(txn, buf) < 0)
+    if (txn_readbuf_hold(txn, buf, val_len, first_pgno) < 0)
     {
         free(buf);
         return SAP_ERROR;
