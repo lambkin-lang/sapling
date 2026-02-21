@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-and-bench:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and test
+        run: make test
+
+      - name: Benchmark regression guardrail
+        run: make bench-ci BENCH_COUNT=100000 BENCH_ROUNDS=3

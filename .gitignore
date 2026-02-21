@@ -56,4 +56,6 @@ dkms.conf
 
 # Sapling build artifacts
 test_sapling
+bench_sapling
+wasm_smoke.wasm
 _codeql_detected_source_root
