@@ -428,7 +428,9 @@ Phase A status (started):
   worker-prefixed key scan, callback dispatch, post-dispatch delete)
 - done: worker shell around lifecycle state machine (`SapRunnerV0Worker` with
   tick/stop APIs and optional pthread start/join under `SAPLING_THREADED`)
-- next: wire worker shell to Wasm invocation shim in `src/wasi`
+- done: worker shell wired to initial Wasm invocation shim in `src/wasi`
+  (`shim_v0` callback contract + integration tests)
+- next: replace callback stub with concrete runtime-backed guest invocation
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)

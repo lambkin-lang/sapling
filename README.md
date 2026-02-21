@@ -18,6 +18,7 @@ and prefix watch notifications.
 - `make schema-check` runs WIT validation + codegen + generated-C compile check + `schemas/dbi_manifest.csv` validation
 - `make runner-wire-test` runs v0 runner message/intent wire-format tests
 - `make runner-lifecycle-test` runs phase-A runner lifecycle/schema-guard tests
+- `make wasi-shim-test` runs phase-A runner<->wasi shim integration tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
 - `make phasea-check` runs phase-0 checks plus phase-A runner tests
 
@@ -41,6 +42,7 @@ Both require a WASI sysroot:
 - `docs/WIT_SCHEMA.md` describes WIT-first schema conventions and codegen.
 - `docs/RUNNER_WIRE_V0.md` defines the frozen v0 runner serialization contract.
 - `docs/RUNNER_LIFECYCLE_V0.md` defines lifecycle bootstrap and schema-version guard behavior.
+- `docs/WASI_SHIM_V0.md` defines runner worker integration with the WASI shim callback.
 
 ## Source layout transition (phase 0)
 - Canonical engine sources now live in:

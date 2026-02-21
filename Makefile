@@ -21,6 +21,7 @@
 #   make wit-schema-cc-check — compile generated C metadata
 #   make runner-wire-test — run v0 runner wire-format tests
 #   make runner-lifecycle-test — run runner lifecycle/schema-guard tests
+#   make wasi-shim-test — run runner<->wasi shim integration tests
 #   make schema-check — validate schemas/dbi_manifest.csv
 #   make stress-harness — run deterministic fault harness scaffold
 #   make phase0-check — run phase-0 foundation checks
@@ -62,6 +63,7 @@ BENCH_BIN = bench_sapling
 STRESS_BIN = fault_harness
 RUNNER_WIRE_TEST_BIN = runner_wire_test
 RUNNER_LIFECYCLE_TEST_BIN = runner_lifecycle_test
+WASI_SHIM_TEST_BIN = wasi_shim_test
 BENCH_COUNT ?= 100000
 BENCH_ROUNDS ?= 3
 BENCH_BASELINE ?= benchmarks/baseline.env
@@ -96,11 +98,14 @@ RUNNER_WIRE_TEST_SRC = tests/unit/runner_wire_test.c
 RUNNER_LIFECYCLE_SRC = src/runner/runner_v0.c
 RUNNER_LIFECYCLE_HDR = src/runner/runner_v0.h
 RUNNER_LIFECYCLE_TEST_SRC = tests/unit/runner_lifecycle_test.c
-FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_CPPCHECK_FILES = src/common src/runner tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/stress/fault_harness.c
+WASI_SHIM_SRC = src/wasi/shim_v0.c
+WASI_SHIM_HDR = src/wasi/shim_v0.h
+WASI_SHIM_TEST_SRC = tests/unit/wasi_shim_test.c
+FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test schema-check stress-harness phase0-check phasea-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test wasi-shim-test schema-check stress-harness phase0-check phasea-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -176,6 +181,9 @@ $(RUNNER_WIRE_TEST_BIN): $(RUNNER_WIRE_TEST_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_WIR
 $(RUNNER_LIFECYCLE_TEST_BIN): $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(WIT_GEN_SRC) $(WIT_GEN_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TEST_BIN) $(LDFLAGS)
 
+$(WASI_SHIM_TEST_BIN): $(WASI_SHIM_TEST_SRC) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(WIT_GEN_SRC) $(WIT_GEN_HDR)
+	$(CC) $(CFLAGS) $(INCLUDES) $(WASI_SHIM_TEST_SRC) $(WASI_SHIM_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) $(WIT_GEN_SRC) -o $(WASI_SHIM_TEST_BIN) $(LDFLAGS)
+
 format:
 	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { echo "clang-format not found: $(CLANG_FORMAT)"; exit 2; }
 	$(CLANG_FORMAT) -i $(FORMAT_FILES)
@@ -220,6 +228,10 @@ runner-lifecycle-test: CFLAGS += -O2 -g
 runner-lifecycle-test: wit-schema-generate $(RUNNER_LIFECYCLE_TEST_BIN)
 	./$(RUNNER_LIFECYCLE_TEST_BIN)
 
+wasi-shim-test: CFLAGS += -O2 -g
+wasi-shim-test: wit-schema-generate $(WASI_SHIM_TEST_BIN)
+	./$(WASI_SHIM_TEST_BIN)
+
 $(STRESS_BIN): tests/stress/fault_harness.c $(FAULT_SRC) $(FAULT_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/fault_harness.c $(FAULT_SRC) -o $(STRESS_BIN) $(LDFLAGS)
 
@@ -228,7 +240,7 @@ stress-harness: $(STRESS_BIN)
 
 phase0-check: lint schema-check stress-harness
 
-phasea-check: phase0-check runner-wire-test runner-lifecycle-test
+phasea-check: phase0-check runner-wire-test runner-lifecycle-test wasi-shim-test
 
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
+	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
