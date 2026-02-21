@@ -232,8 +232,11 @@ int txn_merge(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const v
               uint32_t op_len, sap_merge_fn merge, void *ctx);
 
 /* TTL helpers (initial support via companion metadata DBI).
- * ttl_dbi stores key -> uint64 expiration timestamp (ms since epoch).
+ * ttl_dbi stores internal lookup+index rows (reserved key prefixes):
+ *   [0x00 | key] -> uint64 expiration ms (native-endian bytes)
+ *   [0x01 | expires_at_be64 | key] -> empty value
  * Both DBIs must be non-DUPSORT and distinct.
+ * User keys for TTL helpers must satisfy key_len <= UINT16_MAX - 9.
  */
 int txn_put_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
                     uint32_t key_len, const void *val, uint32_t val_len,

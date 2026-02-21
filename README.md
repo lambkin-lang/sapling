@@ -99,7 +99,8 @@ Both require a WASI sysroot:
 - Corrupt overflow metadata/chains are treated as decode errors and read paths
   return `SAP_ERROR`.
 - TTL helpers (`txn_put_ttl_dbi`, `txn_get_ttl_dbi`, `txn_sweep_ttl_dbi`) use a
-  companion non-DUPSORT metadata DBI with 8-byte expiration timestamps.
+  companion non-DUPSORT metadata DBI with reserved lookup/index key prefixes;
+  TTL helper keys must satisfy `key_len <= UINT16_MAX - 9`.
 - `cursor_open_dbi` returns `NULL` for invalid DBI handles.
 - Watch callbacks are driven by top-level commits for keys in the watched DBI.
   Watch registrations affect write transactions started after registration.

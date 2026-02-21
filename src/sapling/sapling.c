@@ -108,9 +108,28 @@ static inline uint64_t rd64(const void *p)
     memcpy(&v, p, 8);
     return v;
 }
+static inline uint64_t rd64be(const void *p)
+{
+    const uint8_t *b = (const uint8_t *)p;
+    return ((uint64_t)b[0] << 56) | ((uint64_t)b[1] << 48) | ((uint64_t)b[2] << 40) |
+           ((uint64_t)b[3] << 32) | ((uint64_t)b[4] << 24) | ((uint64_t)b[5] << 16) |
+           ((uint64_t)b[6] << 8) | (uint64_t)b[7];
+}
 static inline void wr16(void *p, uint16_t v) { memcpy(p, &v, 2); }
 static inline void wr32(void *p, uint32_t v) { memcpy(p, &v, 4); }
 static inline void wr64(void *p, uint64_t v) { memcpy(p, &v, 8); }
+static inline void wr64be(void *p, uint64_t v)
+{
+    uint8_t *b = (uint8_t *)p;
+    b[0] = (uint8_t)(v >> 56);
+    b[1] = (uint8_t)(v >> 48);
+    b[2] = (uint8_t)(v >> 40);
+    b[3] = (uint8_t)(v >> 32);
+    b[4] = (uint8_t)(v >> 24);
+    b[5] = (uint8_t)(v >> 16);
+    b[6] = (uint8_t)(v >> 8);
+    b[7] = (uint8_t)v;
+}
 
 /* ================================================================== */
 /* Page field macros                                                    */
@@ -3105,9 +3124,15 @@ struct TTLKeyList
 {
     uint8_t **keys;
     uint32_t *lens;
+    uint64_t *expiries;
     uint32_t count;
     uint32_t cap;
 };
+
+#define TTL_META_LOOKUP_TAG 0x00u
+#define TTL_META_INDEX_TAG 0x01u
+#define TTL_META_LOOKUP_OVERHEAD 1u
+#define TTL_META_INDEX_OVERHEAD 9u
 
 static void ttl_key_list_clear(struct TTLKeyList *list)
 {
@@ -3117,13 +3142,16 @@ static void ttl_key_list_clear(struct TTLKeyList *list)
         free(list->keys[i]);
     free(list->keys);
     free(list->lens);
+    free(list->expiries);
     list->keys = NULL;
     list->lens = NULL;
+    list->expiries = NULL;
     list->count = 0;
     list->cap = 0;
 }
 
-static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t key_len)
+static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t key_len,
+                             uint64_t expiry)
 {
     uint8_t *copy;
     if (!list)
@@ -3133,21 +3161,26 @@ static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t 
         uint32_t nc = list->cap ? list->cap * 2u : 16u;
         uint8_t **nkeys = (uint8_t **)malloc(nc * sizeof(uint8_t *));
         uint32_t *nlens = (uint32_t *)malloc(nc * sizeof(uint32_t));
-        if (!nkeys || !nlens)
+        uint64_t *nexp = (uint64_t *)malloc(nc * sizeof(uint64_t));
+        if (!nkeys || !nlens || !nexp)
         {
             free(nkeys);
             free(nlens);
+            free(nexp);
             return SAP_ERROR;
         }
         if (list->count > 0)
         {
             memcpy(nkeys, list->keys, list->count * sizeof(uint8_t *));
             memcpy(nlens, list->lens, list->count * sizeof(uint32_t));
+            memcpy(nexp, list->expiries, list->count * sizeof(uint64_t));
         }
         free(list->keys);
         free(list->lens);
+        free(list->expiries);
         list->keys = nkeys;
         list->lens = nlens;
+        list->expiries = nexp;
         list->cap = nc;
     }
     copy = (uint8_t *)malloc(key_len ? key_len : 1u);
@@ -3157,7 +3190,51 @@ static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t 
         memcpy(copy, key, key_len);
     list->keys[list->count] = copy;
     list->lens[list->count] = key_len;
+    list->expiries[list->count] = expiry;
     list->count++;
+    return SAP_OK;
+}
+
+static int ttl_encode_lookup_key(const void *key, uint32_t key_len, uint8_t **out_key,
+                                 uint32_t *out_len)
+{
+    uint8_t *buf;
+    uint32_t len;
+    if (!out_key || !out_len)
+        return SAP_ERROR;
+    if (key_len > UINT16_MAX - TTL_META_LOOKUP_OVERHEAD)
+        return SAP_FULL;
+    len = key_len + TTL_META_LOOKUP_OVERHEAD;
+    buf = (uint8_t *)malloc(len ? len : 1u);
+    if (!buf)
+        return SAP_ERROR;
+    buf[0] = TTL_META_LOOKUP_TAG;
+    if (key_len > 0)
+        memcpy(buf + TTL_META_LOOKUP_OVERHEAD, key, key_len);
+    *out_key = buf;
+    *out_len = len;
+    return SAP_OK;
+}
+
+static int ttl_encode_index_key(const void *key, uint32_t key_len, uint64_t expiry, uint8_t **out_key,
+                                uint32_t *out_len)
+{
+    uint8_t *buf;
+    uint32_t len;
+    if (!out_key || !out_len)
+        return SAP_ERROR;
+    if (key_len > UINT16_MAX - TTL_META_INDEX_OVERHEAD)
+        return SAP_FULL;
+    len = key_len + TTL_META_INDEX_OVERHEAD;
+    buf = (uint8_t *)malloc(len ? len : 1u);
+    if (!buf)
+        return SAP_ERROR;
+    buf[0] = TTL_META_INDEX_TAG;
+    wr64be(buf + 1, expiry);
+    if (key_len > 0)
+        memcpy(buf + TTL_META_INDEX_OVERHEAD, key, key_len);
+    *out_key = buf;
+    *out_len = len;
     return SAP_OK;
 }
 
@@ -3182,29 +3259,84 @@ int txn_put_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
 {
     struct Txn *txn = (struct Txn *)txn_pub;
     Txn *child;
+    const void *old_exp_raw = NULL;
+    uint32_t old_exp_len = 0;
     uint8_t expiry_buf[8];
+    uint8_t *lookup_key = NULL;
+    uint8_t *index_key = NULL;
+    uint8_t *old_index_key = NULL;
+    uint32_t lookup_len = 0;
+    uint32_t index_len = 0;
+    uint32_t old_index_len = 0;
     int rc;
 
+    if (!key && key_len > 0)
+        return SAP_ERROR;
+    if (!val && val_len > 0)
+        return SAP_ERROR;
     rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 1);
     if (rc != SAP_OK)
         return rc;
+    rc = ttl_encode_lookup_key(key, key_len, &lookup_key, &lookup_len);
+    if (rc != SAP_OK)
+        goto done;
+    rc = ttl_encode_index_key(key, key_len, expires_at_ms, &index_key, &index_len);
+    if (rc != SAP_OK)
+        goto done;
+
     child = txn_begin((DB *)txn->db, (Txn *)txn, 0);
     if (!child)
-        return SAP_ERROR;
+    {
+        rc = SAP_ERROR;
+        goto done;
+    }
 
-    rc = txn_put_dbi(child, data_dbi, key, key_len, val, val_len);
+    rc = txn_get_dbi(child, ttl_dbi, lookup_key, lookup_len, &old_exp_raw, &old_exp_len);
     if (rc == SAP_OK)
     {
-        wr64(expiry_buf, expires_at_ms);
-        rc = txn_put_dbi(child, ttl_dbi, key, key_len, expiry_buf, (uint32_t)sizeof(expiry_buf));
+        rc = (old_exp_len == 8) ? SAP_OK : SAP_ERROR;
+        if (rc != SAP_OK)
+            goto abort_child;
+        rc = ttl_encode_index_key(key, key_len, rd64(old_exp_raw), &old_index_key, &old_index_len);
+        if (rc != SAP_OK)
+            goto abort_child;
+        rc = txn_del_dbi(child, ttl_dbi, old_index_key, old_index_len);
+        if (rc != SAP_OK && rc != SAP_NOTFOUND)
+            goto abort_child;
+        rc = SAP_OK;
+    }
+    else if (rc == SAP_NOTFOUND)
+    {
+        rc = SAP_OK;
+    }
+    else
+    {
+        goto abort_child;
     }
 
+    rc = txn_put_dbi(child, data_dbi, key, key_len, val, val_len);
     if (rc != SAP_OK)
-    {
-        txn_abort(child);
-        return rc;
-    }
-    return txn_commit(child);
+        goto abort_child;
+
+    wr64(expiry_buf, expires_at_ms);
+    rc = txn_put_dbi(child, ttl_dbi, lookup_key, lookup_len, expiry_buf, (uint32_t)sizeof(expiry_buf));
+    if (rc != SAP_OK)
+        goto abort_child;
+
+    rc = txn_put_dbi(child, ttl_dbi, index_key, index_len, NULL, 0);
+    if (rc != SAP_OK)
+        goto abort_child;
+
+    rc = txn_commit(child);
+    goto done;
+
+abort_child:
+    txn_abort(child);
+done:
+    free(lookup_key);
+    free(index_key);
+    free(old_index_key);
+    return rc;
 }
 
 int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
@@ -3213,6 +3345,8 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
     struct Txn *txn = (struct Txn *)txn_pub;
     const void *exp_raw;
     uint32_t exp_len;
+    uint8_t *lookup_key = NULL;
+    uint32_t lookup_len = 0;
     int rc;
 
     if (!val_out || !val_len_out)
@@ -3224,7 +3358,12 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
     if (rc != SAP_OK)
         return rc;
 
-    rc = txn_get_dbi((Txn *)txn, ttl_dbi, key, key_len, &exp_raw, &exp_len);
+    rc = ttl_encode_lookup_key(key, key_len, &lookup_key, &lookup_len);
+    if (rc != SAP_OK)
+        return rc;
+
+    rc = txn_get_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len, &exp_raw, &exp_len);
+    free(lookup_key);
     if (rc != SAP_OK)
         return rc;
     if (exp_len != 8)
@@ -3240,6 +3379,7 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
 {
     struct TTLKeyList expired = {0};
     Cursor *cur;
+    const uint8_t seek_key = TTL_META_INDEX_TAG;
     int rc;
     uint64_t deleted = 0;
 
@@ -3247,7 +3387,7 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
     if (!cur)
         return SAP_ERROR;
 
-    rc = cursor_first(cur);
+    rc = cursor_seek(cur, &seek_key, 1);
     if (rc == SAP_NOTFOUND)
     {
         cursor_close(cur);
@@ -3264,8 +3404,10 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
     {
         const void *k;
         const void *v;
+        const uint8_t *kb;
         uint32_t kl;
         uint32_t vl;
+        uint64_t expiry;
 
         rc = cursor_get(cur, &k, &kl, &v, &vl);
         if (rc == SAP_NOTFOUND)
@@ -3275,16 +3417,29 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
         }
         if (rc != SAP_OK)
             break;
-        if (vl != 8)
+        kb = (const uint8_t *)k;
+        if (kl < TTL_META_INDEX_OVERHEAD || kb[0] != TTL_META_INDEX_TAG)
+        {
+            rc = SAP_OK;
+            break;
+        }
+        if (vl != 0)
         {
             rc = SAP_ERROR;
             break;
         }
-        if (rd64(v) <= now_ms)
+        expiry = rd64be(kb + 1);
+        if (expiry <= now_ms)
         {
-            rc = ttl_key_list_push(&expired, k, kl);
+            rc = ttl_key_list_push(&expired, kb + TTL_META_INDEX_OVERHEAD,
+                                   kl - TTL_META_INDEX_OVERHEAD, expiry);
             if (rc != SAP_OK)
                 break;
+        }
+        else
+        {
+            rc = SAP_OK;
+            break;
         }
 
         rc = cursor_next(cur);
@@ -3305,20 +3460,72 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
 
     for (uint32_t i = 0; i < expired.count; i++)
     {
+        uint8_t *lookup_key = NULL;
+        uint8_t *index_key = NULL;
+        uint32_t lookup_len = 0;
+        uint32_t index_len = 0;
+        const void *lookup_val = NULL;
+        uint32_t lookup_vlen = 0;
+        int md_deleted = 0;
         int drc = txn_del_dbi((Txn *)txn, data_dbi, expired.keys[i], expired.lens[i]);
         if (drc != SAP_OK && drc != SAP_NOTFOUND)
         {
             rc = drc;
             break;
         }
-        drc = txn_del_dbi((Txn *)txn, ttl_dbi, expired.keys[i], expired.lens[i]);
+        rc = ttl_encode_lookup_key(expired.keys[i], expired.lens[i], &lookup_key, &lookup_len);
+        if (rc != SAP_OK)
+            break;
+        rc = ttl_encode_index_key(expired.keys[i], expired.lens[i], expired.expiries[i], &index_key,
+                                  &index_len);
+        if (rc != SAP_OK)
+        {
+            free(lookup_key);
+            break;
+        }
+
+        drc = txn_get_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len, &lookup_val, &lookup_vlen);
         if (drc != SAP_OK && drc != SAP_NOTFOUND)
         {
             rc = drc;
+            free(lookup_key);
+            free(index_key);
+            break;
+        }
+        if (drc == SAP_OK && lookup_vlen != 8)
+        {
+            rc = SAP_ERROR;
+            free(lookup_key);
+            free(index_key);
+            break;
+        }
+
+        drc = txn_del_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len);
+        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        {
+            rc = drc;
+            free(lookup_key);
+            free(index_key);
             break;
         }
         if (drc == SAP_OK)
+            md_deleted = 1;
+
+        drc = txn_del_dbi((Txn *)txn, ttl_dbi, index_key, index_len);
+        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        {
+            rc = drc;
+            free(lookup_key);
+            free(index_key);
+            break;
+        }
+        if (drc == SAP_OK)
+            md_deleted = 1;
+
+        if (md_deleted)
             deleted++;
+        free(lookup_key);
+        free(index_key);
     }
 
     ttl_key_list_clear(&expired);

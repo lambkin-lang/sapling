@@ -2464,6 +2464,8 @@ static void test_ttl_helpers(void)
 {
     SECTION("TTL helper APIs");
     DB *db = new_db();
+    const uint8_t bad_lookup_key[] = {0, 'b', 'a', 'd'};
+    const uint8_t bad_index_key[] = {1, 0, 0, 0, 0, 0, 0, 0, 0, 'b', 'a', 'd'};
     const void *v;
     uint32_t vl;
     uint64_t deleted = 0;
@@ -2516,7 +2518,8 @@ static void test_ttl_helpers(void)
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 2, "bad", 3, "oops", 4) == SAP_OK);
+    CHECK(txn_put_dbi(w, 2, bad_lookup_key, (uint32_t)sizeof(bad_lookup_key), "oops", 4) == SAP_OK);
+    CHECK(txn_put_dbi(w, 2, bad_index_key, (uint32_t)sizeof(bad_index_key), "oops", 4) == SAP_OK);
     CHECK(txn_commit(w) == SAP_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
@@ -2535,7 +2538,8 @@ static void test_ttl_helpers(void)
     CHECK(txn_put_ttl_dbi(w, 1, 1, "k", 1, "v", 1, 10) == SAP_ERROR);
     CHECK(txn_put_ttl_dbi(w, 3, 2, "k", 1, "v", 1, 10) == SAP_ERROR);
     CHECK(txn_put_ttl_dbi(w, 1, 3, "k", 1, "v", 1, 10) == SAP_ERROR);
-    CHECK(txn_del_dbi(w, 2, "bad", 3) == SAP_OK);
+    CHECK(txn_del_dbi(w, 2, bad_lookup_key, (uint32_t)sizeof(bad_lookup_key)) == SAP_OK);
+    CHECK(txn_del_dbi(w, 2, bad_index_key, (uint32_t)sizeof(bad_index_key)) == SAP_OK);
     deleted = 0;
     CHECK(txn_sweep_ttl_dbi(w, 99, 2, 500, &deleted) == SAP_ERROR);
     CHECK(txn_sweep_ttl_dbi(w, 1, 99, 500, &deleted) == SAP_ERROR);

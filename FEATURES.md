@@ -672,15 +672,16 @@ int txn_sweep_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
 Current behavior:
 - `txn_put_ttl_dbi` performs atomic nested writes of data + expiry metadata.
 - `txn_get_ttl_dbi` returns `SAP_NOTFOUND` for expired/missing metadata rows.
-- `txn_sweep_ttl_dbi` removes expired keys from both DBIs in one atomic helper.
+- `txn_sweep_ttl_dbi` walks a time-ordered expiry index and removes expired keys
+  from both DBIs in one atomic helper.
 
 Current constraints:
 - caller must provision a distinct non-DUPSORT `ttl_dbi`.
-- `ttl_dbi` values must be exactly 8-byte expiration timestamps.
-- expiry sweep is scan-backed (no dedicated time-ordered expiry index yet).
+- `ttl_dbi` uses reserved key prefixes for internal lookup/index rows.
+- TTL helper keys must satisfy `key_len <= UINT16_MAX - 9`.
 
 Next priorities:
-1. [P1] Add a time-ordered expiry index to avoid full metadata scans.
+1. [P1] Add bounded sweep budgets (`max_to_delete`) to cap worst-case txn time.
 2. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
 3. [P2] Add host-runner background sweep cadence and observability counters.
 
