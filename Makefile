@@ -21,12 +21,14 @@
 #   make wit-schema-cc-check — compile generated C metadata
 #   make runner-wire-test — run v0 runner wire-format tests
 #   make runner-lifecycle-test — run runner lifecycle/schema-guard tests
+#   make runner-txctx-test — run phase-B host tx context tests
 #   make wasi-runtime-test — run concrete wasi runtime wrapper tests
 #   make wasi-shim-test — run runner<->wasi shim integration tests
 #   make schema-check — validate schemas/dbi_manifest.csv
 #   make stress-harness — run deterministic fault harness scaffold
 #   make phase0-check — run phase-0 foundation checks
 #   make phasea-check — run phase-0 checks + phase-A runner tests
+#   make phaseb-check — run phase-A checks + phase-B tx context tests
 #   make clean        — remove build artifacts
 #
 # Variables:
@@ -64,6 +66,7 @@ BENCH_BIN = bench_sapling
 STRESS_BIN = fault_harness
 RUNNER_WIRE_TEST_BIN = runner_wire_test
 RUNNER_LIFECYCLE_TEST_BIN = runner_lifecycle_test
+RUNNER_TXCTX_TEST_BIN = runner_txctx_test
 WASI_RUNTIME_TEST_BIN = wasi_runtime_test
 WASI_SHIM_TEST_BIN = wasi_shim_test
 BENCH_COUNT ?= 100000
@@ -100,17 +103,20 @@ RUNNER_WIRE_TEST_SRC = tests/unit/runner_wire_test.c
 RUNNER_LIFECYCLE_SRC = src/runner/runner_v0.c
 RUNNER_LIFECYCLE_HDR = src/runner/runner_v0.h
 RUNNER_LIFECYCLE_TEST_SRC = tests/unit/runner_lifecycle_test.c
+RUNNER_TXCTX_SRC = src/runner/txctx_v0.c
+RUNNER_TXCTX_HDR = src/runner/txctx_v0.h
+RUNNER_TXCTX_TEST_SRC = tests/unit/runner_txctx_test.c
 WASI_SHIM_SRC = src/wasi/shim_v0.c
 WASI_SHIM_HDR = src/wasi/shim_v0.h
 WASI_RUNTIME_SRC = src/wasi/runtime_v0.c
 WASI_RUNTIME_HDR = src/wasi/runtime_v0.h
 WASI_RUNTIME_TEST_SRC = tests/unit/wasi_runtime_test.c
 WASI_SHIM_TEST_SRC = tests/unit/wasi_shim_test.c
-FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
+FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_TXCTX_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/runner_txctx_test.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test wasi-runtime-test wasi-shim-test schema-check stress-harness phase0-check phasea-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-txctx-test wasi-runtime-test wasi-shim-test schema-check stress-harness phase0-check phasea-check phaseb-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -186,6 +192,9 @@ $(RUNNER_WIRE_TEST_BIN): $(RUNNER_WIRE_TEST_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_WIR
 $(RUNNER_LIFECYCLE_TEST_BIN): $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(WIT_GEN_SRC) $(WIT_GEN_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TEST_BIN) $(LDFLAGS)
 
+$(RUNNER_TXCTX_TEST_BIN): $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
+	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) -o $(RUNNER_TXCTX_TEST_BIN) $(LDFLAGS)
+
 $(WASI_RUNTIME_TEST_BIN): $(WASI_RUNTIME_TEST_SRC) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(RUNNER_WIRE_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(WASI_RUNTIME_TEST_SRC) $(WASI_RUNTIME_SRC) -o $(WASI_RUNTIME_TEST_BIN) $(LDFLAGS)
 
@@ -236,6 +245,10 @@ runner-lifecycle-test: CFLAGS += -O2 -g
 runner-lifecycle-test: wit-schema-generate $(RUNNER_LIFECYCLE_TEST_BIN)
 	./$(RUNNER_LIFECYCLE_TEST_BIN)
 
+runner-txctx-test: CFLAGS += -O2 -g
+runner-txctx-test: $(RUNNER_TXCTX_TEST_BIN)
+	./$(RUNNER_TXCTX_TEST_BIN)
+
 wasi-runtime-test: CFLAGS += -O2 -g
 wasi-runtime-test: $(WASI_RUNTIME_TEST_BIN)
 	./$(WASI_RUNTIME_TEST_BIN)
@@ -254,5 +267,7 @@ phase0-check: lint schema-check stress-harness
 
 phasea-check: phase0-check runner-wire-test runner-lifecycle-test wasi-runtime-test wasi-shim-test
 
+phaseb-check: phasea-check runner-txctx-test
+
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
+	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)

@@ -60,6 +60,7 @@ bench_sapling
 fault_harness
 runner_wire_test
 runner_lifecycle_test
+runner_txctx_test
 wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm

@@ -13,3 +13,6 @@ Implemented foundation:
   DB-backed inbox polling.
 - `SapRunnerV0Worker` shell: runner tick/stop APIs and optional pthread
   start/join helpers (gated by `SAPLING_THREADED`).
+- `txctx_v0.h` / `txctx_v0.c`: phase-B host transaction context scaffold with
+  read-set tracking, write-set staging, intent buffering, and
+  validate/apply helpers for short write-txn commit phases.

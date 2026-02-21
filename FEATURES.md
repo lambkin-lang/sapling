@@ -432,13 +432,21 @@ Phase A status (started):
   (`shim_v0` callback contract + integration tests)
 - done: callback stub replaced with concrete runtime-backed guest invocation
   (`runtime_v0` + shim integration tests)
-- next: begin Phase B host tx context (`read_set`/`write_set`/intent buffer)
+- done: initial Phase B host tx context (`src/runner/txctx_v0`) with read-set
+  tracking, write-set staging, intent buffering, and validate/apply helpers
+  (`tests/unit/runner_txctx_test.c`)
+- next: add nested atomic context stack (closed nesting/savepoint semantics)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
 - nested atomic context stack (closed nesting/savepoints)
 - commit/abort/retry engine with bounded policy
 - deterministic integration tests for conflict retry + nested rollback/commit
+
+Phase B status (started):
+- done: `txctx_v0` scaffolding for read-set capture, write-set coalescing,
+  intent frame buffering, read validation, and staged write apply
+- next: nested context stack + merge/abort rules for closed-nesting semantics
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
