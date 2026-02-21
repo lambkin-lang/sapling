@@ -5,6 +5,7 @@
  */
 #include "generated/wit_schema_dbis.h"
 #include "runner/runner_v0.h"
+#include "wasi/runtime_v0.h"
 #include "wasi/shim_v0.h"
 
 #include <stdint.h>
@@ -66,11 +67,12 @@ static int encode_message(uint32_t to_worker, uint8_t *buf, uint32_t buf_len, ui
     return sap_runner_message_v0_encode(&msg, buf, buf_len, out_len);
 }
 
-static int guest_call(void *ctx, const SapRunnerMessageV0 *msg, uint8_t *reply_buf,
+static int guest_call(void *ctx, const uint8_t *request, uint32_t request_len, uint8_t *reply_buf,
                       uint32_t reply_buf_cap, uint32_t *reply_len_out)
 {
     GuestCtx *g = (GuestCtx *)ctx;
-    (void)msg;
+    (void)request;
+    (void)request_len;
     if (!g || !reply_buf || !reply_len_out)
     {
         return SAP_ERROR;
@@ -165,6 +167,7 @@ static int test_worker_shim_outbox_path(void)
     SapRunnerV0Config cfg;
     SapRunnerV0Worker worker;
     SapWasiShimV0 shim;
+    SapWasiRuntimeV0 runtime;
     GuestCtx guest = {0};
     uint8_t frame[128];
     uint32_t frame_len = 0u;
@@ -186,7 +189,8 @@ static int test_worker_shim_outbox_path(void)
     guest.reply[1] = 'k';
     guest.reply_len = 2u;
 
-    CHECK(sap_wasi_shim_v0_init(&shim, db, guest_call, &guest, 100u, 1) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 100u, 1) == SAP_OK);
     CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 4u) == SAP_OK);
 
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
@@ -195,6 +199,8 @@ static int test_worker_shim_outbox_path(void)
     CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
     CHECK(processed == 1u);
     CHECK(guest.calls == 1u);
+    CHECK(runtime.calls == 1u);
+    CHECK(runtime.last_rc == SAP_OK);
     CHECK(shim.next_outbox_seq == 101u);
 
     CHECK(outbox_get(db, 100u, &out_val, &out_len, &exists) == SAP_OK);
@@ -219,6 +225,7 @@ static int test_worker_shim_error_retains_inbox(void)
     SapRunnerV0Config cfg;
     SapRunnerV0Worker worker;
     SapWasiShimV0 shim;
+    SapWasiRuntimeV0 runtime;
     GuestCtx guest = {0};
     uint8_t frame[128];
     uint32_t frame_len = 0u;
@@ -235,7 +242,8 @@ static int test_worker_shim_error_retains_inbox(void)
     guest.rc = SAP_CONFLICT;
     guest.reply_len = 0u;
 
-    CHECK(sap_wasi_shim_v0_init(&shim, db, guest_call, &guest, 0u, 1) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 1) == SAP_OK);
     CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
     CHECK(sap_runner_v0_inbox_put(db, 7u, 55u, frame, frame_len) == SAP_OK);
@@ -244,6 +252,8 @@ static int test_worker_shim_error_retains_inbox(void)
     CHECK(processed == 0u);
     CHECK(worker.last_error == SAP_CONFLICT);
     CHECK(guest.calls == 1u);
+    CHECK(runtime.calls == 1u);
+    CHECK(runtime.last_rc == SAP_CONFLICT);
 
     CHECK(inbox_exists(db, 7u, 55u, &exists) == SAP_OK);
     CHECK(exists == 1);

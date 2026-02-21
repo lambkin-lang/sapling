@@ -57,18 +57,17 @@ static int outbox_put_frame(DB *db, uint64_t seq, const uint8_t *frame, uint32_t
     return rc;
 }
 
-int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, sap_wasi_shim_v0_guest_call guest_call,
-                          void *guest_ctx, uint64_t initial_outbox_seq, int emit_outbox_events)
+int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
+                          uint64_t initial_outbox_seq, int emit_outbox_events)
 {
-    if (!shim || !db || !guest_call)
+    if (!shim || !db || !runtime)
     {
         return SAP_ERROR;
     }
 
     memset(shim, 0, sizeof(*shim));
     shim->db = db;
-    shim->guest_call = guest_call;
-    shim->guest_ctx = guest_ctx;
+    shim->runtime = runtime;
     shim->next_outbox_seq = initial_outbox_seq;
     shim->emit_outbox_events = emit_outbox_events ? 1 : 0;
     return SAP_OK;
@@ -80,13 +79,13 @@ int sap_wasi_shim_v0_runner_handler(SapRunnerV0 *runner, const SapRunnerMessageV
     uint32_t reply_len = 0u;
     int rc;
 
-    if (!runner || !msg || !shim || !shim->db || !shim->guest_call)
+    if (!runner || !msg || !shim || !shim->db || !shim->runtime)
     {
         return SAP_ERROR;
     }
 
-    rc = shim->guest_call(shim->guest_ctx, msg, shim->reply_buf, sizeof(shim->reply_buf),
-                          &reply_len);
+    rc = sap_wasi_runtime_v0_invoke(shim->runtime, msg, shim->reply_buf, sizeof(shim->reply_buf),
+                                    &reply_len);
     if (rc != SAP_OK)
     {
         return rc;

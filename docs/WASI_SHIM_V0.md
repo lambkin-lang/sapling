@@ -5,24 +5,24 @@ runner worker shell and guest invocation logic.
 
 ## Purpose
 
-- expose a stable callback contract for guest execution
+- connect worker handling to a concrete runtime object (`runtime_v0`)
 - allow `SapRunnerV0Worker` to process inbox messages through that callback
 - optionally emit invocation results to outbox (DBI 2)
 
 ## API
 
 - `sap_wasi_shim_v0_init`
-  - binds DB handle, guest callback, and shim options
+  - binds DB handle, runtime instance, and shim options
 - `sap_wasi_shim_v0_runner_handler`
   - handler adapter passed into runner lifecycle APIs
 - `sap_wasi_shim_v0_worker_init`
   - convenience wrapper: initializes `SapRunnerV0Worker` with shim handler
 
-Guest callback signature:
-- `sap_wasi_shim_v0_guest_call`
-  - input: decoded `SapRunnerMessageV0`
-  - output: reply payload bytes (written to provided buffer)
-  - return: `SAP_OK` on success, non-`SAP_OK` to fail message processing
+Runtime invocation:
+- shim delegates to `sap_wasi_runtime_v0_invoke`
+  - request input is `msg.payload`
+  - reply payload bytes are copied into shim-managed response buffer
+  - non-`SAP_OK` aborts processing and leaves inbox entry intact
 
 ## Outbox behavior
 

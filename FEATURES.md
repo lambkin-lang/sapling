@@ -430,7 +430,9 @@ Phase A status (started):
   tick/stop APIs and optional pthread start/join under `SAPLING_THREADED`)
 - done: worker shell wired to initial Wasm invocation shim in `src/wasi`
   (`shim_v0` callback contract + integration tests)
-- next: replace callback stub with concrete runtime-backed guest invocation
+- done: callback stub replaced with concrete runtime-backed guest invocation
+  (`runtime_v0` + shim integration tests)
+- next: begin Phase B host tx context (`read_set`/`write_set`/intent buffer)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)

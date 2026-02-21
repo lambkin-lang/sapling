@@ -60,6 +60,7 @@ bench_sapling
 fault_harness
 runner_wire_test
 runner_lifecycle_test
+wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm
 _codeql_detected_source_root
