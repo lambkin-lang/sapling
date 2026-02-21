@@ -22,3 +22,5 @@ Implemented foundation:
   snapshot execution, root validation/apply, and post-commit intent sink.
 - `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue
   scaffold with CAS-style lease token guards.
+- `outbox_v0.h` / `outbox_v0.c`: phase-C outbox append/drain APIs plus
+  attempt-intent publisher adapter for committed outbox emission.

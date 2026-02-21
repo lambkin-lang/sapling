@@ -445,7 +445,9 @@ Phase A status (started):
   rollback/commit (`tests/integration/runner_atomic_integration_test.c`)
 - done: initial Phase C mailbox lease claim/ack/requeue scaffold
   (`src/runner/mailbox_v0` + `tests/unit/runner_mailbox_test.c`)
-- next: wire outbox dispatch publication path after successful ack/commit
+- done: initial outbox append/drain + committed-intent publisher adapter
+  (`src/runner/outbox_v0` + `tests/unit/runner_outbox_test.c`)
+- next: timer-ingestion path for `TIMER_ARM` intents and due-time scheduling
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -464,7 +466,9 @@ Phase B status (started):
   bounded retry, child commit/abort merge semantics, and post-commit intents
 - done: Phase C mailbox lease claim/ack/requeue scaffolding with CAS-style
   lease token guards and takeover-on-expiry behavior
-- next: outbox dispatch flow and timer due-time scheduling ingestion
+- done: Phase C outbox append/drain callback path and attempt intent-sink
+  publisher integration for `OUTBOX_EMIT`
+- next: timer due-time ingestion for `TIMER_ARM` and wake scheduling
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -474,7 +478,9 @@ Phase B status (started):
 Phase C status (started):
 - done: mailbox lease key/value encoding and DBI 3 claim/ack/requeue APIs
   with exact lease token guards
-- next: outbox dispatcher loop and timer wake scheduling path
+- done: DBI 2 outbox append/drain API with conflict-safe delete-if-match and
+  attempt-intent publisher adapter
+- next: timer DBI ingestion + due-time wake scheduling
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

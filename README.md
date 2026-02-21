@@ -23,6 +23,7 @@ and prefix watch notifications.
 - `make runner-attempt-test` runs phase-B bounded retry attempt tests
 - `make runner-integration-test` runs deterministic phase-B retry+nested integration tests
 - `make runner-mailbox-test` runs phase-C mailbox claim/ack/requeue tests
+- `make runner-outbox-test` runs phase-C outbox append/drain tests
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
 - `make wasi-shim-test` runs phase-A runner<->wasi shim integration tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
@@ -54,6 +55,7 @@ Both require a WASI sysroot:
 - `docs/RUNNER_TXSTACK_V0.md` defines closed-nested atomic stack behavior.
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.
 - `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
+- `docs/RUNNER_OUTBOX_V0.md` defines outbox append/drain and intent-publisher behavior.
 - `docs/WASI_RUNTIME_V0.md` defines the concrete runtime invocation layer used by the shim.
 - `docs/WASI_SHIM_V0.md` defines runner worker integration with the WASI shim/runtime path.
 
