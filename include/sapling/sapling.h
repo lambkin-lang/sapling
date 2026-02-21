@@ -231,6 +231,19 @@ int txn_del_range(Txn *txn, uint32_t dbi, const void *lo, uint32_t lo_len, const
 int txn_merge(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *operand,
               uint32_t op_len, sap_merge_fn merge, void *ctx);
 
+/* TTL helpers (initial support via companion metadata DBI).
+ * ttl_dbi stores key -> uint64 expiration timestamp (ms since epoch).
+ * Both DBIs must be non-DUPSORT and distinct.
+ */
+int txn_put_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
+                    uint32_t key_len, const void *val, uint32_t val_len,
+                    uint64_t expires_at_ms);
+int txn_get_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
+                    uint32_t key_len, uint64_t now_ms, const void **val_out,
+                    uint32_t *val_len_out);
+int txn_sweep_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                      uint64_t *deleted_count_out);
+
 /* ------------------------------------------------------------------ */
 /* Cursor — bidirectional ordered iteration                             */
 /* ------------------------------------------------------------------ */

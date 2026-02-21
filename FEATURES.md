@@ -18,6 +18,7 @@ current sorted key-value API, ordered by priority for the language runtime.
 - Range delete (`txn_del_range`, exact scan-backed)
 - Merge helper (`txn_merge`, callback-defined)
 - Overflow value storage (non-DUPSORT, chained overflow pages)
+- TTL helper APIs (`txn_put_ttl_dbi`, `txn_get_ttl_dbi`, `txn_sweep_ttl_dbi`)
 - Sorted-load API (`txn_load_sorted`, empty-DBI O(n) fast path)
 - Benchmark harness (`make bench-run`)
 - Benchmark CI guardrail (`make bench-ci`, baseline-backed)
@@ -651,10 +652,37 @@ order and sorted-load validation).
 int dbi_set_dupsort(DB *db, uint32_t dbi, keycmp_fn vcmp, void *vcmp_ctx);
 ```
 
-### TTL / automatic expiry
-Entries that expire after a duration. Useful for caches, sessions, and
-rate-limiting counters. Would require a background sweep or lazy deletion
-during cursor traversal.
+### TTL / automatic expiry (initial helper support done)
+Initial helper APIs now support TTL-managed keyspaces using a companion
+metadata DBI:
+
+```c
+int txn_put_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
+                    const void *key, uint32_t key_len,
+                    const void *val, uint32_t val_len,
+                    uint64_t expires_at_ms);
+int txn_get_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
+                    const void *key, uint32_t key_len,
+                    uint64_t now_ms,
+                    const void **val_out, uint32_t *val_len_out);
+int txn_sweep_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
+                      uint64_t now_ms, uint64_t *deleted_count_out);
+```
+
+Current behavior:
+- `txn_put_ttl_dbi` performs atomic nested writes of data + expiry metadata.
+- `txn_get_ttl_dbi` returns `SAP_NOTFOUND` for expired/missing metadata rows.
+- `txn_sweep_ttl_dbi` removes expired keys from both DBIs in one atomic helper.
+
+Current constraints:
+- caller must provision a distinct non-DUPSORT `ttl_dbi`.
+- `ttl_dbi` values must be exactly 8-byte expiration timestamps.
+- expiry sweep is scan-backed (no dedicated time-ordered expiry index yet).
+
+Next priorities:
+1. [P1] Add a time-ordered expiry index to avoid full metadata scans.
+2. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
+3. [P2] Add host-runner background sweep cadence and observability counters.
 
 ### Range delete (done, scan-backed for now)
 `txn_del_range` is available with half-open semantics `[lo, hi)` and currently

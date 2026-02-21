@@ -2457,6 +2457,105 @@ static void test_put_if(void)
 }
 
 /* ================================================================== */
+/* Test: TTL helper APIs                                                */
+/* ================================================================== */
+
+static void test_ttl_helpers(void)
+{
+    SECTION("TTL helper APIs");
+    DB *db = new_db();
+    const void *v;
+    uint32_t vl;
+    uint64_t deleted = 0;
+    Txn *w;
+    Txn *r;
+
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 3, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "a", 1, "va", 2, 100) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "b", 1, "vb", 2, 250) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, "plain", 5, "p", 1) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 99, &v, &vl) == SAP_OK);
+    CHECK(vl == 2 && memcmp(v, "va", 2) == 0);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 100, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "plain", 5, 0, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 3, 2, "a", 1, 0, &v, &vl) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 3, "a", 1, 0, &v, &vl) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, NULL, &vl) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, &v, NULL) == SAP_ERROR);
+    CHECK(txn_put_ttl_dbi(r, 1, 2, "x", 1, "y", 1, 1) == SAP_READONLY);
+    deleted = 77;
+    CHECK(txn_sweep_ttl_dbi(r, 1, 2, 200, &deleted) == SAP_READONLY);
+    CHECK(deleted == 0);
+    txn_abort(r);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 200, &deleted) == SAP_OK);
+    CHECK(deleted == 1);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 2, "a", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "b", 1, 200, &v, &vl) == SAP_OK);
+    CHECK(vl == 2 && memcmp(v, "vb", 2) == 0);
+    CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == SAP_OK);
+    CHECK(vl == 1 && memcmp(v, "p", 1) == 0);
+    txn_abort(r);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put_dbi(w, 2, "bad", 3, "oops", 4) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "bad", 3, 0, &v, &vl) == SAP_ERROR);
+    txn_abort(r);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == SAP_ERROR);
+    txn_abort(w);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put_ttl_dbi(w, 1, 1, "k", 1, "v", 1, 10) == SAP_ERROR);
+    CHECK(txn_put_ttl_dbi(w, 3, 2, "k", 1, "v", 1, 10) == SAP_ERROR);
+    CHECK(txn_put_ttl_dbi(w, 1, 3, "k", 1, "v", 1, 10) == SAP_ERROR);
+    CHECK(txn_del_dbi(w, 2, "bad", 3) == SAP_OK);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi(w, 99, 2, 500, &deleted) == SAP_ERROR);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 99, 500, &deleted) == SAP_ERROR);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, NULL) == SAP_ERROR);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == SAP_OK);
+    CHECK(deleted == 1);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 2, "b", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == SAP_OK);
+    CHECK(vl == 1 && memcmp(v, "p", 1) == 0);
+    txn_abort(r);
+
+    db_close(db);
+}
+
+/* ================================================================== */
 /* Test: multiple named databases                                       */
 /* ================================================================== */
 
@@ -3840,6 +3939,7 @@ int main(void)
     test_nooverwrite();
     test_reserve();
     test_put_if();
+    test_ttl_helpers();
     test_multi_dbi();
     test_multi_dbi_txn();
     test_checkpoint_restore();

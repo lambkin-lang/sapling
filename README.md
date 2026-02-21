@@ -2,7 +2,8 @@
 Clean-room, MIT-licensed copy-on-write B+ tree in portable C with MVCC snapshots,
 nested transactions, multi-DBI support, cursor reuse/key-only helpers, and
 DupSort/prefix helpers, plus range count/range delete/merge, overflow-value
-storage, sorted-load, CAS, checkpoint APIs, and prefix watch notifications.
+storage, sorted-load, CAS, checkpoint APIs, TTL helper APIs, and prefix watch
+notifications.
 
 ## Build and test
 - `make` builds `libsapling.a`
@@ -97,6 +98,8 @@ Both require a WASI sysroot:
   overflow storage (including DUPSORT DBIs).
 - Corrupt overflow metadata/chains are treated as decode errors and read paths
   return `SAP_ERROR`.
+- TTL helpers (`txn_put_ttl_dbi`, `txn_get_ttl_dbi`, `txn_sweep_ttl_dbi`) use a
+  companion non-DUPSORT metadata DBI with 8-byte expiration timestamps.
 - `cursor_open_dbi` returns `NULL` for invalid DBI handles.
 - Watch callbacks are driven by top-level commits for keys in the watched DBI.
   Watch registrations affect write transactions started after registration.

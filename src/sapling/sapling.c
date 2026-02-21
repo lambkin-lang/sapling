@@ -3101,6 +3101,264 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
     return SAP_FULL;
 }
 
+struct TTLKeyList
+{
+    uint8_t **keys;
+    uint32_t *lens;
+    uint32_t count;
+    uint32_t cap;
+};
+
+static void ttl_key_list_clear(struct TTLKeyList *list)
+{
+    if (!list)
+        return;
+    for (uint32_t i = 0; i < list->count; i++)
+        free(list->keys[i]);
+    free(list->keys);
+    free(list->lens);
+    list->keys = NULL;
+    list->lens = NULL;
+    list->count = 0;
+    list->cap = 0;
+}
+
+static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t key_len)
+{
+    uint8_t *copy;
+    if (!list)
+        return SAP_ERROR;
+    if (list->count >= list->cap)
+    {
+        uint32_t nc = list->cap ? list->cap * 2u : 16u;
+        uint8_t **nkeys = (uint8_t **)malloc(nc * sizeof(uint8_t *));
+        uint32_t *nlens = (uint32_t *)malloc(nc * sizeof(uint32_t));
+        if (!nkeys || !nlens)
+        {
+            free(nkeys);
+            free(nlens);
+            return SAP_ERROR;
+        }
+        if (list->count > 0)
+        {
+            memcpy(nkeys, list->keys, list->count * sizeof(uint8_t *));
+            memcpy(nlens, list->lens, list->count * sizeof(uint32_t));
+        }
+        free(list->keys);
+        free(list->lens);
+        list->keys = nkeys;
+        list->lens = nlens;
+        list->cap = nc;
+    }
+    copy = (uint8_t *)malloc(key_len ? key_len : 1u);
+    if (!copy)
+        return SAP_ERROR;
+    if (key_len > 0)
+        memcpy(copy, key, key_len);
+    list->keys[list->count] = copy;
+    list->lens[list->count] = key_len;
+    list->count++;
+    return SAP_OK;
+}
+
+static int ttl_validate_dbis(const struct Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi,
+                             int require_write)
+{
+    const struct DB *db;
+    if (!txn)
+        return SAP_ERROR;
+    if (require_write && (txn->flags & TXN_RDONLY))
+        return SAP_READONLY;
+    db = txn->db;
+    if (data_dbi >= db->num_dbs || ttl_dbi >= db->num_dbs || data_dbi == ttl_dbi)
+        return SAP_ERROR;
+    if ((db->dbs[data_dbi].flags & DBI_DUPSORT) || (db->dbs[ttl_dbi].flags & DBI_DUPSORT))
+        return SAP_ERROR;
+    return SAP_OK;
+}
+
+int txn_put_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
+                    uint32_t key_len, const void *val, uint32_t val_len, uint64_t expires_at_ms)
+{
+    struct Txn *txn = (struct Txn *)txn_pub;
+    Txn *child;
+    uint8_t expiry_buf[8];
+    int rc;
+
+    rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 1);
+    if (rc != SAP_OK)
+        return rc;
+    child = txn_begin((DB *)txn->db, (Txn *)txn, 0);
+    if (!child)
+        return SAP_ERROR;
+
+    rc = txn_put_dbi(child, data_dbi, key, key_len, val, val_len);
+    if (rc == SAP_OK)
+    {
+        wr64(expiry_buf, expires_at_ms);
+        rc = txn_put_dbi(child, ttl_dbi, key, key_len, expiry_buf, (uint32_t)sizeof(expiry_buf));
+    }
+
+    if (rc != SAP_OK)
+    {
+        txn_abort(child);
+        return rc;
+    }
+    return txn_commit(child);
+}
+
+int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
+                    uint32_t key_len, uint64_t now_ms, const void **val_out, uint32_t *val_len_out)
+{
+    struct Txn *txn = (struct Txn *)txn_pub;
+    const void *exp_raw;
+    uint32_t exp_len;
+    int rc;
+
+    if (!val_out || !val_len_out)
+        return SAP_ERROR;
+    if (!key && key_len > 0)
+        return SAP_ERROR;
+
+    rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 0);
+    if (rc != SAP_OK)
+        return rc;
+
+    rc = txn_get_dbi((Txn *)txn, ttl_dbi, key, key_len, &exp_raw, &exp_len);
+    if (rc != SAP_OK)
+        return rc;
+    if (exp_len != 8)
+        return SAP_ERROR;
+    if (rd64(exp_raw) <= now_ms)
+        return SAP_NOTFOUND;
+
+    return txn_get_dbi((Txn *)txn, data_dbi, key, key_len, val_out, val_len_out);
+}
+
+static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                               uint64_t *deleted_count_out)
+{
+    struct TTLKeyList expired = {0};
+    Cursor *cur;
+    int rc;
+    uint64_t deleted = 0;
+
+    cur = cursor_open_dbi((Txn *)txn, ttl_dbi);
+    if (!cur)
+        return SAP_ERROR;
+
+    rc = cursor_first(cur);
+    if (rc == SAP_NOTFOUND)
+    {
+        cursor_close(cur);
+        *deleted_count_out = 0;
+        return SAP_OK;
+    }
+    if (rc != SAP_OK)
+    {
+        cursor_close(cur);
+        return rc;
+    }
+
+    for (;;)
+    {
+        const void *k;
+        const void *v;
+        uint32_t kl;
+        uint32_t vl;
+
+        rc = cursor_get(cur, &k, &kl, &v, &vl);
+        if (rc == SAP_NOTFOUND)
+        {
+            rc = SAP_OK;
+            break;
+        }
+        if (rc != SAP_OK)
+            break;
+        if (vl != 8)
+        {
+            rc = SAP_ERROR;
+            break;
+        }
+        if (rd64(v) <= now_ms)
+        {
+            rc = ttl_key_list_push(&expired, k, kl);
+            if (rc != SAP_OK)
+                break;
+        }
+
+        rc = cursor_next(cur);
+        if (rc == SAP_NOTFOUND)
+        {
+            rc = SAP_OK;
+            break;
+        }
+        if (rc != SAP_OK)
+            break;
+    }
+    cursor_close(cur);
+    if (rc != SAP_OK)
+    {
+        ttl_key_list_clear(&expired);
+        return rc;
+    }
+
+    for (uint32_t i = 0; i < expired.count; i++)
+    {
+        int drc = txn_del_dbi((Txn *)txn, data_dbi, expired.keys[i], expired.lens[i]);
+        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        {
+            rc = drc;
+            break;
+        }
+        drc = txn_del_dbi((Txn *)txn, ttl_dbi, expired.keys[i], expired.lens[i]);
+        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        {
+            rc = drc;
+            break;
+        }
+        if (drc == SAP_OK)
+            deleted++;
+    }
+
+    ttl_key_list_clear(&expired);
+    if (rc == SAP_OK)
+        *deleted_count_out = deleted;
+    return rc;
+}
+
+int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                      uint64_t *deleted_count_out)
+{
+    struct Txn *txn = (struct Txn *)txn_pub;
+    Txn *child;
+    uint64_t deleted = 0;
+    int rc;
+
+    if (!deleted_count_out)
+        return SAP_ERROR;
+    *deleted_count_out = 0;
+
+    rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 1);
+    if (rc != SAP_OK)
+        return rc;
+
+    child = txn_begin((DB *)txn->db, (Txn *)txn, 0);
+    if (!child)
+        return SAP_ERROR;
+
+    rc = txn_sweep_ttl_inner((struct Txn *)child, data_dbi, ttl_dbi, now_ms, &deleted);
+    if (rc != SAP_OK)
+    {
+        txn_abort(child);
+        return rc;
+    }
+    rc = txn_commit(child);
+    if (rc == SAP_OK)
+        *deleted_count_out = deleted;
+    return rc;
+}
+
 /* ================================================================== */
 /* Transaction management                                               */
 /* ================================================================== */
