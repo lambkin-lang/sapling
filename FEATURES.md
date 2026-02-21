@@ -352,7 +352,8 @@ Concurrency and durability testing:
 
 Protocol and schema discipline:
 - message envelope version field + schema compatibility tests
-- DBI schema manifest (name, key layout, value layout, migration notes)
+- WIT schema package as source of truth (`schemas/wit/runtime-schema.wit`)
+- generated DBI schema manifest (name, key layout, value layout, migration notes)
 - explicit migration tooling for DBI additions/format changes
 
 Operational visibility:
@@ -386,7 +387,8 @@ Phase 0 status (initiated):
 - done: engine moved to `include/sapling` + `src/sapling` with top-level shims
 - done: initial layout skeleton (`src/common`, `src/runner`, `src/wasi`,
   `tests/{unit,integration,stress}`, `examples`, `tools`, `schemas`, `docs`)
-- done: `schema-check` tooling with DBI manifest
+- done: WIT-first schema pipeline (`wit-schema-check`, `wit-schema-generate`,
+  `wit-schema-cc-check`, generated `schemas/dbi_manifest.csv`, generated C DBI metadata)
 - done: deterministic fault-injection harness scaffold
 - in progress: expand lint/static-analysis scope from phase-0 files to entire
   codebase once legacy formatting debt is paid down

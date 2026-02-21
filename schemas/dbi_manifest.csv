@@ -1,7 +1,7 @@
 dbi,name,key_format,value_format,owner,status
-0,app_state,app-defined,app-defined,runtime,active
-1,inbox,"(worker_id,seq)",message,runtime,planned
-2,outbox,seq,event_or_message,runtime,planned
-3,leases,msg_id,lease_record,runtime,planned
-4,timers,"(due_ts,msg_id)",timer_payload,runtime,planned
-5,dedupe,msg_id,dedupe_record,runtime,planned
+0,app_state,wit:dbi0-app-state-key,wit:dbi0-app-state-value,runtime,active
+1,inbox,wit:dbi1-inbox-key,wit:dbi1-inbox-value,runtime,planned
+2,outbox,wit:dbi2-outbox-key,wit:dbi2-outbox-value,runtime,planned
+3,leases,wit:dbi3-leases-key,wit:dbi3-leases-value,runtime,planned
+4,timers,wit:dbi4-timers-key,wit:dbi4-timers-value,runtime,planned
+5,dedupe,wit:dbi5-dedupe-key,wit:dbi5-dedupe-value,runtime,planned

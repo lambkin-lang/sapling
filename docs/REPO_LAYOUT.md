@@ -13,7 +13,8 @@ source tree for long-term maintainability.
 - `tests/`: unit/integration/stress tests
 - `examples/`: runnable examples
 - `tools/`: validation and migration utilities
-- `schemas/`: DBI/message schema manifests
+- `schemas/`: schema sources and generated manifests (`schemas/wit/` for WIT)
+- `generated/`: generated C metadata derived from schema/tooling
 - `docs/`: architecture and ops guides
 
 ## Compatibility window

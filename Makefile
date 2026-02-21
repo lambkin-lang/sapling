@@ -16,6 +16,9 @@
 #   make tidy         — run clang-tidy checks
 #   make cppcheck     — run cppcheck checks (skips if unavailable)
 #   make lint         — run format-check + tidy + cppcheck
+#   make wit-schema-check — validate WIT schema package
+#   make wit-schema-generate — generate DBI manifest + C metadata from WIT
+#   make wit-schema-cc-check — compile generated C metadata
 #   make schema-check — validate schemas/dbi_manifest.csv
 #   make stress-harness — run deterministic fault harness scaffold
 #   make phase0-check — run phase-0 foundation checks
@@ -32,6 +35,7 @@
 #   CLANG_FORMAT=BIN  — clang-format binary override
 #   CLANG_TIDY=BIN    — clang-tidy binary override
 #   CPPCHECK=BIN      — cppcheck binary override
+#   WASM_TOOLS=BIN    — wasm-tools binary override
 
 CC       ?= gcc
 CFLAGS   := -Wall -Wextra -Werror -std=c99
@@ -57,9 +61,17 @@ BENCH_COUNT ?= 100000
 BENCH_ROUNDS ?= 3
 BENCH_BASELINE ?= benchmarks/baseline.env
 DBI_MANIFEST ?= schemas/dbi_manifest.csv
+WIT_SCHEMA_DIR ?= schemas/wit
+WIT_SCHEMA ?= $(WIT_SCHEMA_DIR)/runtime-schema.wit
+WIT_CODEGEN ?= tools/wit_schema_codegen.py
+WIT_GEN_DIR ?= generated
+WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
+WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
+WIT_GEN_OBJ ?= $(WIT_GEN_DIR)/wit_schema_dbis.o
 CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
 CPPCHECK ?= cppcheck
+WASM_TOOLS ?= wasm-tools
 WASI_CC   ?= clang
 WASI_AR   ?= ar
 WASI_TARGET ?= wasm32-wasi
@@ -77,7 +89,7 @@ FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) tests/stress/fault_
 PHASE0_TIDY_FILES = $(FAULT_SRC) tests/stress/fault_harness.c
 PHASE0_CPPCHECK_FILES = src/common tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint schema-check stress-harness phase0-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check schema-check stress-harness phase0-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -169,7 +181,18 @@ cppcheck:
 
 lint: format-check tidy cppcheck
 
-schema-check:
+wit-schema-check:
+	@command -v $(WASM_TOOLS) >/dev/null 2>&1 || { echo "wasm-tools not found: $(WASM_TOOLS)"; exit 2; }
+	$(WASM_TOOLS) component wit $(WIT_SCHEMA_DIR) --json >/dev/null
+
+wit-schema-generate: $(WIT_SCHEMA) $(WIT_CODEGEN)
+	python3 $(WIT_CODEGEN) --wit $(WIT_SCHEMA) --manifest $(DBI_MANIFEST) --header $(WIT_GEN_HDR) --source $(WIT_GEN_SRC)
+
+wit-schema-cc-check: wit-schema-generate
+	$(CC) $(CFLAGS) $(INCLUDES) -c $(WIT_GEN_SRC) -o $(WIT_GEN_OBJ)
+	rm -f $(WIT_GEN_OBJ)
+
+schema-check: wit-schema-check wit-schema-cc-check
 	python3 tools/check_dbi_manifest.py $(DBI_MANIFEST)
 
 $(STRESS_BIN): tests/stress/fault_harness.c $(FAULT_SRC) $(FAULT_HDR)
@@ -181,4 +204,4 @@ stress-harness: $(STRESS_BIN)
 phase0-check: lint schema-check stress-harness
 
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE)
+	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)

@@ -1,0 +1,130 @@
+package lambkin:runtime-schema@0.1.0;
+
+interface types {
+  type bytes = list<u8>;
+  type utf8 = list<u8>;
+  type worker-id = s64;
+  type timestamp = s64;
+  type score = f64;
+  type msg-route = tuple<worker-id, timestamp>;
+
+  flags message-flags {
+    durable,
+    high-priority,
+    dedupe-required,
+  }
+
+  enum message-kind {
+    command,
+    event,
+    timer,
+  }
+
+  record message-envelope {
+    message-id: utf8,
+    from-worker: option<worker-id>,
+    to: worker-id,
+    route: msg-route,
+    kind: message-kind,
+    message-flags: message-flags,
+    requires-ack: bool,
+    trace-id: option<utf8>,
+    payload: bytes,
+  }
+
+  record lease-info {
+    owner: worker-id,
+    deadline-ts: timestamp,
+    attempts: s64,
+  }
+
+  variant lease-state {
+    queued,
+    leased(lease-info),
+    done,
+    failed(utf8),
+  }
+
+  record message-ack {
+    message-id: utf8,
+    committed-at: timestamp,
+    accepted: bool,
+  }
+
+  variant tx-error {
+    busy,
+    conflict,
+    not-found,
+    schema-mismatch(utf8),
+    internal(utf8),
+  }
+
+  type apply-result = result<message-ack, tx-error>;
+
+  // DBI schema records.
+  // Naming convention is consumed by tools/wit_schema_codegen.py:
+  //   record dbi<index>-<name>-key
+  //   record dbi<index>-<name>-value
+  // where <index> is an integer and <name> is kebab-case.
+
+  record dbi0-app-state-key {
+    namespace: utf8,
+    key: utf8,
+  }
+
+  record dbi0-app-state-value {
+    body: bytes,
+    revision: s64,
+    updated-at: timestamp,
+    confidence: score,
+  }
+
+  record dbi1-inbox-key {
+    worker: worker-id,
+    seq: s64,
+  }
+
+  record dbi1-inbox-value {
+    envelope: message-envelope,
+  }
+
+  record dbi2-outbox-key {
+    seq: s64,
+  }
+
+  record dbi2-outbox-value {
+    envelope: message-envelope,
+    committed-at: timestamp,
+  }
+
+  record dbi3-leases-key {
+    message-id: utf8,
+  }
+
+  record dbi3-leases-value {
+    state: lease-state,
+  }
+
+  record dbi4-timers-key {
+    due-ts: timestamp,
+    message-id: utf8,
+  }
+
+  record dbi4-timers-value {
+    envelope: message-envelope,
+  }
+
+  record dbi5-dedupe-key {
+    message-id: utf8,
+  }
+
+  record dbi5-dedupe-value {
+    accepted: bool,
+    last-seen-ts: timestamp,
+    checksum: bytes,
+  }
+}
+
+world runtime-schema {
+  export types;
+}
