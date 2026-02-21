@@ -12,6 +12,8 @@ and prefix watch notifications.
 - `make bench` builds `bench_sapling`
 - `make bench-run BENCH_COUNT=100000 BENCH_ROUNDS=3` runs empty and non-empty sorted-load benchmarks
 - `make bench-ci` runs benchmark regression guardrails using `benchmarks/baseline.env`
+- `make schema-check` validates `schemas/dbi_manifest.csv`
+- `make stress-harness` runs deterministic fault-injection harness scaffolding
 
 Benchmark guardrail overrides:
 - `BENCH_BASELINE=benchmarks/baseline.env` selects the baseline file
@@ -28,6 +30,14 @@ Both require a WASI sysroot:
 ## Learning guide
 - `TUTORIAL_STM_OCC.md` explains STM/OCC, CAS, retry loops, nested
   transactions, watch semantics, and key concurrency terminology.
+- `docs/REPO_LAYOUT.md` describes the source tree migration and compatibility
+  shims.
+
+## Source layout transition (phase 0)
+- Canonical engine sources now live in:
+  - `include/sapling/sapling.h`
+  - `src/sapling/sapling.c`
+- Top-level `sapling.h` and `sapling.c` are temporary compatibility shims.
 
 ## Important runtime constraints
 - `db_open` requires `page_size` in `[256, 65535]`.

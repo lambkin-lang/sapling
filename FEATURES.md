@@ -382,6 +382,15 @@ Likely future failure modes and planned controls:
 - add formatting, static analysis, and schema-manifest checks
 - add deterministic/fault-injection harness scaffolding
 
+Phase 0 status (initiated):
+- done: engine moved to `include/sapling` + `src/sapling` with top-level shims
+- done: initial layout skeleton (`src/common`, `src/runner`, `src/wasi`,
+  `tests/{unit,integration,stress}`, `examples`, `tools`, `schemas`, `docs`)
+- done: `schema-check` tooling with DBI manifest
+- done: deterministic fault-injection harness scaffold
+- in progress: expand lint/static-analysis scope from phase-0 files to entire
+  codebase once legacy formatting debt is paid down
+
 #### Phase A — Runner skeleton + contracts
 - C host process with worker threads and Wasm instance lifecycle
 - canonical message envelope format and dispatch loop

@@ -1,0 +1,7 @@
+dbi,name,key_format,value_format,owner,status
+0,app_state,app-defined,app-defined,runtime,active
+1,inbox,"(worker_id,seq)",message,runtime,planned
+2,outbox,seq,event_or_message,runtime,planned
+3,leases,msg_id,lease_record,runtime,planned
+4,timers,"(due_ts,msg_id)",timer_payload,runtime,planned
+5,dedupe,msg_id,dedupe_record,runtime,planned
