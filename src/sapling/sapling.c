@@ -52,14 +52,18 @@ typedef int sap_mutex_t;
 #define PAGE_META 0
 #define PAGE_INTERNAL 1
 #define PAGE_LEAF 2
+#define PAGE_OVERFLOW 3
 #define SNAP_MAGIC 0x53434B50U
 #define SNAP_VERSION 1U
 
 #define INT_HDR 16U
 #define LEAF_HDR 10U
+#define OVERFLOW_HDR 14U
 #define SLOT_SZ 2U
 #define ICELL_HDR 6U
 #define LCELL_HDR 4U
+#define OVERFLOW_VALUE_SENTINEL UINT16_MAX
+#define OVERFLOW_VALUE_REF_SIZE 8U
 #define MAX_DEPTH 32
 
 /* Meta-page layout (variable-length due to per-DBI records):
@@ -145,6 +149,12 @@ static inline void wr64(void *p, uint64_t v) { memcpy(p, &v, 8); }
 #define LCELL_SZ(kl, vl) (LCELL_HDR + (uint32_t)(kl) + (uint32_t)(vl))
 #define L_FREE(pg) ((uint32_t)(L_DEND(pg)) - LEAF_HDR - (uint32_t)PG_NUM(pg) * SLOT_SZ)
 
+#define OV_NEXT(pg) rd32(PB(pg, 8))
+#define OV_DLEN(pg) rd16(PB(pg, 12))
+#define SET_OV_NEXT(pg, v) wr32(PB(pg, 8), (v))
+#define SET_OV_DLEN(pg, v) wr16(PB(pg, 12), (uint16_t)(v))
+#define OV_DATA(pg) PB(pg, OVERFLOW_HDR)
+
 /* ================================================================== */
 /* Structures                                                           */
 /* ================================================================== */
@@ -226,6 +236,12 @@ struct TxnChange
     uint8_t *val;
 };
 
+struct TxnReadBuf
+{
+    uint8_t *buf;
+    struct TxnReadBuf *next;
+};
+
 struct Txn
 {
     struct DB *db;
@@ -246,6 +262,7 @@ struct Txn
     struct TxnChange *changes;
     uint32_t change_cnt;
     uint32_t change_cap;
+    struct TxnReadBuf *read_bufs;
     uint8_t track_changes;
     struct ScratchSeg *scratch_top;
 };
@@ -260,6 +277,7 @@ struct Cursor
 };
 
 static int db_has_watch_locked(const struct DB *db, uint32_t dbi);
+static void txn_free_page(struct Txn *txn, uint32_t pgno);
 
 /* ================================================================== */
 /* Sorted uint32 array helpers                                          */
@@ -428,6 +446,36 @@ static uint8_t *txn_scratch_copy(struct Txn *txn, const void *src, uint32_t len)
     if (len)
         memcpy(dst, src, len);
     return dst;
+}
+
+static void txn_readbuf_clear(struct Txn *txn)
+{
+    struct TxnReadBuf *cur;
+    if (!txn)
+        return;
+    cur = txn->read_bufs;
+    while (cur)
+    {
+        struct TxnReadBuf *next = cur->next;
+        free(cur->buf);
+        free(cur);
+        cur = next;
+    }
+    txn->read_bufs = NULL;
+}
+
+static int txn_readbuf_hold(struct Txn *txn, uint8_t *buf)
+{
+    struct TxnReadBuf *node;
+    if (!txn || !buf)
+        return -1;
+    node = (struct TxnReadBuf *)malloc(sizeof(*node));
+    if (!node)
+        return -1;
+    node->buf = buf;
+    node->next = txn->read_bufs;
+    txn->read_bufs = node;
+    return 0;
 }
 
 /* DUPSORT key-only seek helper used by key-prefix operations. */
@@ -696,6 +744,17 @@ static void pg_init_leaf(void *pg, uint32_t pgno, uint32_t pgsz)
     SET_L_DEND(pg, (uint16_t)pgsz);
 }
 
+static void pg_init_overflow(void *pg, uint32_t pgno, uint32_t pgsz)
+{
+    (void)pgsz;
+    memset(pg, 0, pgsz);
+    SET_PG_TYPE(pg, PAGE_OVERFLOW);
+    SET_PG_PGNO(pg, pgno);
+    SET_PG_NUM(pg, 0);
+    SET_OV_NEXT(pg, INVALID_PGNO);
+    SET_OV_DLEN(pg, 0);
+}
+
 /* ================================================================== */
 /* Raw page allocation (no tracking)                                    */
 /* ================================================================== */
@@ -775,6 +834,226 @@ static uint32_t txn_cow(struct Txn *txn, uint32_t pgno)
     if (u32_push(&txn->old_pages, &txn->old_cnt, &txn->old_cap, pgno) < 0)
         return INVALID_PGNO;
     return np;
+}
+
+static uint32_t leaf_value_store_len(uint16_t vlen)
+{
+    return (vlen == OVERFLOW_VALUE_SENTINEL) ? OVERFLOW_VALUE_REF_SIZE : (uint32_t)vlen;
+}
+
+static uint32_t leaf_cell_size(uint16_t klen, uint16_t vlen)
+{
+    return LCELL_HDR + (uint32_t)klen + leaf_value_store_len(vlen);
+}
+
+static int overflow_mark_chain_old(struct Txn *txn, uint32_t first_pgno)
+{
+    struct DB *db;
+    uint32_t pgno;
+    uint32_t steps = 0;
+
+    if (!txn || first_pgno == INVALID_PGNO)
+        return 0;
+    db = txn->db;
+    pgno = first_pgno;
+    while (pgno != INVALID_PGNO)
+    {
+        void *pg;
+        uint32_t next;
+        if (pgno >= txn->num_pages)
+            return -1;
+        pg = db->pages[pgno];
+        if (!pg || PG_TYPE(pg) != PAGE_OVERFLOW)
+            return -1;
+        if (u32_push(&txn->old_pages, &txn->old_cnt, &txn->old_cap, pgno) < 0)
+            return -1;
+        next = OV_NEXT(pg);
+        pgno = next;
+        steps++;
+        if (steps > txn->num_pages)
+            return -1;
+    }
+    return 0;
+}
+
+static void overflow_free_new_chain(struct Txn *txn, uint32_t first_pgno)
+{
+    struct DB *db;
+    uint32_t pgno;
+    uint32_t steps = 0;
+
+    if (!txn || first_pgno == INVALID_PGNO)
+        return;
+    db = txn->db;
+    pgno = first_pgno;
+    while (pgno != INVALID_PGNO)
+    {
+        void *pg;
+        uint32_t next = INVALID_PGNO;
+        if (pgno >= txn->num_pages)
+            break;
+        pg = db->pages[pgno];
+        if (!pg || PG_TYPE(pg) != PAGE_OVERFLOW)
+            break;
+        next = OV_NEXT(pg);
+        txn_free_page(txn, pgno);
+        pgno = next;
+        steps++;
+        if (steps > txn->num_pages)
+            break;
+    }
+}
+
+static int overflow_store_value(struct Txn *txn, const void *val, uint32_t val_len,
+                                uint32_t *first_pgno_out)
+{
+    struct DB *db;
+    uint32_t payload_cap;
+    uint32_t first = INVALID_PGNO;
+    uint32_t prev = INVALID_PGNO;
+    uint32_t off = 0;
+
+    if (!txn || !first_pgno_out)
+        return -1;
+    *first_pgno_out = INVALID_PGNO;
+    if (val_len == 0)
+        return 0;
+    if (!val)
+        return -1;
+
+    db = txn->db;
+    if (db->page_size <= OVERFLOW_HDR)
+        return -1;
+    payload_cap = db->page_size - OVERFLOW_HDR;
+    if (payload_cap == 0 || payload_cap > UINT16_MAX)
+        return -1;
+
+    while (off < val_len)
+    {
+        uint32_t pgno = txn_alloc(txn);
+        uint32_t chunk = payload_cap;
+        void *pg;
+        if (pgno == INVALID_PGNO)
+        {
+            overflow_free_new_chain(txn, first);
+            return -1;
+        }
+        pg = db->pages[pgno];
+        pg_init_overflow(pg, pgno, db->page_size);
+        if (chunk > val_len - off)
+            chunk = val_len - off;
+        memcpy(OV_DATA(pg), (const uint8_t *)val + off, chunk);
+        SET_OV_DLEN(pg, chunk);
+
+        if (first == INVALID_PGNO)
+            first = pgno;
+        if (prev != INVALID_PGNO)
+            SET_OV_NEXT(db->pages[prev], pgno);
+        prev = pgno;
+        off += chunk;
+    }
+
+    *first_pgno_out = first;
+    return 0;
+}
+
+static int overflow_read_value(struct Txn *txn, const void *meta, const void **val_out,
+                               uint32_t *val_len_out)
+{
+    struct DB *db;
+    uint32_t val_len;
+    uint32_t pgno;
+    uint8_t *buf;
+    uint32_t copied = 0;
+    uint32_t steps = 0;
+
+    if (!txn || !meta || !val_out || !val_len_out)
+        return SAP_ERROR;
+
+    val_len = rd32(meta);
+    pgno = rd32((const uint8_t *)meta + 4);
+    if (val_len == 0)
+    {
+        *val_out = "";
+        *val_len_out = 0;
+        return SAP_OK;
+    }
+    if (pgno == INVALID_PGNO)
+        return SAP_ERROR;
+
+    buf = (uint8_t *)malloc(val_len);
+    if (!buf)
+        return SAP_ERROR;
+    db = txn->db;
+
+    while (copied < val_len)
+    {
+        void *pg;
+        uint32_t chunk;
+        if (pgno == INVALID_PGNO || pgno >= txn->num_pages)
+        {
+            free(buf);
+            return SAP_ERROR;
+        }
+        pg = db->pages[pgno];
+        if (!pg || PG_TYPE(pg) != PAGE_OVERFLOW)
+        {
+            free(buf);
+            return SAP_ERROR;
+        }
+        chunk = OV_DLEN(pg);
+        if (chunk == 0 || chunk > val_len - copied)
+        {
+            free(buf);
+            return SAP_ERROR;
+        }
+        memcpy(buf + copied, OV_DATA(pg), chunk);
+        copied += chunk;
+        pgno = OV_NEXT(pg);
+        steps++;
+        if (steps > txn->num_pages)
+        {
+            free(buf);
+            return SAP_ERROR;
+        }
+    }
+    if (pgno != INVALID_PGNO)
+    {
+        free(buf);
+        return SAP_ERROR;
+    }
+    if (txn_readbuf_hold(txn, buf) < 0)
+    {
+        free(buf);
+        return SAP_ERROR;
+    }
+    *val_out = buf;
+    *val_len_out = val_len;
+    return SAP_OK;
+}
+
+static int leaf_cell_mark_overflow_old(struct Txn *txn, const void *leaf_pg, uint16_t off)
+{
+    uint16_t vlen;
+    uint16_t klen;
+    const uint8_t *val_ptr;
+    uint32_t logical_len;
+    uint32_t first_pgno;
+
+    if (!txn || !leaf_pg)
+        return -1;
+    vlen = L_CVLEN(leaf_pg, off);
+    if (vlen != OVERFLOW_VALUE_SENTINEL)
+        return 0;
+    klen = L_CKLEN(leaf_pg, off);
+    val_ptr = (const uint8_t *)L_CVAL(leaf_pg, off, klen);
+    logical_len = rd32(val_ptr + 0);
+    first_pgno = rd32(val_ptr + 4);
+    if (logical_len == 0)
+        return 0;
+    if (first_pgno == INVALID_PGNO)
+        return -1;
+    return overflow_mark_chain_old(txn, first_pgno);
 }
 
 /* ================================================================== */
@@ -941,22 +1220,23 @@ static int leaf_find(const struct DB *db, uint32_t dbi, const void *pg, const vo
 static int leaf_insert(void *pg, int pos, const void *key, uint16_t klen, const void *val,
                        uint16_t vlen, void **val_out)
 {
-    uint32_t need = SLOT_SZ + LCELL_SZ(klen, vlen);
+    uint32_t store_vlen = leaf_value_store_len(vlen);
+    uint32_t need = SLOT_SZ + leaf_cell_size(klen, vlen);
     if (need > L_FREE(pg))
         return -1;
     uint16_t dend = (uint16_t)L_DEND(pg);
-    uint16_t coff = (uint16_t)(dend - LCELL_SZ(klen, vlen));
+    uint16_t coff = (uint16_t)(dend - leaf_cell_size(klen, vlen));
     wr16(PB(pg, coff), klen);
     wr16(PB(pg, coff + 2), vlen);
     memcpy(PB(pg, coff + LCELL_HDR), key, klen);
     if (val_out)
     {
-        memset(PB(pg, coff + LCELL_HDR + klen), 0, vlen);
+        memset(PB(pg, coff + LCELL_HDR + klen), 0, store_vlen);
         *val_out = PB(pg, coff + LCELL_HDR + klen);
     }
     else
     {
-        memcpy(PB(pg, coff + LCELL_HDR + klen), val, vlen);
+        memcpy(PB(pg, coff + LCELL_HDR + klen), val, store_vlen);
     }
     SET_L_DEND(pg, coff);
     int n = (int)PG_NUM(pg);
@@ -972,7 +1252,7 @@ static void leaf_remove(void *pg, int pos)
 {
     int n = (int)PG_NUM(pg);
     uint16_t off = (uint16_t)L_SLOT(pg, pos);
-    uint32_t csz = LCELL_SZ(L_CKLEN(pg, off), L_CVLEN(pg, off));
+    uint32_t csz = leaf_cell_size(L_CKLEN(pg, off), L_CVLEN(pg, off));
     uint16_t dend = (uint16_t)L_DEND(pg);
     if (off > dend)
         memmove(PB(pg, dend + csz), PB(pg, dend), (uint32_t)(off - dend));
@@ -1129,14 +1409,15 @@ static uint32_t leaf_split(struct Txn *txn, uint32_t dbi, uint32_t lpgno, void *
     uint32_t ko = 0, vo = 0;
     for (int j = 0; j < total; j++)
     {
+        uint32_t store_vlen = leaf_value_store_len(all[j].vl);
         kl2[j] = all[j].kl;
         vl2[j] = all[j].vl;
         koff[j] = ko;
         voff[j] = vo;
         memcpy(kbuf + ko, all[j].k, all[j].kl);
         ko += all[j].kl;
-        memcpy(vbuf + vo, all[j].v, all[j].vl);
-        vo += all[j].vl;
+        memcpy(vbuf + vo, all[j].v, store_vlen);
+        vo += store_vlen;
     }
     int left_n = total / 2;
 
@@ -1272,7 +1553,12 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     struct ScratchMark scratch_mark = txn_scratch_mark(txn);
     const void *watch_key = key;
     uint32_t watch_key_len = key_len;
+    const void *store_val = val;
+    uint16_t store_vlen = 0;
     int changed = 0;
+    int new_overflow_linked = 0;
+    uint32_t new_overflow_head = INVALID_PGNO;
+    uint8_t overflow_ref[OVERFLOW_VALUE_REF_SIZE];
     if (txn->flags & TXN_RDONLY)
         return SAP_READONLY;
     struct DB *db = txn->db;
@@ -1309,9 +1595,37 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         txn_scratch_release(txn, scratch_mark);
         return SAP_FULL;
     }
+    store_vlen = (uint16_t)val_len;
     void **rout = (flags & SAP_RESERVE) ? reserved_out : NULL;
 
-    if (SLOT_SZ + LCELL_SZ(key_len, val_len) + LEAF_HDR > db->page_size)
+    if (!is_dupsort)
+    {
+        uint32_t inline_need = SLOT_SZ + leaf_cell_size((uint16_t)key_len, store_vlen) + LEAF_HDR;
+        if (inline_need > db->page_size)
+        {
+            if (rout)
+            {
+                txn_scratch_release(txn, scratch_mark);
+                return SAP_ERROR;
+            }
+            if (SLOT_SZ + leaf_cell_size((uint16_t)key_len, OVERFLOW_VALUE_SENTINEL) + LEAF_HDR >
+                db->page_size)
+            {
+                txn_scratch_release(txn, scratch_mark);
+                return SAP_FULL;
+            }
+            if (overflow_store_value(txn, val, val_len, &new_overflow_head) < 0)
+            {
+                txn_scratch_release(txn, scratch_mark);
+                return SAP_ERROR;
+            }
+            wr32(overflow_ref + 0, val_len);
+            wr32(overflow_ref + 4, new_overflow_head);
+            store_val = overflow_ref;
+            store_vlen = OVERFLOW_VALUE_SENTINEL;
+        }
+    }
+    else if (SLOT_SZ + leaf_cell_size((uint16_t)key_len, store_vlen) + LEAF_HDR > db->page_size)
     {
         txn_scratch_release(txn, scratch_mark);
         return SAP_FULL;
@@ -1328,12 +1642,13 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             goto cleanup;
         }
         pg_init_leaf(db->pages[pgno], pgno, db->page_size);
-        if (leaf_insert(db->pages[pgno], 0, key, (uint16_t)key_len, val, (uint16_t)val_len, rout) <
+        if (leaf_insert(db->pages[pgno], 0, key, (uint16_t)key_len, store_val, store_vlen, rout) <
             0)
         {
             rc = SAP_ERROR;
             goto cleanup;
         }
+        new_overflow_linked = 1;
         txn->dbs[dbi].root_pgno = pgno;
         txn->dbs[dbi].num_entries++;
         changed = 1;
@@ -1418,14 +1733,21 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         int is_update = found;
         if (found)
         {
+            uint16_t old_off = (uint16_t)L_SLOT(lpg, pos);
+            if (leaf_cell_mark_overflow_old(txn, lpg, old_off) < 0)
+            {
+                rc = SAP_ERROR;
+                goto cleanup;
+            }
             leaf_remove(lpg, pos);
             pos = leaf_find(db, dbi, lpg, key, key_len, &found);
         }
 
-        if (leaf_insert(lpg, pos, key, (uint16_t)key_len, val, (uint16_t)val_len, rout) == 0)
+        if (leaf_insert(lpg, pos, key, (uint16_t)key_len, store_val, store_vlen, rout) == 0)
         {
             if (!is_update)
                 txn->dbs[dbi].num_entries++;
+            new_overflow_linked = 1;
             changed = 1;
             rc = SAP_OK;
             goto cleanup;
@@ -1439,8 +1761,8 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             goto cleanup;
         }
         uint16_t sep_klen;
-        uint32_t rpgno = leaf_split(txn, dbi, leaf_pgno, lpg, key, (uint16_t)key_len, val,
-                                    (uint16_t)val_len, sep_buf, &sep_klen);
+        uint32_t rpgno = leaf_split(txn, dbi, leaf_pgno, lpg, key, (uint16_t)key_len, store_val,
+                                    store_vlen, sep_buf, &sep_klen);
         if (rpgno == INVALID_PGNO)
         {
             rc = SAP_ERROR;
@@ -1448,6 +1770,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         }
         if (!is_update)
             txn->dbs[dbi].num_entries++;
+        new_overflow_linked = 1;
 
         /* For RESERVE: locate the entry in the result pages */
         if (rout)
@@ -1525,6 +1848,8 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     } /* end of path block */
 
 cleanup:
+    if (!new_overflow_linked && new_overflow_head != INVALID_PGNO)
+        overflow_free_new_chain(txn, new_overflow_head);
     txn_scratch_release(txn, scratch_mark);
     if (changed)
         (void)txn_track_change(txn, dbi, watch_key, watch_key_len);
@@ -1634,8 +1959,13 @@ int txn_get_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, c
     if (!found)
         return SAP_NOTFOUND;
     uint16_t off = (uint16_t)L_SLOT(lpg, pos);
-    *val_out = L_CVAL(lpg, off, L_CKLEN(lpg, off));
-    *val_len_out = L_CVLEN(lpg, off);
+    uint16_t klen = L_CKLEN(lpg, off);
+    uint16_t vlen = L_CVLEN(lpg, off);
+    const void *val_ptr = L_CVAL(lpg, off, klen);
+    if (vlen == OVERFLOW_VALUE_SENTINEL)
+        return overflow_read_value(txn, val_ptr, val_out, val_len_out);
+    *val_out = val_ptr;
+    *val_len_out = vlen;
     return SAP_OK;
 }
 
@@ -1694,6 +2024,11 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
     int pos = leaf_find(db, dbi, lpg, key, key_len, &found);
     if (!found)
         return SAP_NOTFOUND;
+    {
+        uint16_t off = (uint16_t)L_SLOT(lpg, pos);
+        if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
+            return SAP_ERROR;
+    }
     leaf_remove(lpg, pos);
     txn->dbs[dbi].num_entries--;
     (void)txn_track_change(txn, dbi, key, key_len);
@@ -1838,6 +2173,103 @@ static int txn_mark_tree_old(struct Txn *txn, uint32_t root_pgno)
             stack[top++] = I_LEFT(pg);
             for (uint32_t i = 0; i < n; i++)
                 stack[top++] = I_CRIGHT(pg, I_SLOT(pg, i));
+        }
+        else if (PG_TYPE(pg) == PAGE_LEAF)
+        {
+            uint32_t n = (uint32_t)PG_NUM(pg);
+            for (uint32_t i = 0; i < n; i++)
+            {
+                uint16_t off = (uint16_t)L_SLOT(pg, i);
+                if (leaf_cell_mark_overflow_old(txn, pg, off) < 0)
+                {
+                    rc = -1;
+                    break;
+                }
+            }
+            if (rc)
+                break;
+        }
+    }
+
+    free(stack);
+    return rc;
+}
+
+static int txn_tree_has_overflow(struct Txn *txn, uint32_t root_pgno)
+{
+    uint32_t *stack = NULL;
+    uint32_t top = 0, cap = 0;
+    int rc = 0;
+
+    if (!txn || root_pgno == INVALID_PGNO)
+        return 0;
+
+    cap = 64;
+    stack = (uint32_t *)malloc((size_t)cap * sizeof(*stack));
+    if (!stack)
+        return -1;
+    stack[top++] = root_pgno;
+
+    while (top)
+    {
+        uint32_t pgno = stack[--top];
+        void *pg;
+        if (pgno == INVALID_PGNO)
+            continue;
+        pg = txn->db->pages[pgno];
+        if (!pg)
+        {
+            rc = -1;
+            break;
+        }
+        if (PG_TYPE(pg) == PAGE_INTERNAL)
+        {
+            uint32_t n = (uint32_t)PG_NUM(pg);
+            uint32_t need = n + 1;
+            if (top > UINT32_MAX - need)
+            {
+                rc = -1;
+                break;
+            }
+            if (top + need > cap)
+            {
+                uint32_t nc = cap;
+                while (nc < top + need)
+                {
+                    if (nc > UINT32_MAX / 2)
+                    {
+                        rc = -1;
+                        break;
+                    }
+                    nc *= 2;
+                }
+                if (rc)
+                    break;
+                uint32_t *ns = (uint32_t *)realloc(stack, (size_t)nc * sizeof(*stack));
+                if (!ns)
+                {
+                    rc = -1;
+                    break;
+                }
+                stack = ns;
+                cap = nc;
+            }
+            stack[top++] = I_LEFT(pg);
+            for (uint32_t i = 0; i < n; i++)
+                stack[top++] = I_CRIGHT(pg, I_SLOT(pg, i));
+        }
+        else if (PG_TYPE(pg) == PAGE_LEAF)
+        {
+            uint32_t n = (uint32_t)PG_NUM(pg);
+            for (uint32_t i = 0; i < n; i++)
+            {
+                uint16_t off = (uint16_t)L_SLOT(pg, i);
+                if (L_CVLEN(pg, off) == OVERFLOW_VALUE_SENTINEL)
+                {
+                    free(stack);
+                    return 1;
+                }
+            }
         }
     }
 
@@ -2239,6 +2671,7 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
     struct Txn *txn = (struct Txn *)txn_pub;
     struct DB *db;
     int is_dupsort;
+    int requires_overflow = 0;
 
     if (!txn)
         return SAP_ERROR;
@@ -2266,6 +2699,10 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
             return SAP_ERROR;
         if (!vcur && val_lens[i] > 0)
             return SAP_ERROR;
+        if (!is_dupsort &&
+            SLOT_SZ + leaf_cell_size((uint16_t)key_lens[i], (uint16_t)val_lens[i]) + LEAF_HDR >
+                db->page_size)
+            requires_overflow = 1;
         if (!kcur)
             kcur = &zero;
         if (!vcur)
@@ -2289,7 +2726,7 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
             return SAP_ERROR;
     }
 
-    if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
+    if (!requires_overflow && txn->dbs[dbi].root_pgno == INVALID_PGNO)
     {
         Txn *child = txn_begin((DB *)db, (Txn *)txn, 0);
         int rc;
@@ -2310,25 +2747,31 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
         return rc;
     }
 
-    if (!is_dupsort && txn->new_cnt == 0 && txn->old_cnt == 0)
+    if (!is_dupsort && !requires_overflow && txn->new_cnt == 0 && txn->old_cnt == 0)
     {
-        Txn *child = txn_begin((DB *)db, (Txn *)txn, 0);
-        int rc;
-        if (!child)
+        int has_overflow = txn_tree_has_overflow(txn, txn->dbs[dbi].root_pgno);
+        if (has_overflow < 0)
             return SAP_ERROR;
-        rc = txn_load_sorted_nonempty_merge_fast((struct Txn *)child, dbi, keys, key_lens, vals,
-                                                 val_lens, count);
-        if (rc == SAP_OK)
+        if (!has_overflow)
         {
-            for (uint32_t i = 0; i < count; i++)
+            Txn *child = txn_begin((DB *)db, (Txn *)txn, 0);
+            int rc;
+            if (!child)
+                return SAP_ERROR;
+            rc = txn_load_sorted_nonempty_merge_fast((struct Txn *)child, dbi, keys, key_lens, vals,
+                                                     val_lens, count);
+            if (rc == SAP_OK)
             {
-                const void *k = keys[i] ? keys[i] : &zero;
-                (void)txn_track_change((struct Txn *)child, dbi, k, key_lens[i]);
+                for (uint32_t i = 0; i < count; i++)
+                {
+                    const void *k = keys[i] ? keys[i] : &zero;
+                    (void)txn_track_change((struct Txn *)child, dbi, k, key_lens[i]);
+                }
+                return txn_commit(child);
             }
-            return txn_commit(child);
+            txn_abort(child);
+            return rc;
         }
-        txn_abort(child);
-        return rc;
     }
 
     for (uint32_t i = 0; i < count; i++)
@@ -2623,6 +3066,7 @@ static void txn_free_mem(struct Txn *t)
     free(t->new_pages);
     free(t->old_pages);
     txn_changes_clear(t);
+    txn_readbuf_clear(t);
     txn_scratch_clear(t);
     free(t);
 }
@@ -3627,10 +4071,16 @@ int cursor_get(Cursor *cp, const void **key_out, uint32_t *key_len_out, const vo
     }
     else
     {
+        uint16_t vlen;
+        const void *val_ptr;
         *key_out = L_CKEY(lpg, off);
         *key_len_out = klen;
-        *val_out = L_CVAL(lpg, off, klen);
-        *val_len_out = L_CVLEN(lpg, off);
+        vlen = L_CVLEN(lpg, off);
+        val_ptr = L_CVAL(lpg, off, klen);
+        if (vlen == OVERFLOW_VALUE_SENTINEL)
+            return overflow_read_value(c->txn, val_ptr, val_out, val_len_out);
+        *val_out = val_ptr;
+        *val_len_out = vlen;
     }
     return SAP_OK;
 }
@@ -3740,6 +4190,8 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
     int rc;
     if (!key_buf)
         return SAP_ERROR;
+    if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
+        return SAP_ERROR;
 
     leaf_remove(lpg, pos);
 
@@ -3789,6 +4241,10 @@ int cursor_del(Cursor *cp)
     if (leaf_pgno == INVALID_PGNO)
         return SAP_ERROR;
     void *lpg = db->pages[leaf_pgno];
+
+    off = (uint16_t)L_SLOT(lpg, pos);
+    if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
+        return SAP_ERROR;
 
     leaf_remove(lpg, pos);
     txn->dbs[dbi].num_entries--;

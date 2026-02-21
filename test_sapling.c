@@ -86,6 +86,14 @@ static int check_str(Txn *txn, const char *key, const char *expected)
     return memcmp(v, expected, vl) == 0;
 }
 
+static void fill_pattern(uint8_t *buf, uint32_t len, uint8_t seed)
+{
+    if (!buf)
+        return;
+    for (uint32_t i = 0; i < len; i++)
+        buf[i] = (uint8_t)(seed + (uint8_t)(i * 17u));
+}
+
 struct MemBuf
 {
     uint8_t *data;
@@ -965,15 +973,158 @@ static void test_sap_full(void)
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
 
-    /* Entry larger than a single page */
-    char big[300];
-    memset(big, 'A', sizeof(big));
-    CHECK(txn_put(txn, big, 200, big, 200) == SAP_FULL);
+    /* Key too large to fit even with overflow value indirection. */
+    char big_key[260];
+    memset(big_key, 'A', sizeof(big_key));
+    CHECK(txn_put(txn, big_key, 250, "v", 1) == SAP_FULL);
+
+    /* Value length still bounded by uint16_t API encoding. */
+    CHECK(txn_put(txn, "k", 1, big_key, (uint32_t)70000) == SAP_FULL);
 
     /* Smaller entry should still work */
     CHECK(txn_put(txn, "k", 1, "v", 1) == SAP_OK);
 
     txn_abort(txn);
+    db_close(db);
+}
+
+/* ================================================================== */
+/* Test: overflow values                                                */
+/* ================================================================== */
+
+static void test_overflow_values(void)
+{
+    SECTION("overflow values");
+    DB *db = db_open(&g_alloc, 256, NULL, NULL);
+    CHECK(db != NULL);
+
+    uint8_t v1[700];
+    uint8_t v2[900];
+    fill_pattern(v1, (uint32_t)sizeof(v1), 7);
+    fill_pattern(v2, (uint32_t)sizeof(v2), 29);
+
+    Txn *w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put(w, "k1", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
+    CHECK(txn_put(w, "k2", 2, "x", 1) == SAP_OK);
+    CHECK(txn_put_flags(w, "k3", 2, NULL, (uint32_t)sizeof(v1), SAP_RESERVE, NULL) == SAP_ERROR);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    {
+        const void *v;
+        uint32_t vl;
+        Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_OK);
+        CHECK(vl == (uint32_t)sizeof(v1));
+        CHECK(memcmp(v, v1, sizeof(v1)) == 0);
+
+        Cursor *cur = cursor_open(r);
+        const void *k;
+        uint32_t kl;
+        CHECK(cur != NULL);
+        CHECK(cursor_seek(cur, "k1", 2) == SAP_OK);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(kl == 2 && memcmp(k, "k1", 2) == 0);
+        CHECK(vl == (uint32_t)sizeof(v1));
+        CHECK(memcmp(v, v1, sizeof(v1)) == 0);
+        cursor_close(cur);
+        txn_abort(r);
+    }
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    {
+        Cursor *cur = cursor_open(w);
+        CHECK(cur != NULL);
+        CHECK(cursor_seek(cur, "k1", 2) == SAP_OK);
+        CHECK(cursor_put(cur, v2, (uint32_t)sizeof(v2), 0) == SAP_OK);
+        cursor_close(cur);
+    }
+    CHECK(txn_commit(w) == SAP_OK);
+
+    {
+        const void *v;
+        uint32_t vl;
+        Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_OK);
+        CHECK(vl == (uint32_t)sizeof(v2));
+        CHECK(memcmp(v, v2, sizeof(v2)) == 0);
+        txn_abort(r);
+    }
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    {
+        uint64_t deleted = 0;
+        CHECK(txn_del_range(w, 0, "k1", 2, "k3", 2, &deleted) == SAP_OK);
+        CHECK(deleted == 2);
+    }
+    CHECK(txn_commit(w) == SAP_OK);
+
+    {
+        const void *v;
+        uint32_t vl;
+        Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_NOTFOUND);
+        CHECK(txn_get(r, "k2", 2, &v, &vl) == SAP_NOTFOUND);
+        txn_abort(r);
+    }
+
+    {
+        struct MemBuf snap = {0};
+        const void *v;
+        uint32_t vl;
+
+        w = txn_begin(db, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put(w, "kp", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_OK);
+
+        w = txn_begin(db, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put(w, "kp", 2, "short", 5) == SAP_OK);
+        CHECK(txn_commit(w) == SAP_OK);
+
+        snap.pos = 0;
+        CHECK(db_restore(db, membuf_read, &snap) == SAP_OK);
+
+        Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "kp", 2, &v, &vl) == SAP_OK);
+        CHECK(vl == (uint32_t)sizeof(v1));
+        CHECK(memcmp(v, v1, sizeof(v1)) == 0);
+        txn_abort(r);
+        free(snap.data);
+    }
+
+    {
+        DB *db2 = db_open(&g_alloc, 256, NULL, NULL);
+        CHECK(db2 != NULL);
+        Txn *t = txn_begin(db2, NULL, 0);
+        CHECK(t != NULL);
+        const void *keys[] = {"a", "b"};
+        const uint32_t key_lens[] = {1, 1};
+        const void *vals[] = {v1, "ok"};
+        const uint32_t val_lens[] = {(uint32_t)sizeof(v1), 2};
+        const void *v;
+        uint32_t vl;
+
+        CHECK(txn_load_sorted(t, 0, keys, key_lens, vals, val_lens, 2) == SAP_OK);
+        CHECK(txn_commit(t) == SAP_OK);
+
+        Txn *r = txn_begin(db2, NULL, TXN_RDONLY);
+        CHECK(r != NULL);
+        CHECK(txn_get(r, "a", 1, &v, &vl) == SAP_OK);
+        CHECK(vl == (uint32_t)sizeof(v1));
+        CHECK(memcmp(v, v1, sizeof(v1)) == 0);
+        txn_abort(r);
+        db_close(db2);
+    }
+
     db_close(db);
 }
 
@@ -3043,6 +3194,7 @@ int main(void)
     test_multi_commit();
     test_input_validation();
     test_sap_full();
+    test_overflow_values();
     test_runtime_page_size_safety();
     test_write_contention();
     test_leaf_capacity();

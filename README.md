@@ -1,8 +1,8 @@
 # sapling
 Clean-room, MIT-licensed copy-on-write B+ tree in portable C with MVCC snapshots,
 nested transactions, multi-DBI support, cursor reuse/key-only helpers, and
-DupSort/prefix helpers, plus range count/range delete/merge, sorted-load, CAS,
-checkpoint APIs, and prefix watch notifications.
+DupSort/prefix helpers, plus range count/range delete/merge, overflow-value
+storage, sorted-load, CAS, checkpoint APIs, and prefix watch notifications.
 
 ## Build and test
 - `make` builds `libsapling.a`

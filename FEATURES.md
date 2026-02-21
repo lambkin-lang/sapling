@@ -17,6 +17,7 @@ current sorted key-value API, ordered by priority for the language runtime.
 - Range counting (`txn_count_range`, exact scan-backed)
 - Range delete (`txn_del_range`, exact scan-backed)
 - Merge helper (`txn_merge`, callback-defined)
+- Overflow value storage (non-DUPSORT, chained overflow pages)
 - Sorted-load API (`txn_load_sorted`, empty-DBI O(n) fast path)
 - Benchmark harness (`make bench-run`)
 - Benchmark CI guardrail (`make bench-ci`, baseline-backed)
@@ -619,14 +620,19 @@ Phase F status:
 
 ## Priority 6 — Advanced / future
 
-### Overflow pages for large values
-Currently, key+value must fit in a single page (minus header+slot overhead).
-With 4KB pages and 10-byte leaf header, the practical limit is ~4080 bytes.
-Overflow pages would chain multiple pages for values exceeding this limit.
+### Overflow pages for large values (initial support done)
+Non-DUPSORT values can now spill to chained overflow pages when a value no
+longer fits in a single leaf cell. The leaf stores an overflow reference and
+logical value length, while read paths reconstruct bytes transparently.
 
-This is architecturally significant (changes how `txn_get` returns pointers,
-affects COW granularity, complicates split logic). Worth deferring until the
-language layer actually needs values > 4KB.
+Current scope:
+- non-DUPSORT `txn_put` / `txn_get` / cursor reads
+- update/delete/range-delete cleanup of old overflow chains
+- tree-rewrite cleanup paths and checkpoint/restore compatibility
+
+Current constraints:
+- DUPSORT values remain inline-only
+- `SAP_RESERVE` is rejected when the target write would require overflow
 
 ### Value-level comparator (for DupSort) (done)
 When DupSort is enabled, `dbi_set_dupsort` installs a value comparator that
