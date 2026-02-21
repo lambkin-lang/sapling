@@ -61,6 +61,7 @@ fault_harness
 runner_wire_test
 runner_lifecycle_test
 runner_txctx_test
+runner_txstack_test
 wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm

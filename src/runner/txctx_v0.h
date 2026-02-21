@@ -72,10 +72,15 @@ int sap_runner_txctx_v0_stage_del_dbi(SapRunnerTxCtxV0 *ctx, uint32_t dbi, const
 
 /* Buffer encoded intent frames for post-commit publication. */
 int sap_runner_txctx_v0_push_intent(SapRunnerTxCtxV0 *ctx, const SapRunnerIntentV0 *intent);
+int sap_runner_txctx_v0_push_intent_frame(SapRunnerTxCtxV0 *ctx, const uint8_t *frame,
+                                          uint32_t frame_len);
 
 /* Validate recorded reads and apply staged writes in a short write txn. */
 int sap_runner_txctx_v0_validate_reads(const SapRunnerTxCtxV0 *ctx, Txn *txn);
 int sap_runner_txctx_v0_apply_writes(const SapRunnerTxCtxV0 *ctx, Txn *txn);
+
+/* Closed-nesting helper: merge child staged state into parent. */
+int sap_runner_txctx_v0_merge_child(SapRunnerTxCtxV0 *parent, const SapRunnerTxCtxV0 *child);
 
 uint32_t sap_runner_txctx_v0_read_count(const SapRunnerTxCtxV0 *ctx);
 uint32_t sap_runner_txctx_v0_write_count(const SapRunnerTxCtxV0 *ctx);

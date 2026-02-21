@@ -490,7 +490,7 @@ int sap_runner_txctx_v0_push_intent(SapRunnerTxCtxV0 *ctx, const SapRunnerIntent
 {
     uint8_t *frame;
     uint32_t frame_len;
-    int rc;
+    int wire_rc;
 
     if (!ctx || !intent)
     {
@@ -509,21 +509,50 @@ int sap_runner_txctx_v0_push_intent(SapRunnerTxCtxV0 *ctx, const SapRunnerIntent
         return SAP_ERROR;
     }
 
-    rc = sap_runner_intent_v0_encode(intent, frame, frame_len, &frame_len);
-    if (rc != SAP_RUNNER_WIRE_OK)
+    wire_rc = sap_runner_intent_v0_encode(intent, frame, frame_len, &frame_len);
+    if (wire_rc != SAP_RUNNER_WIRE_OK)
     {
         free(frame);
         return SAP_ERROR;
     }
 
+    wire_rc = sap_runner_txctx_v0_push_intent_frame(ctx, frame, frame_len);
+    free(frame);
+    return wire_rc;
+}
+
+int sap_runner_txctx_v0_push_intent_frame(SapRunnerTxCtxV0 *ctx, const uint8_t *frame,
+                                          uint32_t frame_len)
+{
+    SapRunnerIntentV0 decoded = {0};
+    int wire_rc;
+    int rc;
+    uint8_t *copy = NULL;
+
+    if (!ctx || !frame || frame_len == 0u)
+    {
+        return SAP_ERROR;
+    }
+
+    wire_rc = sap_runner_intent_v0_decode(frame, frame_len, &decoded);
+    if (wire_rc != SAP_RUNNER_WIRE_OK)
+    {
+        return SAP_ERROR;
+    }
+
+    rc = copy_blob(frame, frame_len, &copy);
+    if (rc != SAP_OK)
+    {
+        return rc;
+    }
     rc = ensure_intent_cap(ctx);
     if (rc != SAP_OK)
     {
-        free(frame);
+        free(copy);
         return rc;
     }
 
-    ctx->intents[ctx->intent_count].frame = frame;
+    ctx->intents[ctx->intent_count].frame = copy;
     ctx->intents[ctx->intent_count].frame_len = frame_len;
     ctx->intent_count++;
     return SAP_OK;
@@ -615,6 +644,130 @@ int sap_runner_txctx_v0_apply_writes(const SapRunnerTxCtxV0 *ctx, Txn *txn)
             return rc;
         }
     }
+    return SAP_OK;
+}
+
+int sap_runner_txctx_v0_merge_child(SapRunnerTxCtxV0 *parent, const SapRunnerTxCtxV0 *child)
+{
+    uint32_t i;
+
+    if (!parent || !child)
+    {
+        return SAP_ERROR;
+    }
+
+    for (i = 0u; i < child->read_count; i++)
+    {
+        const SapRunnerTxReadV0 *src = &child->reads[i];
+        uint32_t idx;
+        int rc;
+
+        rc = find_write_index(parent, src->dbi, src->key, src->key_len, &idx);
+        if (rc == SAP_OK)
+        {
+            continue;
+        }
+        if (rc != SAP_NOTFOUND)
+        {
+            return rc;
+        }
+
+        rc = find_read_index(parent, src->dbi, src->key, src->key_len, &idx);
+        if (rc == SAP_OK)
+        {
+            const SapRunnerTxReadV0 *dst = &parent->reads[idx];
+
+            if (dst->exists != src->exists)
+            {
+                return SAP_CONFLICT;
+            }
+            if (!dst->exists)
+            {
+                continue;
+            }
+            if (dst->val_len != src->val_len)
+            {
+                return SAP_CONFLICT;
+            }
+            if (dst->val_len > 0u && memcmp(dst->val, src->val, dst->val_len) != 0)
+            {
+                return SAP_CONFLICT;
+            }
+            continue;
+        }
+        if (rc != SAP_NOTFOUND)
+        {
+            return rc;
+        }
+
+        rc = ensure_read_cap(parent);
+        if (rc != SAP_OK)
+        {
+            return rc;
+        }
+
+        {
+            SapRunnerTxReadV0 *dst = &parent->reads[parent->read_count];
+            memset(dst, 0, sizeof(*dst));
+            dst->dbi = src->dbi;
+            dst->key_len = src->key_len;
+            dst->exists = src->exists;
+            dst->val_len = src->val_len;
+
+            rc = copy_blob(src->key, src->key_len, &dst->key);
+            if (rc != SAP_OK)
+            {
+                return rc;
+            }
+            if (src->exists)
+            {
+                rc = copy_blob(src->val, src->val_len, &dst->val);
+                if (rc != SAP_OK)
+                {
+                    free(dst->key);
+                    dst->key = NULL;
+                    return rc;
+                }
+            }
+        }
+
+        parent->read_count++;
+    }
+
+    for (i = 0u; i < child->write_count; i++)
+    {
+        const SapRunnerTxWriteV0 *src = &child->writes[i];
+        int rc;
+
+        if (src->kind == SAP_RUNNER_TX_WRITE_KIND_PUT)
+        {
+            rc = sap_runner_txctx_v0_stage_put_dbi(parent, src->dbi, src->key, src->key_len,
+                                                   src->val, src->val_len);
+        }
+        else if (src->kind == SAP_RUNNER_TX_WRITE_KIND_DEL)
+        {
+            rc = sap_runner_txctx_v0_stage_del_dbi(parent, src->dbi, src->key, src->key_len);
+        }
+        else
+        {
+            return SAP_ERROR;
+        }
+        if (rc != SAP_OK)
+        {
+            return rc;
+        }
+    }
+
+    for (i = 0u; i < child->intent_count; i++)
+    {
+        const SapRunnerTxIntentV0 *src = &child->intents[i];
+        int rc = sap_runner_txctx_v0_push_intent_frame(parent, src->frame, src->frame_len);
+        if (rc != SAP_OK)
+        {
+            return rc;
+        }
+    }
+
     return SAP_OK;
 }
 

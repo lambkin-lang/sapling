@@ -16,3 +16,5 @@ Implemented foundation:
 - `txctx_v0.h` / `txctx_v0.c`: phase-B host transaction context scaffold with
   read-set tracking, write-set staging, intent buffering, and
   validate/apply helpers for short write-txn commit phases.
+- `txstack_v0.h` / `txstack_v0.c`: phase-B nested atomic stack scaffold with
+  closed-nesting push/commit/abort semantics and root commit guards.

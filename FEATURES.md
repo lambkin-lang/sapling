@@ -435,7 +435,10 @@ Phase A status (started):
 - done: initial Phase B host tx context (`src/runner/txctx_v0`) with read-set
   tracking, write-set staging, intent buffering, and validate/apply helpers
   (`tests/unit/runner_txctx_test.c`)
-- next: add nested atomic context stack (closed nesting/savepoint semantics)
+- done: nested atomic context stack scaffold (`src/runner/txstack_v0`) with
+  closed-nesting push/commit/abort flow and root commit guards
+  (`tests/unit/runner_txstack_test.c`)
+- next: commit/abort/retry loop with bounded policy around root validation/apply
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -446,7 +449,9 @@ Phase A status (started):
 Phase B status (started):
 - done: `txctx_v0` scaffolding for read-set capture, write-set coalescing,
   intent frame buffering, read validation, and staged write apply
-- next: nested context stack + merge/abort rules for closed-nesting semantics
+- done: `txstack_v0` nested frame push/commit/abort with child->parent merge
+  semantics and nested read-your-write behavior across frame depth
+- next: bounded retry engine + deterministic conflict integration tests
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
