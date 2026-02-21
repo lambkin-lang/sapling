@@ -21,7 +21,7 @@ jobs:
         run: make schema-check stress-harness
 
       - name: Runner wire contract checks
-        run: make runner-wire-test
+        run: make runner-wire-test runner-lifecycle-test
 
       - name: Benchmark regression guardrail
         run: make bench-ci BENCH_COUNT=100000 BENCH_ROUNDS=3

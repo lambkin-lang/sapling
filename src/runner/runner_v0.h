@@ -1,0 +1,103 @@
+/*
+ * runner_v0.h - phase-A runner lifecycle and schema guards
+ *
+ * SPDX-License-Identifier: MIT
+ */
+#ifndef SAPLING_RUNNER_V0_H
+#define SAPLING_RUNNER_V0_H
+
+#include "runner/wire_v0.h"
+#include "sapling/sapling.h"
+
+#include <stdint.h>
+
+#ifdef SAPLING_THREADED
+#include <pthread.h>
+#endif
+
+#define SAP_RUNNER_INBOX_KEY_V0_SIZE 16u
+
+typedef enum
+{
+    SAP_RUNNER_V0_STATE_STOPPED = 0,
+    SAP_RUNNER_V0_STATE_RUNNING = 1
+} SapRunnerV0State;
+
+typedef struct
+{
+    DB *db;
+    uint32_t worker_id;
+    uint16_t schema_major;
+    uint16_t schema_minor;
+    int bootstrap_schema_if_missing;
+} SapRunnerV0Config;
+
+typedef struct
+{
+    DB *db;
+    uint32_t worker_id;
+    uint16_t schema_major;
+    uint16_t schema_minor;
+    uint64_t steps_completed;
+    SapRunnerV0State state;
+} SapRunnerV0;
+
+typedef int (*sap_runner_v0_message_handler)(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg,
+                                             void *ctx);
+
+typedef struct
+{
+    SapRunnerV0 runner;
+    sap_runner_v0_message_handler handler;
+    void *handler_ctx;
+    uint32_t max_batch;
+    uint64_t ticks;
+    int stop_requested;
+    int last_error;
+#ifdef SAPLING_THREADED
+    pthread_t thread;
+    int thread_started;
+#endif
+} SapRunnerV0Worker;
+
+/* Open required DBIs from generated WIT schema metadata. */
+int sap_runner_v0_bootstrap_dbis(DB *db);
+
+/* Validate or create the runner schema-version marker in DBI 0. */
+int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_t expected_minor,
+                                        int bootstrap_if_missing);
+
+/* Initialize lifecycle state and apply DBI/schema guards. */
+int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg);
+void sap_runner_v0_shutdown(SapRunnerV0 *runner);
+
+/* Inbox key helpers (DBI 1): [worker_id:u64be][seq:u64be] */
+void sap_runner_v0_inbox_key_encode(uint64_t worker_id, uint64_t seq,
+                                    uint8_t out[SAP_RUNNER_INBOX_KEY_V0_SIZE]);
+int sap_runner_v0_inbox_key_decode(const uint8_t *key, uint32_t key_len, uint64_t *worker_id_out,
+                                   uint64_t *seq_out);
+
+/* Queue one encoded message frame into inbox (DBI 1). */
+int sap_runner_v0_inbox_put(DB *db, uint64_t worker_id, uint64_t seq, const uint8_t *frame,
+                            uint32_t frame_len);
+
+/* Decode one frame and dispatch it through the provided callback. */
+int sap_runner_v0_run_step(SapRunnerV0 *runner, const uint8_t *frame, uint32_t frame_len,
+                           sap_runner_v0_message_handler handler, void *ctx);
+
+/* Poll and dispatch up to max_messages from DB-backed inbox (DBI 1). */
+int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
+                             sap_runner_v0_message_handler handler, void *ctx,
+                             uint32_t *processed_out);
+
+/* Worker shell around lifecycle + poll loop. */
+int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config *cfg,
+                              sap_runner_v0_message_handler handler, void *handler_ctx,
+                              uint32_t max_batch);
+int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out);
+void sap_runner_v0_worker_request_stop(SapRunnerV0Worker *worker);
+void sap_runner_v0_worker_shutdown(SapRunnerV0Worker *worker);
+int sap_runner_v0_worker_start(SapRunnerV0Worker *worker);
+int sap_runner_v0_worker_join(SapRunnerV0Worker *worker);
+
+#endif /* SAPLING_RUNNER_V0_H */

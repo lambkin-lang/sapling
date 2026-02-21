@@ -420,8 +420,15 @@ Phase A status (started):
 - done: frozen v0 wire contract module (`src/runner/wire_v0.h`,
   `src/runner/wire_v0.c`) with strict encode/decode validation and unit tests
   (`tests/unit/runner_wire_test.c`)
-- next: worker lifecycle skeleton + schema/version guard integration
-- next: dispatch loop scaffold using the v0 wire contract
+- done: worker lifecycle scaffold (`src/runner/runner_v0.h`,
+  `src/runner/runner_v0.c`) with DBI bootstrap from generated WIT metadata,
+  schema-version guard key, and step-dispatch callback integration
+  (`tests/unit/runner_lifecycle_test.c`)
+- done: step dispatch connected to DB-backed inbox cursor loop (DBI 1 inbox,
+  worker-prefixed key scan, callback dispatch, post-dispatch delete)
+- done: worker shell around lifecycle state machine (`SapRunnerV0Worker` with
+  tick/stop APIs and optional pthread start/join under `SAPLING_THREADED`)
+- next: wire worker shell to Wasm invocation shim in `src/wasi`
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
