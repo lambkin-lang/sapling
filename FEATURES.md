@@ -443,7 +443,9 @@ Phase A status (started):
   (`tests/unit/runner_attempt_test.c`)
 - done: deterministic integration coverage for conflict-retry + nested
   rollback/commit (`tests/integration/runner_atomic_integration_test.c`)
-- next: begin Phase C mailbox claim/ack/requeue flow with CAS guards
+- done: initial Phase C mailbox lease claim/ack/requeue scaffold
+  (`src/runner/mailbox_v0` + `tests/unit/runner_mailbox_test.c`)
+- next: wire outbox dispatch publication path after successful ack/commit
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -460,12 +462,19 @@ Phase B status (started):
   backoff policy hooks and run stats
 - done: deterministic integration test that exercises conflict injection,
   bounded retry, child commit/abort merge semantics, and post-commit intents
-- next: begin Phase C mailbox lease claim/ack/requeue semantics
+- done: Phase C mailbox lease claim/ack/requeue scaffolding with CAS-style
+  lease token guards and takeover-on-expiry behavior
+- next: outbox dispatch flow and timer due-time scheduling ingestion
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
 - outbox dispatch after commit
 - timer ingestion and due-time wake scheduling
+
+Phase C status (started):
+- done: mailbox lease key/value encoding and DBI 3 claim/ack/requeue APIs
+  with exact lease token guards
+- next: outbox dispatcher loop and timer wake scheduling path
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

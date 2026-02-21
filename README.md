@@ -22,11 +22,13 @@ and prefix watch notifications.
 - `make runner-txstack-test` runs phase-B nested tx stack tests
 - `make runner-attempt-test` runs phase-B bounded retry attempt tests
 - `make runner-integration-test` runs deterministic phase-B retry+nested integration tests
+- `make runner-mailbox-test` runs phase-C mailbox claim/ack/requeue tests
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
 - `make wasi-shim-test` runs phase-A runner<->wasi shim integration tests
 - `make stress-harness` runs deterministic fault-injection harness scaffolding
 - `make phasea-check` runs phase-0 checks plus phase-A runner tests
 - `make phaseb-check` runs phase-A checks plus phase-B tx context tests
+- `make phasec-check` runs phase-B checks plus phase-C mailbox tests
 
 Benchmark guardrail overrides:
 - `BENCH_BASELINE=benchmarks/baseline.env` selects the baseline file
@@ -51,6 +53,7 @@ Both require a WASI sysroot:
 - `docs/RUNNER_TXCTX_V0.md` defines the initial Phase-B host tx context behavior.
 - `docs/RUNNER_TXSTACK_V0.md` defines closed-nested atomic stack behavior.
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.
+- `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
 - `docs/WASI_RUNTIME_V0.md` defines the concrete runtime invocation layer used by the shim.
 - `docs/WASI_SHIM_V0.md` defines runner worker integration with the WASI shim/runtime path.
 

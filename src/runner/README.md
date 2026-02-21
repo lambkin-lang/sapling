@@ -20,3 +20,5 @@ Implemented foundation:
   closed-nesting push/commit/abort semantics and root commit guards.
 - `attempt_v0.h` / `attempt_v0.c`: phase-B bounded retry attempt engine around
   snapshot execution, root validation/apply, and post-commit intent sink.
+- `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue
+  scaffold with CAS-style lease token guards.
