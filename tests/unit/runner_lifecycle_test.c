@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CHECK(cond)                                                                                \
     do                                                                                             \
@@ -867,6 +868,69 @@ static int64_t fixed_now_ms(void *ctx)
     return clock->now_ms;
 }
 
+#ifdef SAPLING_THREADED
+static void sleep_for_ms(uint32_t ms)
+{
+    struct timespec ts;
+
+    ts.tv_sec = (time_t)(ms / 1000u);
+    ts.tv_nsec = (long)((ms % 1000u) * 1000000L);
+    nanosleep(&ts, NULL);
+}
+
+static int test_worker_thread_survives_transient_busy(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    Txn *hold_wtxn = NULL;
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    int exists = 1;
+    uint32_t i;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == SAP_OK);
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 0, 11u, frame, frame_len) == SAP_OK);
+
+    hold_wtxn = txn_begin(db, NULL, 0u);
+    CHECK(hold_wtxn != NULL);
+
+    CHECK(sap_runner_v0_worker_start(&worker) == SAP_OK);
+    sleep_for_ms(10u);
+
+    txn_abort(hold_wtxn);
+    hold_wtxn = NULL;
+
+    for (i = 0u; i < 200u; i++)
+    {
+        CHECK(timer_entry_exists(db, 0, 11u, &exists) == SAP_OK);
+        if (!exists)
+        {
+            break;
+        }
+        sleep_for_ms(2u);
+    }
+
+    sap_runner_v0_worker_request_stop(&worker);
+    CHECK(sap_runner_v0_worker_join(&worker) == SAP_OK);
+
+    CHECK(exists == 0);
+    CHECK(worker.last_error == SAP_OK);
+
+    sap_runner_v0_worker_shutdown(&worker);
+    db_close(db);
+    return 0;
+}
+#endif
+
 static int test_worker_tick_drains_due_timers(void)
 {
     DB *db = new_db();
@@ -985,13 +1049,19 @@ int main(void)
     {
         return 12;
     }
-    if (test_worker_tick_drains_due_timers() != 0)
+#ifdef SAPLING_THREADED
+    if (test_worker_thread_survives_transient_busy() != 0)
     {
         return 13;
     }
-    if (test_worker_idle_sleep_budget() != 0)
+#endif
+    if (test_worker_tick_drains_due_timers() != 0)
     {
         return 14;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 15;
     }
     return 0;
 }

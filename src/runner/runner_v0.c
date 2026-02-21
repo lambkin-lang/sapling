@@ -66,6 +66,35 @@ static int64_t worker_now_ms(const SapRunnerV0Worker *worker)
     return default_now_ms(NULL);
 }
 
+static int worker_stop_requested(const SapRunnerV0Worker *worker)
+{
+    if (!worker)
+    {
+        return 1;
+    }
+#ifdef SAPLING_THREADED
+    return __atomic_load_n(&worker->stop_requested, __ATOMIC_ACQUIRE);
+#else
+    return worker->stop_requested;
+#endif
+}
+
+static void worker_set_stop_requested(SapRunnerV0Worker *worker, int stop_requested)
+{
+    int value;
+
+    if (!worker)
+    {
+        return;
+    }
+    value = (stop_requested != 0) ? 1 : 0;
+#ifdef SAPLING_THREADED
+    __atomic_store_n(&worker->stop_requested, value, __ATOMIC_RELEASE);
+#else
+    worker->stop_requested = value;
+#endif
+}
+
 #ifdef SAPLING_THREADED
 static void default_sleep_ms(uint32_t sleep_ms, void *ctx)
 {
@@ -1268,7 +1297,7 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
     worker->sleep_ms_fn = NULL;
     worker->sleep_ms_ctx = NULL;
     worker->ticks = 0u;
-    worker->stop_requested = 0;
+    worker_set_stop_requested(worker, 0);
     worker->last_error = SAP_OK;
     return SAP_OK;
 }
@@ -1286,7 +1315,7 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
     {
         return SAP_ERROR;
     }
-    if (worker->stop_requested)
+    if (worker_stop_requested(worker))
     {
         return SAP_BUSY;
     }
@@ -1295,7 +1324,10 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                                   worker->handler_ctx, &processed);
     if (rc != SAP_OK)
     {
-        worker->last_error = rc;
+        if (rc != SAP_BUSY)
+        {
+            worker->last_error = rc;
+        }
         return rc;
     }
 
@@ -1312,7 +1344,10 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                                            timer_dispatch_handler, &timer_ctx, &timer_processed);
         if (rc != SAP_OK)
         {
-            worker->last_error = rc;
+            if (rc != SAP_BUSY)
+            {
+                worker->last_error = rc;
+            }
             return rc;
         }
         processed += timer_processed;
@@ -1390,11 +1425,7 @@ int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32
 
 void sap_runner_v0_worker_request_stop(SapRunnerV0Worker *worker)
 {
-    if (!worker)
-    {
-        return;
-    }
-    worker->stop_requested = 1;
+    worker_set_stop_requested(worker, 1);
 }
 
 void sap_runner_v0_worker_shutdown(SapRunnerV0Worker *worker)
@@ -1412,14 +1443,30 @@ static void *runner_thread_main(void *arg)
 {
     SapRunnerV0Worker *worker = (SapRunnerV0Worker *)arg;
 
-    while (!worker->stop_requested)
+    while (!worker_stop_requested(worker))
     {
         uint32_t processed = 0u;
+        uint32_t sleep_ms = 0u;
         int rc = sap_runner_v0_worker_tick(worker, &processed);
 
-        if (rc == SAP_BUSY && worker->stop_requested)
+        if (rc == SAP_BUSY && worker_stop_requested(worker))
         {
             break;
+        }
+        if (rc == SAP_BUSY)
+        {
+            rc = sap_runner_v0_worker_compute_idle_sleep_ms(worker, &sleep_ms);
+            if (rc != SAP_OK)
+            {
+                worker->last_error = rc;
+                break;
+            }
+            if (sleep_ms == 0u)
+            {
+                sleep_ms = 1u;
+            }
+            worker_sleep_ms(worker, sleep_ms);
+            continue;
         }
         if (rc != SAP_OK)
         {
@@ -1455,7 +1502,7 @@ int sap_runner_v0_worker_start(SapRunnerV0Worker *worker)
     {
         return SAP_BUSY;
     }
-    worker->stop_requested = 0;
+    worker_set_stop_requested(worker, 0);
     worker->last_error = SAP_OK;
     if (pthread_create(&worker->thread, NULL, runner_thread_main, worker) != 0)
     {
