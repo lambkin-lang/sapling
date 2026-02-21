@@ -28,3 +28,5 @@ Implemented foundation:
   attempt-intent publisher adapter for committed timer ingestion.
 - `scheduler_v0.h` / `scheduler_v0.c`: phase-C next-due lookup and sleep-budget
   helpers for timer-aware worker idle behavior.
+- `intent_sink_v0.h` / `intent_sink_v0.c`: composed intent sink that routes
+  `OUTBOX_EMIT` and `TIMER_ARM` to the correct Phase-C publisher.

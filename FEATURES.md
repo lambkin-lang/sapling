@@ -451,7 +451,11 @@ Phase A status (started):
   `tests/unit/runner_timer_test.c`)
 - done: timer scheduling helper scaffold (`src/runner/scheduler_v0`) for
   next-due lookup + bounded sleep-budget calculation
-- next: wire scheduler helper into worker thread idle/sleep loop
+- done: worker shell now drains due timers in `worker_tick` and uses scheduler
+  helper for timer-aware idle sleep budgeting in threaded loop
+- done: composed attempt intent sink (`src/runner/intent_sink_v0`) routes both
+  `OUTBOX_EMIT` and `TIMER_ARM` through one callback path
+- next: wire composed sink and lease/timer claim coordination into host runner flow
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -476,7 +480,10 @@ Phase B status (started):
   integration for `TIMER_ARM`
 - done: Phase C scheduler helper for next-due timer lookup and bounded sleep
   budget decisions
-- next: integrate timer-aware wake/sleep into worker thread loop
+- done: timer-aware wake/sleep integrated into worker thread loop and due-timer
+  dispatch integrated into worker tick path
+- done: composed intent sink for outbox+timer publication
+- next: integrate mailbox lease claim/ack/requeue with attempt execution loop
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -492,7 +499,10 @@ Phase C status (started):
   attempt-intent publisher adapter
 - done: scheduler helper to derive earliest due timestamp and bounded idle
   sleep duration
-- next: worker-loop integration for timer-aware wake/sleep decisions
+- done: worker-loop integration for timer-aware wake/sleep decisions and due
+  timer dispatch
+- done: composed intent-sink adapter for mixed outbox+timer intent streams
+- next: lease-aware worker coordination and retry/claim integration
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

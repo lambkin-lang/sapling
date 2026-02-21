@@ -70,16 +70,33 @@ Per message attempt:
 This keeps handler execution outside write transactions while still using inbox
 records as the source of truth.
 
+## Due-timer dispatch scaffold
+
+`sap_runner_v0_worker_tick` now also drains due timers after inbox polling
+(up to remaining `max_batch` capacity):
+- DBI: `timers` (DBI 4)
+- key encoding: `[due_ts:i64be][seq:u64be]` (16 bytes)
+- value: serialized `LMSG` frame bytes
+
+Due timer frames are dispatched through the same `sap_runner_v0_run_step`
+path and deleted with key/value match guards.
+
 ## Worker shell
 
 `SapRunnerV0Worker` wraps lifecycle + poll behavior for host scheduling:
 - `sap_runner_v0_worker_init`: initialize runner and handler context
-- `sap_runner_v0_worker_tick`: process up to `max_batch` inbox entries
+- `sap_runner_v0_worker_tick`: process up to `max_batch` entries across inbox
+  and due timers
+- `sap_runner_v0_worker_set_idle_policy`: configure max idle sleep budget
+- `sap_runner_v0_worker_set_time_hooks`: optional clock/sleep hook injection
+- `sap_runner_v0_worker_compute_idle_sleep_ms`: compute timer-aware idle sleep
+  from next due timer and configured max idle budget
 - `sap_runner_v0_worker_request_stop` / `sap_runner_v0_worker_shutdown`
 
 Threaded helpers are also exposed:
 - `sap_runner_v0_worker_start`
 - `sap_runner_v0_worker_join`
 
-These launch a simple polling loop only when `SAPLING_THREADED` is enabled;
-otherwise they return `SAP_ERROR`.
+These launch a polling loop only when `SAPLING_THREADED` is enabled; idle
+sleep uses timer-aware budgeting from the scheduler helper. Without threaded
+support they return `SAP_ERROR`.

@@ -51,6 +51,11 @@ typedef struct
     sap_runner_v0_message_handler handler;
     void *handler_ctx;
     uint32_t max_batch;
+    uint32_t max_idle_sleep_ms;
+    int64_t (*now_ms_fn)(void *ctx);
+    void *now_ms_ctx;
+    void (*sleep_ms_fn)(uint32_t sleep_ms, void *ctx);
+    void *sleep_ms_ctx;
     uint64_t ticks;
     int stop_requested;
     int last_error;
@@ -95,6 +100,12 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
                               sap_runner_v0_message_handler handler, void *handler_ctx,
                               uint32_t max_batch);
 int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out);
+void sap_runner_v0_worker_set_idle_policy(SapRunnerV0Worker *worker, uint32_t max_idle_sleep_ms);
+void sap_runner_v0_worker_set_time_hooks(SapRunnerV0Worker *worker, int64_t (*now_ms_fn)(void *ctx),
+                                         void *now_ms_ctx,
+                                         void (*sleep_ms_fn)(uint32_t sleep_ms, void *ctx),
+                                         void *sleep_ms_ctx);
+int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32_t *sleep_ms_out);
 void sap_runner_v0_worker_request_stop(SapRunnerV0Worker *worker);
 void sap_runner_v0_worker_shutdown(SapRunnerV0Worker *worker);
 int sap_runner_v0_worker_start(SapRunnerV0Worker *worker);

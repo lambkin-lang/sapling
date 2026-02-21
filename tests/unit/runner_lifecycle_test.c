@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "runner/runner_v0.h"
+#include "runner/timer_v0.h"
 #include "generated/wit_schema_dbis.h"
 
 #include <stdint.h>
@@ -97,6 +98,76 @@ static int inbox_entry_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exi
     }
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &val, &val_len);
+    txn_abort(txn);
+
+    if (rc == SAP_OK)
+    {
+        *exists_out = 1;
+        return SAP_OK;
+    }
+    if (rc == SAP_NOTFOUND)
+    {
+        *exists_out = 0;
+        return SAP_OK;
+    }
+    return rc;
+}
+
+static int timer_entry_exists(DB *db, int64_t due_ts, uint64_t seq, int *exists_out)
+{
+    Txn *txn;
+    uint8_t key[SAP_RUNNER_TIMER_KEY_V0_SIZE];
+    const void *val = NULL;
+    uint32_t val_len = 0u;
+    int rc;
+
+    if (!db || !exists_out)
+    {
+        return SAP_ERROR;
+    }
+
+    txn = txn_begin(db, NULL, TXN_RDONLY);
+    if (!txn)
+    {
+        return SAP_ERROR;
+    }
+    sap_runner_timer_v0_key_encode(due_ts, seq, key);
+    rc = txn_get_dbi(txn, SAP_WIT_DBI_TIMERS, key, sizeof(key), &val, &val_len);
+    txn_abort(txn);
+
+    if (rc == SAP_OK)
+    {
+        *exists_out = 1;
+        return SAP_OK;
+    }
+    if (rc == SAP_NOTFOUND)
+    {
+        *exists_out = 0;
+        return SAP_OK;
+    }
+    return rc;
+}
+
+static int lease_entry_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_out)
+{
+    Txn *txn;
+    uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
+    const void *val = NULL;
+    uint32_t val_len = 0u;
+    int rc;
+
+    if (!db || !exists_out)
+    {
+        return SAP_ERROR;
+    }
+
+    txn = txn_begin(db, NULL, TXN_RDONLY);
+    if (!txn)
+    {
+        return SAP_ERROR;
+    }
+    sap_runner_v0_inbox_key_encode(worker_id, seq, key);
+    rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), &val, &val_len);
     txn_abort(txn);
 
     if (rc == SAP_OK)
@@ -264,6 +335,8 @@ static int test_worker_shell_tick(void)
     CHECK(dispatch_state.calls == 1u);
     CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
     CHECK(exists == 0);
+    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(exists == 0);
 
 #ifdef SAPLING_THREADED
     CHECK(sap_runner_v0_worker_start(&worker) == SAP_OK);
@@ -277,6 +350,89 @@ static int test_worker_shell_tick(void)
 #endif
 
     sap_runner_v0_worker_shutdown(&worker);
+    db_close(db);
+    return 0;
+}
+
+typedef struct
+{
+    int64_t now_ms;
+} NowCtx;
+
+static int64_t fixed_now_ms(void *ctx)
+{
+    NowCtx *clock = (NowCtx *)ctx;
+    if (!clock)
+    {
+        return 0;
+    }
+    return clock->now_ms;
+}
+
+static int test_worker_tick_drains_due_timers(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
+    uint32_t processed = 0u;
+    int exists = 0;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 0, 1u, frame, frame_len) == SAP_OK);
+
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(processed == 1u);
+    CHECK(dispatch_state.calls == 1u);
+    CHECK(timer_entry_exists(db, 0, 1u, &exists) == SAP_OK);
+    CHECK(exists == 0);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_worker_idle_sleep_budget(void)
+{
+    DB *db = new_db();
+    SapRunnerV0Worker worker;
+    SapRunnerV0Config cfg;
+    TestDispatchCtx dispatch_state = {0};
+    NowCtx clock = {0};
+    uint32_t sleep_ms = 0u;
+
+    CHECK(db != NULL);
+    cfg.db = db;
+    cfg.worker_id = 7u;
+    cfg.schema_major = 0u;
+    cfg.schema_minor = 0u;
+    cfg.bootstrap_schema_if_missing = 1;
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+
+    sap_runner_v0_worker_set_idle_policy(&worker, 25u);
+    clock.now_ms = 100;
+    sap_runner_v0_worker_set_time_hooks(&worker, fixed_now_ms, &clock, NULL, NULL);
+
+    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == SAP_OK);
+    CHECK(sleep_ms == 25u);
+
+    CHECK(sap_runner_timer_v0_append(db, 150, 1u, (const uint8_t *)"a", 1u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == SAP_OK);
+    CHECK(sleep_ms == 25u);
+
+    CHECK(sap_runner_timer_v0_append(db, 105, 1u, (const uint8_t *)"b", 1u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == SAP_OK);
+    CHECK(sleep_ms == 5u);
+
     db_close(db);
     return 0;
 }
@@ -302,6 +458,14 @@ int main(void)
     if (test_worker_shell_tick() != 0)
     {
         return 5;
+    }
+    if (test_worker_tick_drains_due_timers() != 0)
+    {
+        return 6;
+    }
+    if (test_worker_idle_sleep_budget() != 0)
+    {
+        return 7;
     }
     return 0;
 }

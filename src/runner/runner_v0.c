@@ -6,7 +6,11 @@
 #include "runner/runner_v0.h"
 
 #include "generated/wit_schema_dbis.h"
+#include "runner/mailbox_v0.h"
+#include "runner/scheduler_v0.h"
+#include "runner/timer_v0.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -14,9 +18,90 @@
 #define RUNNER_SCHEMA_KEY_STR "runner.schema.version"
 #define RUNNER_SCHEMA_KEY_LEN ((uint32_t)(sizeof(RUNNER_SCHEMA_KEY_STR) - 1u))
 #define RUNNER_SCHEMA_VAL_LEN 8u
+#define RUNNER_LEASE_TTL_MS 1000
 
 static const uint8_t k_runner_schema_key[] = RUNNER_SCHEMA_KEY_STR;
 static const uint8_t k_runner_schema_magic[4] = {'R', 'S', 'V', '0'};
+
+typedef struct
+{
+    SapRunnerV0Worker *worker;
+    uint32_t count;
+} TimerDispatchCtx;
+
+static int64_t default_now_ms(void *ctx)
+{
+    struct timespec ts;
+    int64_t ms;
+
+    (void)ctx;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
+    {
+        return 0;
+    }
+    ms = (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000L);
+    return ms;
+}
+
+static int64_t worker_now_ms(const SapRunnerV0Worker *worker)
+{
+    if (!worker)
+    {
+        return 0;
+    }
+    if (worker->now_ms_fn)
+    {
+        return worker->now_ms_fn(worker->now_ms_ctx);
+    }
+    return default_now_ms(NULL);
+}
+
+#ifdef SAPLING_THREADED
+static void default_sleep_ms(uint32_t sleep_ms, void *ctx)
+{
+    struct timespec ts;
+
+    (void)ctx;
+    ts.tv_sec = (time_t)(sleep_ms / 1000u);
+    ts.tv_nsec = (long)((sleep_ms % 1000u) * 1000000L);
+    nanosleep(&ts, NULL);
+}
+
+static void worker_sleep_ms(const SapRunnerV0Worker *worker, uint32_t sleep_ms)
+{
+    if (!worker || sleep_ms == 0u)
+    {
+        return;
+    }
+    if (worker->sleep_ms_fn)
+    {
+        worker->sleep_ms_fn(sleep_ms, worker->sleep_ms_ctx);
+        return;
+    }
+    default_sleep_ms(sleep_ms, NULL);
+}
+#endif
+
+static int timer_dispatch_handler(int64_t due_ts, const uint8_t *payload, uint32_t payload_len,
+                                  void *ctx)
+{
+    TimerDispatchCtx *tctx = (TimerDispatchCtx *)ctx;
+    int step_rc;
+
+    (void)due_ts;
+    if (!tctx || !tctx->worker)
+    {
+        return SAP_ERROR;
+    }
+    step_rc = sap_runner_v0_run_step(&tctx->worker->runner, payload, payload_len,
+                                     tctx->worker->handler, tctx->worker->handler_ctx);
+    if (step_rc != SAP_OK)
+    {
+        return step_rc;
+    }
+    tctx->count++;
+    return SAP_OK;
+}
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1] << 8)); }
 
@@ -177,45 +262,6 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
     cursor_close(cur);
     txn_abort(txn);
     return SAP_OK;
-}
-
-static int delete_inbox_if_match(DB *db, const uint8_t *key, uint32_t key_len, const uint8_t *frame,
-                                 uint32_t frame_len)
-{
-    Txn *txn;
-    const void *current_val = NULL;
-    uint32_t current_len = 0u;
-    int rc;
-
-    if (!db || !key || key_len == 0u || !frame || frame_len == 0u)
-    {
-        return SAP_ERROR;
-    }
-
-    txn = txn_begin(db, NULL, 0u);
-    if (!txn)
-    {
-        return SAP_BUSY;
-    }
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, key_len, &current_val, &current_len);
-    if (rc != SAP_OK)
-    {
-        txn_abort(txn);
-        return rc;
-    }
-    if (current_len != frame_len || memcmp(current_val, frame, frame_len) != 0)
-    {
-        txn_abort(txn);
-        return SAP_CONFLICT;
-    }
-    rc = txn_del_dbi(txn, SAP_WIT_DBI_INBOX, key, key_len);
-    if (rc != SAP_OK)
-    {
-        txn_abort(txn);
-        return rc;
-    }
-    rc = txn_commit(txn);
-    return rc;
 }
 
 int sap_runner_v0_bootstrap_dbis(DB *db)
@@ -496,6 +542,9 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         uint32_t key_len = 0u;
         uint8_t *frame = NULL;
         uint32_t frame_len = 0u;
+        uint64_t key_worker = 0u;
+        uint64_t key_seq = 0u;
+        SapRunnerLeaseV0 lease = {0};
         int rc;
 
         rc = read_next_inbox_frame(runner->db, runner->worker_id, &key, &key_len, &frame,
@@ -503,6 +552,40 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
         if (rc == SAP_NOTFOUND)
         {
             break;
+        }
+        if (rc != SAP_OK)
+        {
+            free(key);
+            free(frame);
+            return rc;
+        }
+
+        rc = sap_runner_v0_inbox_key_decode(key, key_len, &key_worker, &key_seq);
+        if (rc != SAP_OK)
+        {
+            free(key);
+            free(frame);
+            return rc;
+        }
+
+        {
+            int64_t now_ms = default_now_ms(NULL);
+            int64_t deadline_ms = now_ms + RUNNER_LEASE_TTL_MS;
+
+            rc = sap_runner_mailbox_v0_claim(runner->db, key_worker, key_seq, runner->worker_id,
+                                             now_ms, deadline_ms, &lease);
+        }
+        if (rc == SAP_BUSY)
+        {
+            free(key);
+            free(frame);
+            break;
+        }
+        if (rc == SAP_NOTFOUND)
+        {
+            free(key);
+            free(frame);
+            continue;
         }
         if (rc != SAP_OK)
         {
@@ -519,7 +602,7 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
             return rc;
         }
 
-        rc = delete_inbox_if_match(runner->db, key, key_len, frame, frame_len);
+        rc = sap_runner_mailbox_v0_ack(runner->db, key_worker, key_seq, &lease);
         free(key);
         free(frame);
         if (rc != SAP_OK)
@@ -556,6 +639,11 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
     worker->handler = handler;
     worker->handler_ctx = handler_ctx;
     worker->max_batch = (max_batch == 0u) ? 1u : max_batch;
+    worker->max_idle_sleep_ms = 1u;
+    worker->now_ms_fn = NULL;
+    worker->now_ms_ctx = NULL;
+    worker->sleep_ms_fn = NULL;
+    worker->sleep_ms_ctx = NULL;
     worker->ticks = 0u;
     worker->stop_requested = 0;
     worker->last_error = SAP_OK;
@@ -565,6 +653,7 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
 int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out)
 {
     int rc;
+    uint32_t processed = 0u;
 
     if (processed_out)
     {
@@ -580,14 +669,91 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
     }
 
     rc = sap_runner_v0_poll_inbox(&worker->runner, worker->max_batch, worker->handler,
-                                  worker->handler_ctx, processed_out);
+                                  worker->handler_ctx, &processed);
     if (rc != SAP_OK)
     {
         worker->last_error = rc;
         return rc;
     }
+
+    if (processed < worker->max_batch)
+    {
+        TimerDispatchCtx timer_ctx = {0};
+        uint32_t timer_budget;
+        uint32_t timer_processed = 0u;
+
+        timer_ctx.worker = worker;
+        timer_ctx.count = 0u;
+        timer_budget = worker->max_batch - processed;
+        rc = sap_runner_timer_v0_drain_due(worker->runner.db, worker_now_ms(worker), timer_budget,
+                                           timer_dispatch_handler, &timer_ctx, &timer_processed);
+        if (rc != SAP_OK)
+        {
+            worker->last_error = rc;
+            return rc;
+        }
+        processed += timer_processed;
+    }
+
+    if (processed_out)
+    {
+        *processed_out = processed;
+    }
     worker->ticks++;
     return SAP_OK;
+}
+
+void sap_runner_v0_worker_set_idle_policy(SapRunnerV0Worker *worker, uint32_t max_idle_sleep_ms)
+{
+    if (!worker)
+    {
+        return;
+    }
+    worker->max_idle_sleep_ms = (max_idle_sleep_ms == 0u) ? 1u : max_idle_sleep_ms;
+}
+
+void sap_runner_v0_worker_set_time_hooks(SapRunnerV0Worker *worker, int64_t (*now_ms_fn)(void *ctx),
+                                         void *now_ms_ctx,
+                                         void (*sleep_ms_fn)(uint32_t sleep_ms, void *ctx),
+                                         void *sleep_ms_ctx)
+{
+    if (!worker)
+    {
+        return;
+    }
+    worker->now_ms_fn = now_ms_fn;
+    worker->now_ms_ctx = now_ms_ctx;
+    worker->sleep_ms_fn = sleep_ms_fn;
+    worker->sleep_ms_ctx = sleep_ms_ctx;
+}
+
+int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32_t *sleep_ms_out)
+{
+    int rc;
+    int64_t next_due = 0;
+    uint32_t max_idle = 0u;
+
+    if (!worker || !sleep_ms_out)
+    {
+        return SAP_ERROR;
+    }
+    *sleep_ms_out = 0u;
+
+    max_idle = (worker->max_idle_sleep_ms == 0u) ? 1u : worker->max_idle_sleep_ms;
+    rc = sap_runner_scheduler_v0_next_due(worker->runner.db, &next_due);
+    if (rc == SAP_NOTFOUND)
+    {
+        *sleep_ms_out = max_idle;
+        return SAP_OK;
+    }
+    if (rc != SAP_OK)
+    {
+        return rc;
+    }
+
+    rc = sap_runner_scheduler_v0_compute_sleep_ms(worker_now_ms(worker), next_due, max_idle,
+                                                  sleep_ms_out);
+    return rc;
 }
 
 void sap_runner_v0_worker_request_stop(SapRunnerV0Worker *worker)
@@ -630,10 +796,14 @@ static void *runner_thread_main(void *arg)
         }
         if (processed == 0u)
         {
-            struct timespec ts;
-            ts.tv_sec = 0;
-            ts.tv_nsec = 1000000L; /* 1ms */
-            nanosleep(&ts, NULL);
+            uint32_t sleep_ms = 0u;
+            rc = sap_runner_v0_worker_compute_idle_sleep_ms(worker, &sleep_ms);
+            if (rc != SAP_OK)
+            {
+                worker->last_error = rc;
+                break;
+            }
+            worker_sleep_ms(worker, sleep_ms);
         }
     }
 
