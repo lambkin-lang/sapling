@@ -575,6 +575,9 @@ Phase C status (started):
   recovery in worker loop validated under threaded regression
 - done: worker time-hook usage expanded from scheduler-only to inbox lease and
   latency paths
+- done: added threaded C-level order-pipeline sample with four worker threads
+  and DB-backed stage queues (`examples/native/runner_threaded_pipeline_example.c`,
+  `make runner-threaded-pipeline-example`)
 - next: execute reprioritized backlog below (starting with future Priority 6
   items based on product demand)
 
@@ -601,6 +604,12 @@ Phase C status (started):
    `sap_wasi_runtime_v0_init_adapter` + optional streaming invoke support were
    added, and shim init now supports configurable reply-buffer capacity via
    `sap_wasi_shim_v0_init_with_options` (removing fixed-cap-only behavior).
+9. [P1] Investigate and harden concurrent multi-writer threaded behavior in
+   runner-style workloads sharing one DB handle; initial runner-threaded
+   pipeline prototype surfaced a crash path under sustained write contention.
+10. [P1] Add a dedicated stress/regression target for threaded runner-style
+    multi-writer churn (queue/forward/retry mix), and keep it in CI once the
+    hardening fix lands.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

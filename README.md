@@ -34,6 +34,7 @@ notifications.
 - `make runner-scheduler-test` runs phase-C timer scheduling helper tests
 - `make runner-intent-sink-test` runs composed outbox+timer intent sink tests
 - `make runner-native-example` runs a non-WASI worker example wired through `attempt_handler_v0`
+- `make runner-threaded-pipeline-example` runs a threaded 4-worker order pipeline example
 - `make runner-phasee-bench-run` runs the Phase E runner coupling-study benchmark
 - `make runner-release-checklist` runs the Phase F release checklist automation
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
@@ -68,6 +69,7 @@ Both require a WASI sysroot:
 - `docs/RUNNER_ATTEMPT_V0.md` defines bounded retry-attempt orchestration.
 - `docs/RUNNER_ATTEMPT_HANDLER_V0.md` defines generic runner-handler integration over `attempt_v0`.
 - `examples/native/runner_native_example.c` demonstrates a non-WASI worker path using `attempt_handler_v0`.
+- `examples/native/runner_threaded_pipeline_example.c` demonstrates a threaded C-level order pipeline with DB-backed stage queues.
 - `docs/RUNNER_MAILBOX_V0.md` defines mailbox lease claim/ack/requeue behavior.
 - `docs/RUNNER_DEAD_LETTER_V0.md` defines dead-letter move/record behavior.
 - `docs/RUNNER_DEAD_LETTER_POLICY.md` defines dead-letter drain/replay operations and policy.

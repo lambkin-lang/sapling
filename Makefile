@@ -35,6 +35,7 @@
 #   make runner-scheduler-test — run phase-C timer scheduling helper tests
 #   make runner-intent-sink-test — run composed outbox+timer intent sink tests
 #   make runner-native-example — run non-WASI attempt-handler integration example
+#   make runner-threaded-pipeline-example — run threaded 4-worker order pipeline example
 #   make runner-phasee-bench — build phase-E runner coupling study benchmark
 #   make runner-phasee-bench-run — run phase-E runner coupling study benchmark
 #   make runner-release-checklist — run phase-F runner release checklist automation
@@ -104,6 +105,7 @@ RUNNER_TIMER_TEST_BIN = runner_timer_test
 RUNNER_SCHEDULER_TEST_BIN = runner_scheduler_test
 RUNNER_INTENT_SINK_TEST_BIN = runner_intent_sink_test
 RUNNER_NATIVE_EXAMPLE_BIN = runner_native_example
+RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = runner_threaded_pipeline_example
 RUNNER_PHASEE_BENCH_BIN = bench_runner_phasee
 WASI_RUNTIME_TEST_BIN = wasi_runtime_test
 WASI_SHIM_TEST_BIN = wasi_shim_test
@@ -180,6 +182,7 @@ RUNNER_INTENT_SINK_SRC = src/runner/intent_sink_v0.c
 RUNNER_INTENT_SINK_HDR = src/runner/intent_sink_v0.h
 RUNNER_INTENT_SINK_TEST_SRC = tests/unit/runner_intent_sink_test.c
 RUNNER_NATIVE_EXAMPLE_SRC = examples/native/runner_native_example.c
+RUNNER_THREADED_PIPELINE_EXAMPLE_SRC = examples/native/runner_threaded_pipeline_example.c
 RUNNER_PHASEE_BENCH_SRC = bench_runner_phasee.c
 WASI_SHIM_SRC = src/wasi/shim_v0.c
 WASI_SHIM_HDR = src/wasi/shim_v0.h
@@ -187,11 +190,11 @@ WASI_RUNTIME_SRC = src/wasi/runtime_v0.c
 WASI_RUNTIME_HDR = src/wasi/runtime_v0.h
 WASI_RUNTIME_TEST_SRC = tests/unit/wasi_runtime_test.c
 WASI_SHIM_TEST_SRC = tests/unit/wasi_shim_test.c
-FORMAT_FILES = sapling.c sapling.h $(RUNNER_PHASEE_BENCH_SRC) $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_ATTEMPT_HANDLER_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_OUTBOX_SRC) $(RUNNER_OUTBOX_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(RUNNER_INTENT_SINK_SRC) $(RUNNER_INTENT_SINK_HDR) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_RECOVERY_TEST_SRC) $(RUNNER_NATIVE_EXAMPLE_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_TIDY_FILES = $(RUNNER_PHASEE_BENCH_SRC) $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_OUTBOX_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_INTENT_SINK_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_RECOVERY_TEST_SRC) $(RUNNER_NATIVE_EXAMPLE_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/runner_txctx_test.c tests/unit/runner_txstack_test.c tests/unit/runner_attempt_test.c tests/unit/runner_attempt_handler_test.c tests/unit/runner_mailbox_test.c tests/unit/runner_dead_letter_test.c tests/unit/runner_outbox_test.c tests/unit/runner_timer_test.c tests/unit/runner_scheduler_test.c tests/unit/runner_intent_sink_test.c tests/integration/runner_atomic_integration_test.c tests/integration/runner_recovery_integration_test.c examples/native/runner_native_example.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
+FORMAT_FILES = sapling.c sapling.h $(RUNNER_PHASEE_BENCH_SRC) $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_ATTEMPT_HANDLER_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_OUTBOX_SRC) $(RUNNER_OUTBOX_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(RUNNER_INTENT_SINK_SRC) $(RUNNER_INTENT_SINK_HDR) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_RECOVERY_TEST_SRC) $(RUNNER_NATIVE_EXAMPLE_SRC) $(RUNNER_THREADED_PIPELINE_EXAMPLE_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_TIDY_FILES = $(RUNNER_PHASEE_BENCH_SRC) $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_OUTBOX_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_INTENT_SINK_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_RECOVERY_TEST_SRC) $(RUNNER_NATIVE_EXAMPLE_SRC) $(RUNNER_THREADED_PIPELINE_EXAMPLE_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/runner_txctx_test.c tests/unit/runner_txstack_test.c tests/unit/runner_attempt_test.c tests/unit/runner_attempt_handler_test.c tests/unit/runner_mailbox_test.c tests/unit/runner_dead_letter_test.c tests/unit/runner_outbox_test.c tests/unit/runner_timer_test.c tests/unit/runner_scheduler_test.c tests/unit/runner_intent_sink_test.c tests/integration/runner_atomic_integration_test.c tests/integration/runner_recovery_integration_test.c examples/native/runner_native_example.c examples/native/runner_threaded_pipeline_example.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-threaded-pipeline-example runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -305,6 +308,9 @@ $(RUNNER_INTENT_SINK_TEST_BIN): $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTENT_S
 
 $(RUNNER_NATIVE_EXAMPLE_BIN): $(RUNNER_NATIVE_EXAMPLE_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_ATTEMPT_HANDLER_HDR) $(RUNNER_INTENT_SINK_SRC) $(RUNNER_INTENT_SINK_HDR) $(RUNNER_OUTBOX_SRC) $(RUNNER_OUTBOX_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(SAPLING_HDR) $(WIT_GEN_SRC) $(WIT_GEN_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_NATIVE_EXAMPLE_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_INTENT_SINK_SRC) $(RUNNER_OUTBOX_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) $(WIT_GEN_SRC) -o $(RUNNER_NATIVE_EXAMPLE_BIN) $(LDFLAGS)
+
+$(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN): $(RUNNER_THREADED_PIPELINE_EXAMPLE_SRC) $(SAPLING_SRC) $(SAPLING_HDR)
+	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_THREADED_PIPELINE_EXAMPLE_SRC) $(SAPLING_SRC) -o $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN) $(LDFLAGS)
 
 $(RUNNER_PHASEE_BENCH_BIN): $(RUNNER_PHASEE_BENCH_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(SAPLING_HDR) $(WIT_GEN_SRC) $(WIT_GEN_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_PHASEE_BENCH_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) $(WIT_GEN_SRC) -o $(RUNNER_PHASEE_BENCH_BIN) $(LDFLAGS)
@@ -424,6 +430,11 @@ runner-native-example: CFLAGS += -O2 -g
 runner-native-example: wit-schema-generate $(RUNNER_NATIVE_EXAMPLE_BIN)
 	./$(RUNNER_NATIVE_EXAMPLE_BIN)
 
+runner-threaded-pipeline-example: CFLAGS += -O2 -g -DSAPLING_THREADED
+runner-threaded-pipeline-example: LDFLAGS += -lpthread
+runner-threaded-pipeline-example: $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN)
+	./$(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN)
+
 runner-phasee-bench: CFLAGS += -O3 -g
 runner-phasee-bench: wit-schema-generate $(RUNNER_PHASEE_BENCH_BIN)
 
@@ -461,4 +472,4 @@ phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-
 phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-recovery-test
 
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_INTEGRATION_TEST_BIN) $(RUNNER_RECOVERY_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(RUNNER_NATIVE_EXAMPLE_BIN) $(RUNNER_PHASEE_BENCH_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
+	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_INTEGRATION_TEST_BIN) $(RUNNER_RECOVERY_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(RUNNER_NATIVE_EXAMPLE_BIN) $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN) $(RUNNER_PHASEE_BENCH_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
