@@ -24,6 +24,7 @@
 #   make runner-txctx-test — run phase-B host tx context tests
 #   make runner-txstack-test — run phase-B nested tx stack tests
 #   make runner-attempt-test — run phase-B retry attempt tests
+#   make runner-attempt-handler-test — run generic attempt-backed handler adapter tests
 #   make runner-integration-test — run phase-B retry+nested integration test
 #   make runner-mailbox-test — run phase-C mailbox lease tests
 #   make runner-dead-letter-test — run phase-C dead-letter move tests
@@ -37,7 +38,7 @@
 #   make stress-harness — run deterministic fault harness scaffold
 #   make phase0-check — run phase-0 foundation checks
 #   make phasea-check — run phase-0 checks + phase-A runner tests
-#   make phaseb-check — run phase-A checks + phase-B tx context tests
+#   make phaseb-check — run phase-A checks + phase-B tx/attempt tests
 #   make phasec-check — run phase-B checks + phase-C mailbox/dead-letter/outbox/timer tests
 #   make clean        — remove build artifacts
 #
@@ -79,6 +80,7 @@ RUNNER_LIFECYCLE_TEST_BIN = runner_lifecycle_test
 RUNNER_TXCTX_TEST_BIN = runner_txctx_test
 RUNNER_TXSTACK_TEST_BIN = runner_txstack_test
 RUNNER_ATTEMPT_TEST_BIN = runner_attempt_test
+RUNNER_ATTEMPT_HANDLER_TEST_BIN = runner_attempt_handler_test
 RUNNER_INTEGRATION_TEST_BIN = runner_atomic_integration_test
 RUNNER_MAILBOX_TEST_BIN = runner_mailbox_test
 RUNNER_DEAD_LETTER_TEST_BIN = runner_dead_letter_test
@@ -131,6 +133,9 @@ RUNNER_TXSTACK_TEST_SRC = tests/unit/runner_txstack_test.c
 RUNNER_ATTEMPT_SRC = src/runner/attempt_v0.c
 RUNNER_ATTEMPT_HDR = src/runner/attempt_v0.h
 RUNNER_ATTEMPT_TEST_SRC = tests/unit/runner_attempt_test.c
+RUNNER_ATTEMPT_HANDLER_SRC = src/runner/attempt_handler_v0.c
+RUNNER_ATTEMPT_HANDLER_HDR = src/runner/attempt_handler_v0.h
+RUNNER_ATTEMPT_HANDLER_TEST_SRC = tests/unit/runner_attempt_handler_test.c
 RUNNER_INTEGRATION_TEST_SRC = tests/integration/runner_atomic_integration_test.c
 RUNNER_MAILBOX_SRC = src/runner/mailbox_v0.c
 RUNNER_MAILBOX_HDR = src/runner/mailbox_v0.h
@@ -156,11 +161,11 @@ WASI_RUNTIME_SRC = src/wasi/runtime_v0.c
 WASI_RUNTIME_HDR = src/wasi/runtime_v0.h
 WASI_RUNTIME_TEST_SRC = tests/unit/wasi_runtime_test.c
 WASI_SHIM_TEST_SRC = tests/unit/wasi_shim_test.c
-FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_OUTBOX_SRC) $(RUNNER_OUTBOX_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(RUNNER_INTENT_SINK_SRC) $(RUNNER_INTENT_SINK_HDR) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_OUTBOX_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_INTENT_SINK_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
-PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/runner_txctx_test.c tests/unit/runner_txstack_test.c tests/unit/runner_attempt_test.c tests/unit/runner_mailbox_test.c tests/unit/runner_dead_letter_test.c tests/unit/runner_outbox_test.c tests/unit/runner_timer_test.c tests/unit/runner_scheduler_test.c tests/unit/runner_intent_sink_test.c tests/integration/runner_atomic_integration_test.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
+FORMAT_FILES = sapling.c sapling.h $(FAULT_SRC) $(FAULT_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_ATTEMPT_HANDLER_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_OUTBOX_SRC) $(RUNNER_OUTBOX_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(RUNNER_INTENT_SINK_SRC) $(RUNNER_INTENT_SINK_HDR) $(WASI_RUNTIME_SRC) $(WASI_RUNTIME_HDR) $(WASI_SHIM_SRC) $(WASI_SHIM_HDR) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_TIDY_FILES = $(FAULT_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_OUTBOX_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(RUNNER_INTENT_SINK_SRC) $(WASI_RUNTIME_SRC) $(WASI_SHIM_SRC) $(RUNNER_WIRE_TEST_SRC) $(RUNNER_LIFECYCLE_TEST_SRC) $(RUNNER_TXCTX_TEST_SRC) $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_MAILBOX_TEST_SRC) $(RUNNER_DEAD_LETTER_TEST_SRC) $(RUNNER_OUTBOX_TEST_SRC) $(RUNNER_TIMER_TEST_SRC) $(RUNNER_SCHEDULER_TEST_SRC) $(RUNNER_INTENT_SINK_TEST_SRC) $(RUNNER_INTEGRATION_TEST_SRC) $(WASI_RUNTIME_TEST_SRC) $(WASI_SHIM_TEST_SRC) tests/stress/fault_harness.c
+PHASE0_CPPCHECK_FILES = src/common src/runner src/wasi tests/unit/runner_wire_test.c tests/unit/runner_lifecycle_test.c tests/unit/runner_txctx_test.c tests/unit/runner_txstack_test.c tests/unit/runner_attempt_test.c tests/unit/runner_attempt_handler_test.c tests/unit/runner_mailbox_test.c tests/unit/runner_dead_letter_test.c tests/unit/runner_outbox_test.c tests/unit/runner_timer_test.c tests/unit/runner_scheduler_test.c tests/unit/runner_intent_sink_test.c tests/integration/runner_atomic_integration_test.c tests/unit/wasi_runtime_test.c tests/unit/wasi_shim_test.c tests/stress/fault_harness.c
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-txctx-test runner-txstack-test runner-attempt-test runner-integration-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test wasi-runtime-test wasi-shim-test schema-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test wasi-runtime-test wasi-shim-test schema-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -245,6 +250,9 @@ $(RUNNER_TXSTACK_TEST_BIN): $(RUNNER_TXSTACK_TEST_SRC) $(RUNNER_TXSTACK_SRC) $(R
 $(RUNNER_ATTEMPT_TEST_BIN): $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_ATTEMPT_TEST_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) -o $(RUNNER_ATTEMPT_TEST_BIN) $(LDFLAGS)
 
+$(RUNNER_ATTEMPT_HANDLER_TEST_BIN): $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_ATTEMPT_HANDLER_HDR) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_LIFECYCLE_HDR) $(RUNNER_MAILBOX_SRC) $(RUNNER_MAILBOX_HDR) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_DEAD_LETTER_HDR) $(RUNNER_TIMER_SRC) $(RUNNER_TIMER_HDR) $(RUNNER_SCHEDULER_SRC) $(RUNNER_SCHEDULER_HDR) $(SAPLING_SRC) $(SAPLING_HDR) $(WIT_GEN_SRC) $(WIT_GEN_HDR)
+	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_ATTEMPT_HANDLER_TEST_SRC) $(RUNNER_ATTEMPT_HANDLER_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_WIRE_SRC) $(RUNNER_LIFECYCLE_SRC) $(RUNNER_MAILBOX_SRC) $(RUNNER_DEAD_LETTER_SRC) $(RUNNER_TIMER_SRC) $(RUNNER_SCHEDULER_SRC) $(SAPLING_SRC) $(WIT_GEN_SRC) -o $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(LDFLAGS)
+
 $(RUNNER_INTEGRATION_TEST_BIN): $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_ATTEMPT_HDR) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXSTACK_HDR) $(RUNNER_TXCTX_SRC) $(RUNNER_TXCTX_HDR) $(RUNNER_WIRE_SRC) $(RUNNER_WIRE_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
 	$(CC) $(CFLAGS) $(INCLUDES) $(RUNNER_INTEGRATION_TEST_SRC) $(RUNNER_ATTEMPT_SRC) $(RUNNER_TXSTACK_SRC) $(RUNNER_TXCTX_SRC) $(RUNNER_WIRE_SRC) $(SAPLING_SRC) -o $(RUNNER_INTEGRATION_TEST_BIN) $(LDFLAGS)
 
@@ -328,6 +336,10 @@ runner-attempt-test: CFLAGS += -O2 -g
 runner-attempt-test: $(RUNNER_ATTEMPT_TEST_BIN)
 	./$(RUNNER_ATTEMPT_TEST_BIN)
 
+runner-attempt-handler-test: CFLAGS += -O2 -g
+runner-attempt-handler-test: wit-schema-generate $(RUNNER_ATTEMPT_HANDLER_TEST_BIN)
+	./$(RUNNER_ATTEMPT_HANDLER_TEST_BIN)
+
 runner-integration-test: CFLAGS += -O2 -g
 runner-integration-test: $(RUNNER_INTEGRATION_TEST_BIN)
 	./$(RUNNER_INTEGRATION_TEST_BIN)
@@ -376,9 +388,9 @@ phase0-check: lint schema-check stress-harness
 
 phasea-check: phase0-check runner-wire-test runner-lifecycle-test wasi-runtime-test wasi-shim-test
 
-phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-test runner-integration-test
+phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test
 
 phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test
 
 clean:
-	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_INTEGRATION_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)
+	rm -f $(OBJ) $(LIB) $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_INTEGRATION_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN) $(WASM_OBJ) $(WASM_LIB) $(WASM_SMOKE) $(WIT_GEN_OBJ)

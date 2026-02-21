@@ -463,7 +463,9 @@ Phase A status (started):
   records for exhausted retryable failures or invalid frames
 - done: WASI shim handler now executes through `attempt_v0` and publishes
   committed intents via composed sink (`intent_sink_v0`)
-- next: generalize attempt-backed handler wiring for non-WASI runner handlers
+- done: generic attempt-backed runner handler contract exposed in
+  `src/runner/attempt_handler_v0` for non-WASI integrations
+- next: integrate generic handler adapter into a non-WASI example path
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -497,7 +499,9 @@ Phase B status (started):
   worker flow with retry stats captured in shim state
 - done: retry-budget/dead-letter policy for repeatedly failing retryable
   messages in runner inbox polling path
-- next: expose a generic runner-level attempt handler contract (beyond WASI shim)
+- done: generic runner-level attempt handler contract (beyond WASI shim) via
+  `attempt_handler_v0`
+- next: wire one additional runner integration path through `attempt_handler_v0`
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
