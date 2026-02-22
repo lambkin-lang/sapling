@@ -1031,6 +1031,10 @@ void sap_runner_v0_set_policy(SapRunnerV0 *runner, const SapRunnerV0Policy *poli
     {
         runner->policy.lease_ttl_ms = RUNNER_DEFAULT_LEASE_TTL_MS;
     }
+    if (runner->policy.ttl_sweep_max_batch == 0)
+    {
+        runner->policy.ttl_sweep_max_batch = 100u; /* default batch size */
+    }
     if (runner->policy.requeue_max_attempts == 0u)
     {
         runner->policy.requeue_max_attempts = RUNNER_DEFAULT_REQUEUE_MAX_ATTEMPTS;
@@ -1466,8 +1470,28 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
     worker->sleep_ms_ctx = NULL;
     worker->db_gate = NULL;
     worker->ticks = 0u;
+    worker->last_ttl_sweep_ms = 0;
+    worker->ttl_pair_count = 0u;
     worker_set_stop_requested(worker, 0);
     worker->last_error = SAP_OK;
+    return SAP_OK;
+}
+
+int sap_runner_v0_worker_register_ttl_pair(SapRunnerV0Worker *worker, uint32_t data_dbi,
+                                           uint32_t ttl_dbi)
+{
+    if (!worker)
+    {
+        return SAP_ERROR;
+    }
+    if (worker->ttl_pair_count >= SAP_RUNNER_V0_MAX_TTL_PAIRS)
+    {
+        return SAP_ERROR;
+    }
+    SapRunnerV0TTLPair *pair = &worker->ttl_pairs[worker->ttl_pair_count++];
+    pair->data_dbi = data_dbi;
+    pair->ttl_dbi = ttl_dbi;
+    memset(&pair->cp, 0, sizeof(pair->cp));
     return SAP_OK;
 }
 
@@ -1579,6 +1603,46 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
             goto out;
         }
         processed += timer_processed;
+    }
+
+    if (worker->runner.policy.ttl_sweep_cadence_ms > 0 && worker->ttl_pair_count > 0)
+    {
+        int64_t now_ms = worker_now_ms(worker);
+        if (worker->last_ttl_sweep_ms == 0)
+        {
+            worker->last_ttl_sweep_ms = now_ms;
+        }
+        else if (now_ms - worker->last_ttl_sweep_ms >= worker->runner.policy.ttl_sweep_cadence_ms)
+        {
+            worker->last_ttl_sweep_ms = now_ms;
+            Txn *txn = txn_begin(worker->runner.db, NULL, 0);
+            if (txn)
+            {
+                uint64_t total_deleted = 0;
+                for (uint32_t i = 0; i < worker->ttl_pair_count; i++)
+                {
+                    SapRunnerV0TTLPair *pair = &worker->ttl_pairs[i];
+                    uint64_t deleted = 0;
+                    int sweep_rc = txn_sweep_ttl_dbi_checkpoint(
+                        txn, pair->data_dbi, pair->ttl_dbi, now_ms,
+                        worker->runner.policy.ttl_sweep_max_batch, &pair->cp, &deleted);
+                    if (sweep_rc == SAP_OK)
+                    {
+                        total_deleted += deleted;
+                    }
+                }
+                if (txn_commit(txn) == SAP_OK)
+                {
+                    worker->runner.metrics.ttl_sweeps_run++;
+                    worker->runner.metrics.ttl_expired_entries_deleted += total_deleted;
+                    if (worker->runner.metrics_sink)
+                    {
+                        worker->runner.metrics_sink(&worker->runner.metrics,
+                                                    worker->runner.metrics_sink_ctx);
+                    }
+                }
+            }
+        }
     }
 
     if (processed_out)

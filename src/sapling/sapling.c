@@ -56,6 +56,12 @@ typedef int sap_mutex_t;
 #define SNAP_MAGIC 0x53434B50U
 #define SNAP_VERSION 1U
 
+/* TTL Metadata Tags */
+#define TTL_META_LOOKUP_TAG 0x00u
+#define TTL_META_INDEX_TAG 0x01u
+#define TTL_META_LOOKUP_OVERHEAD 1u
+#define TTL_META_INDEX_OVERHEAD 9u
+
 #define INT_HDR 16U
 #define LEAF_HDR 10U
 #define OVERFLOW_HDR 14U
@@ -1670,6 +1676,29 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     uint8_t *sep_buf = NULL;
     uint8_t *psep_buf = NULL;
     int is_dupsort = (db->dbs[dbi].flags & DBI_DUPSORT) != 0;
+    int is_ttl_meta = (db->dbs[dbi].flags & DBI_TTL_META) != 0;
+
+    if (is_ttl_meta)
+    {
+        if (!key || key_len == 0)
+            return SAP_ERROR;
+        const uint8_t *k = (const uint8_t *)key;
+        if (k[0] == TTL_META_LOOKUP_TAG)
+        {
+            if (val_len != 8)
+                return SAP_ERROR;
+        }
+        else if (k[0] == TTL_META_INDEX_TAG)
+        {
+            if (key_len < 9 || val_len != 0)
+                return SAP_ERROR;
+        }
+        else
+        {
+            return SAP_ERROR;
+        }
+    }
+
     if (is_dupsort)
     {
         if (flags & SAP_RESERVE)
@@ -2098,6 +2127,29 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
     struct DB *db = txn->db;
     if (dbi >= db->num_dbs)
         return SAP_NOTFOUND;
+
+    int is_ttl_meta = (db->dbs[dbi].flags & DBI_TTL_META) != 0;
+    if (is_ttl_meta)
+    {
+        if (!key || key_len == 0)
+            return SAP_ERROR;
+        const uint8_t *k = (const uint8_t *)key;
+        if (k[0] == TTL_META_LOOKUP_TAG)
+        {
+            if (key_len < 2)
+                return SAP_ERROR;
+        }
+        else if (k[0] == TTL_META_INDEX_TAG)
+        {
+            if (key_len < 9)
+                return SAP_ERROR;
+        }
+        else
+        {
+            return SAP_ERROR;
+        }
+    }
+
     if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
         return SAP_NOTFOUND;
 
@@ -3179,11 +3231,6 @@ struct TTLKeyList
     uint32_t cap;
 };
 
-#define TTL_META_LOOKUP_TAG 0x00u
-#define TTL_META_INDEX_TAG 0x01u
-#define TTL_META_LOOKUP_OVERHEAD 1u
-#define TTL_META_INDEX_OVERHEAD 9u
-
 static void ttl_key_list_clear(struct TTLKeyList *list)
 {
     if (!list)
@@ -3391,7 +3438,8 @@ done:
 }
 
 int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
-                    uint32_t key_len, uint64_t now_ms, const void **val_out, uint32_t *val_len_out)
+                    uint32_t key_len, uint64_t now_ms, const void **val_out, uint32_t *val_len_out,
+                    unsigned flags)
 {
     struct Txn *txn = (struct Txn *)txn_pub;
     const void *exp_raw;
@@ -3414,19 +3462,68 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
         return rc;
 
     rc = txn_get_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len, &exp_raw, &exp_len);
-    free(lookup_key);
     if (rc != SAP_OK)
+    {
+        free(lookup_key);
         return rc;
+    }
     if (exp_len != 8)
+    {
+        free(lookup_key);
         return SAP_ERROR;
-    if (rd64(exp_raw) <= now_ms)
-        return SAP_NOTFOUND;
+    }
 
+    uint64_t expiry = rd64(exp_raw);
+    if (expiry <= now_ms)
+    {
+        if ((flags & SAP_TTL_LAZY_DELETE) && !(txn->flags & TXN_RDONLY))
+        {
+            uint8_t *index_key = NULL;
+            uint32_t index_len = 0;
+            if (ttl_encode_index_key(key, key_len, expiry, &index_key, &index_len) == SAP_OK)
+            {
+                txn_del_dbi((Txn *)txn, data_dbi, key, key_len);
+                txn_del_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len);
+                txn_del_dbi((Txn *)txn, ttl_dbi, index_key, index_len);
+                free(index_key);
+            }
+        }
+        free(lookup_key);
+        return SAP_NOTFOUND;
+    }
+
+    free(lookup_key);
     return txn_get_dbi((Txn *)txn, data_dbi, key, key_len, val_out, val_len_out);
 }
 
+int cursor_get_ttl_dbi(Cursor *data_cur_pub, uint32_t ttl_dbi, uint64_t now_ms,
+                       const void **val_out, uint32_t *val_len_out, unsigned flags)
+{
+    struct Cursor *data_cur = (struct Cursor *)data_cur_pub;
+    if (!data_cur || !data_cur->txn || !val_out || !val_len_out)
+        return SAP_ERROR;
+
+    const void *key;
+    uint32_t key_len;
+    int rc = cursor_get_key(data_cur_pub, &key, &key_len);
+    if (rc != SAP_OK)
+        return rc;
+
+    rc = txn_get_ttl_dbi((Txn *)data_cur->txn, data_cur->dbi, ttl_dbi, key, key_len, now_ms,
+                         val_out, val_len_out, flags);
+    if (rc == SAP_NOTFOUND && (flags & SAP_TTL_LAZY_DELETE) && !(data_cur->txn->flags & TXN_RDONLY))
+    {
+        /* The row was lazily deleted under us, so the data cursor now points to a deleted element.
+         * The next traversal will magically skip it or it returns NOTFOUND.
+         * We just return NOTFOUND for this current hit.
+         */
+    }
+    return rc;
+}
+
 static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi,
-                               uint64_t now_ms, uint64_t max_to_delete, uint64_t *deleted_count_out)
+                               uint64_t now_ms, uint64_t max_to_delete, SapSweepCheckpoint *cp,
+                               uint64_t *deleted_count_out)
 {
     struct TTLKeyList expired = {0};
     Cursor *cur;
@@ -3438,7 +3535,11 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
     if (!cur)
         return SAP_ERROR;
 
-    rc = cursor_seek(cur, &seek_key, 1);
+    if (cp && cp->index_len > 0)
+        rc = cursor_seek(cur, cp->index_key, cp->index_len);
+    else
+        rc = cursor_seek(cur, &seek_key, 1);
+
     if (rc == SAP_NOTFOUND)
     {
         cursor_close(cur);
@@ -3617,14 +3718,53 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
         free(index_key);
     }
 
+    if (cp && expired.count > 0)
+    {
+        uint32_t last_idx = expired.count - 1;
+        uint64_t last_expiry = expired.expiries[last_idx];
+        uint8_t *new_cp_key = NULL;
+        uint32_t new_cp_len = 0;
+        if (ttl_encode_index_key(expired.keys[last_idx], expired.lens[last_idx], last_expiry,
+                                 &new_cp_key, &new_cp_len) == SAP_OK)
+        {
+            if (new_cp_len > cp->index_cap)
+            {
+                void *n = realloc(cp->index_key, new_cp_len);
+                if (n)
+                {
+                    cp->index_key = (uint8_t *)n;
+                    cp->index_cap = new_cp_len;
+                }
+            }
+            if (new_cp_len <= cp->index_cap)
+            {
+                memcpy(cp->index_key, new_cp_key, new_cp_len);
+                cp->index_len = new_cp_len;
+            }
+            free(new_cp_key);
+        }
+    }
+
     ttl_key_list_clear(&expired);
     if (rc == SAP_OK)
         *deleted_count_out = deleted;
     return rc;
 }
 
-int txn_sweep_ttl_dbi_limit(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
-                            uint64_t max_to_delete, uint64_t *deleted_count_out)
+void sap_sweep_checkpoint_clear(SapSweepCheckpoint *cp)
+{
+    if (cp)
+    {
+        free(cp->index_key);
+        cp->index_key = NULL;
+        cp->index_len = 0;
+        cp->index_cap = 0;
+    }
+}
+
+int txn_sweep_ttl_dbi_checkpoint(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                                 uint64_t max_to_delete, SapSweepCheckpoint *cp,
+                                 uint64_t *deleted_count_out)
 {
     struct Txn *txn = (struct Txn *)txn_pub;
     Txn *child;
@@ -3645,7 +3785,7 @@ int txn_sweep_ttl_dbi_limit(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, u
     if (!child)
         return SAP_ERROR;
 
-    rc = txn_sweep_ttl_inner((struct Txn *)child, data_dbi, ttl_dbi, now_ms, max_to_delete,
+    rc = txn_sweep_ttl_inner((struct Txn *)child, data_dbi, ttl_dbi, now_ms, max_to_delete, cp,
                              &deleted);
     if (rc != SAP_OK)
     {
@@ -3656,6 +3796,13 @@ int txn_sweep_ttl_dbi_limit(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, u
     if (rc == SAP_OK)
         *deleted_count_out = deleted;
     return rc;
+}
+
+int txn_sweep_ttl_dbi_limit(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                            uint64_t max_to_delete, uint64_t *deleted_count_out)
+{
+    return txn_sweep_ttl_dbi_checkpoint(txn_pub, data_dbi, ttl_dbi, now_ms, max_to_delete, NULL,
+                                        deleted_count_out);
 }
 
 int txn_sweep_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
@@ -3878,21 +4025,26 @@ void txn_abort(Txn *txn_pub)
 
     txn_abort_free_untracked_new_pages(txn);
 
+    uint32_t current_free = txn->free_pgno;
+
     for (uint32_t i = 0; i < txn->new_cnt; i++)
     {
         uint32_t pgno = txn->new_pages[i];
-        if (pgno >= db->num_pages)
+        if (pgno >= txn->saved_npages)
         {
-            db->alloc->free_page(db->alloc->ctx, db->pages[pgno], db->page_size);
-            db->pages[pgno] = NULL;
+            if (db->pages[pgno])
+            {
+                db->alloc->free_page(db->alloc->ctx, db->pages[pgno], db->page_size);
+                db->pages[pgno] = NULL;
+            }
         }
         else
         {
-            uint32_t *fh = txn->parent ? &txn->parent->free_pgno : &db->free_pgno;
-            wr32(db->pages[pgno], *fh);
-            *fh = pgno;
+            wr32(db->pages[pgno], current_free);
+            current_free = pgno;
         }
     }
+
     if (txn->parent)
     {
         uint32_t nd = db->num_dbs;
@@ -3901,12 +4053,14 @@ void txn_abort(Txn *txn_pub)
             txn->parent->dbs[i].root_pgno = txn->dbs[i].saved_root;
             txn->parent->dbs[i].num_entries = txn->dbs[i].saved_entries;
         }
-        txn->parent->free_pgno = txn->saved_free;
+        txn->parent->free_pgno = current_free;
         txn->parent->num_pages = txn->saved_npages;
     }
     else
     {
         SAP_MUTEX_LOCK(db->write_mutex);
+        db->free_pgno = current_free;
+        db->num_pages = txn->saved_npages;
         db->write_txn = NULL;
         SAP_MUTEX_UNLOCK(db->write_mutex);
     }
@@ -4821,7 +4975,7 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
     uint32_t dbi = c->dbi;
     if (flags != 0)
         return SAP_ERROR;
-    if (db->dbs[dbi].flags & DBI_DUPSORT)
+    if (db->dbs[dbi].flags & (DBI_DUPSORT | DBI_TTL_META))
         return SAP_ERROR;
 
     void *orig_lpg = db->pages[c->stack[c->depth]];
@@ -4900,6 +5054,9 @@ int cursor_del(Cursor *cp)
         return SAP_READONLY;
     struct DB *db = txn->db;
     uint32_t dbi = c->dbi;
+
+    if (db->dbs[dbi].flags & DBI_TTL_META)
+        return SAP_ERROR;
 
     void *orig_lpg = db->pages[c->stack[c->depth]];
     int pos = c->idx[c->depth];

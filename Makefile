@@ -113,6 +113,7 @@ RUNNER_NATIVE_EXAMPLE_BIN = runner_native_example
 RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = runner_threaded_pipeline_example
 RUNNER_MULTIWRITER_STRESS_BIN = runner_multiwriter_stress
 RUNNER_PHASEE_BENCH_BIN = bench_runner_phasee
+RUNNER_TTL_SWEEP_TEST_BIN = runner_ttl_sweep_test
 WASI_RUNTIME_TEST_BIN = wasi_runtime_test
 WASI_SHIM_TEST_BIN = wasi_shim_test
 BENCH_COUNT ?= 100000
@@ -170,7 +171,7 @@ WIT_GEN_OBJ := $(WIT_GEN_DIR)/wit_schema_dbis.o
 
 ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -284,6 +285,9 @@ $(RUNNER_SCHEDULER_TEST_BIN): tests/unit/runner_scheduler_test.o $(ALL_LIB_OBJS)
 
 $(RUNNER_INTENT_SINK_TEST_BIN): tests/unit/runner_intent_sink_test.o $(ALL_LIB_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/runner_intent_sink_test.o $(ALL_LIB_OBJS) -o $(RUNNER_INTENT_SINK_TEST_BIN) $(LDFLAGS)
+
+$(RUNNER_TTL_SWEEP_TEST_BIN): tests/unit/test_runner_ttl_sweep.o $(ALL_LIB_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_runner_ttl_sweep.o $(ALL_LIB_OBJS) -o $(RUNNER_TTL_SWEEP_TEST_BIN) $(LDFLAGS)
 
 $(RUNNER_NATIVE_EXAMPLE_BIN): examples/native/runner_native_example.o $(ALL_LIB_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) examples/native/runner_native_example.o $(ALL_LIB_OBJS) -o $(RUNNER_NATIVE_EXAMPLE_BIN) $(LDFLAGS)
@@ -407,6 +411,10 @@ runner-intent-sink-test: CFLAGS += -O2 -g
 runner-intent-sink-test: wit-schema-generate $(RUNNER_INTENT_SINK_TEST_BIN)
 	./$(RUNNER_INTENT_SINK_TEST_BIN)
 
+runner-ttl-sweep-test: CFLAGS += -O2 -g
+runner-ttl-sweep-test: wit-schema-generate $(RUNNER_TTL_SWEEP_TEST_BIN)
+	./$(RUNNER_TTL_SWEEP_TEST_BIN)
+
 runner-native-example: CFLAGS += -O2 -g
 runner-native-example: wit-schema-generate $(RUNNER_NATIVE_EXAMPLE_BIN)
 	./$(RUNNER_NATIVE_EXAMPLE_BIN)
@@ -460,8 +468,8 @@ phasea-check: phase0-check runner-wire-test runner-lifecycle-test runner-lifecyc
 
 phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test
 
-phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-recovery-test
+phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-recovery-test
 
 clean:
 	find . -type f \( -name '*.o' -o -name '*.a' -o -name '*.wasm' \) -delete
-	rm -f $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_INTEGRATION_TEST_BIN) $(RUNNER_RECOVERY_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(RUNNER_NATIVE_EXAMPLE_BIN) $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN) $(RUNNER_MULTIWRITER_STRESS_BIN) $(RUNNER_PHASEE_BENCH_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN)
+	rm -f $(TEST_BIN) $(BENCH_BIN) $(STRESS_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_INTEGRATION_TEST_BIN) $(RUNNER_RECOVERY_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(RUNNER_TTL_SWEEP_TEST_BIN) $(RUNNER_NATIVE_EXAMPLE_BIN) $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN) $(RUNNER_MULTIWRITER_STRESS_BIN) $(RUNNER_PHASEE_BENCH_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_SHIM_TEST_BIN)

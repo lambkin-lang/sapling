@@ -2485,14 +2485,14 @@ static void test_ttl_helpers(void)
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 99, &v, &vl) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 99, &v, &vl, 0) == SAP_OK);
     CHECK(vl == 2 && memcmp(v, "va", 2) == 0);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 100, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "plain", 5, 0, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 3, 2, "a", 1, 0, &v, &vl) == SAP_ERROR);
-    CHECK(txn_get_ttl_dbi(r, 1, 3, "a", 1, 0, &v, &vl) == SAP_ERROR);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, NULL, &vl) == SAP_ERROR);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, &v, NULL) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 100, &v, &vl, 0) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "plain", 5, 0, &v, &vl, 0) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 3, 2, "a", 1, 0, &v, &vl, 0) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 3, "a", 1, 0, &v, &vl, 0) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, NULL, &vl, 0) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, &v, NULL, 0) == SAP_ERROR);
     CHECK(txn_put_ttl_dbi(r, 1, 2, "x", 1, "y", 1, 1) == SAP_READONLY);
     deleted = 77;
     CHECK(txn_sweep_ttl_dbi(r, 1, 2, 200, &deleted) == SAP_READONLY);
@@ -2513,7 +2513,7 @@ static void test_ttl_helpers(void)
     CHECK(r != NULL);
     CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == SAP_NOTFOUND);
     CHECK(txn_get_dbi(r, 2, "a", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "b", 1, 200, &v, &vl) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "b", 1, 200, &v, &vl, 0) == SAP_OK);
     CHECK(vl == 2 && memcmp(v, "vb", 2) == 0);
     CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == SAP_OK);
     CHECK(vl == 1 && memcmp(v, "p", 1) == 0);
@@ -2527,7 +2527,7 @@ static void test_ttl_helpers(void)
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "bad", 3, 0, &v, &vl) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "bad", 3, 0, &v, &vl, 0) == SAP_ERROR);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
@@ -2581,7 +2581,7 @@ static void test_ttl_helpers(void)
     CHECK(r != NULL);
     CHECK(txn_get_dbi(r, 1, "l1", 2, &v, &vl) == SAP_NOTFOUND);
     CHECK(txn_get_dbi(r, 1, "l2", 2, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "l3", 2, 0, &v, &vl) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "l3", 2, 0, &v, &vl, 0) == SAP_OK);
     CHECK(vl == 1 && memcmp(v, "3", 1) == 0);
     txn_abort(r);
 
@@ -2628,7 +2628,7 @@ static void test_ttl_helpers(void)
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "hero", 4, 1800, &v, &vl) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "hero", 4, 1800, &v, &vl, 0) == SAP_OK);
     CHECK(vl == 5 && memcmp(v, "alive", 5) == 0);
     txn_abort(r);
 
@@ -2638,6 +2638,161 @@ static void test_ttl_helpers(void)
     deleted = 0;
     CHECK(txn_sweep_ttl_dbi(w, 1, 2, 2500, &deleted) == SAP_OK);
     CHECK(deleted == 1);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    db_close(db);
+}
+
+/* ================================================================== */
+/* Test: Protected TTL metadata mode                                    */
+/* ================================================================== */
+
+static void test_ttl_metadata_protection(void)
+{
+    SECTION("TTL metadata protection mode");
+    DB *db = new_db();
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_TTL_META) == SAP_OK);
+
+    Txn *w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+
+    /* Attempt raw put with bad key tag -> ERROR */
+    CHECK(txn_put_dbi(w, 1, "bad", 3, "val", 3) == SAP_ERROR);
+
+    /* Attempt raw put with lookup tag but bad value length (!= 8) -> ERROR */
+    uint8_t lookup[2] = {0, 'a'};
+    CHECK(txn_put_dbi(w, 1, lookup, 2, "1234567", 7) == SAP_ERROR);
+    CHECK(txn_put_dbi(w, 1, lookup, 2, "123456789", 9) == SAP_ERROR);
+    CHECK(txn_put_dbi(w, 1, lookup, 2, "12345678", 8) == SAP_OK);
+
+    /* Attempt raw put with index tag but bad length (< 9) -> ERROR */
+    uint8_t idx[8] = {1, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(txn_put_dbi(w, 1, idx, 8, NULL, 0) == SAP_ERROR);
+
+    /* Attempt raw put with index tag but bad value length (> 0) -> ERROR */
+    uint8_t idx_good[9] = {1, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(txn_put_dbi(w, 1, idx_good, 9, "bad", 3) == SAP_ERROR);
+    CHECK(txn_put_dbi(w, 1, idx_good, 9, NULL, 0) == SAP_OK);
+
+    CHECK(txn_commit(w) == SAP_OK);
+    db_close(db);
+}
+
+/* ================================================================== */
+/* Test: TTL resumable sweep checkpoint                                 */
+/* ================================================================== */
+
+static void test_ttl_checkpoint(void)
+{
+    SECTION("TTL resumable sweep checkpoint");
+    DB *db = new_db();
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, DBI_TTL_META) == SAP_OK);
+
+    Txn *w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    for (int i = 0; i < 5; i++)
+    {
+        char key[16];
+        snprintf(key, sizeof(key), "k%d", i);
+        /* Expiries: 100, 200, 300, 400, 500 */
+        CHECK(txn_put_ttl_dbi(w, 1, 2, key, (uint32_t)strlen(key), "v", 1,
+                              (uint64_t)((i + 1) * 100)) == SAP_OK);
+    }
+    CHECK(txn_commit(w) == SAP_OK);
+
+    SapSweepCheckpoint cp = {0};
+    uint64_t deleted = 0;
+
+    /* First sweep: delete up to 2 items (expires at 100, 200). */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == SAP_OK);
+    CHECK(deleted == 2);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    /* Verify checkpoint state */
+    CHECK(cp.index_len > 0);
+    CHECK(cp.index_key != NULL);
+
+    /* Second sweep: delete up to 2 items (expires at 300, 400).
+       It should start from cp and successfully find the next two. */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == SAP_OK);
+    CHECK(deleted == 2);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    /* Third sweep: delete remaining 1 item (expires at 500). */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == SAP_OK);
+    CHECK(deleted == 1);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    sap_sweep_checkpoint_clear(&cp);
+    db_close(db);
+}
+
+/* ================================================================== */
+/* Test: TTL lazy deletes                                               */
+/* ================================================================== */
+
+static void test_ttl_lazy_delete(void)
+{
+    SECTION("TTL lazy deletes");
+    DB *db = new_db();
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, DBI_TTL_META) == SAP_OK);
+
+    Txn *w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "a", 1, "va", 2, 100) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "b", 1, "vb", 2, 200) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    /* Test 1: Read-only txn passing SAP_TTL_LAZY_DELETE should NOT delete anything.
+     * It should return SAP_NOTFOUND but leave the row intact.
+     */
+    Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    const void *v;
+    uint32_t vl;
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 150, &v, &vl, SAP_TTL_LAZY_DELETE) == SAP_NOTFOUND);
+    txn_abort(r);
+
+    /* Verify it is still there */
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == SAP_OK);
+    txn_abort(r);
+
+    /* Test 2: Write txn without SAP_TTL_LAZY_DELETE should NOT delete anything. */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_get_ttl_dbi(w, 1, 2, "a", 1, 150, &v, &vl, 0) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(w, 1, "a", 1, &v, &vl) == SAP_OK);
+    txn_abort(w);
+
+    /* Test 3: Write txn WITH SAP_TTL_LAZY_DELETE SHOULD delete. */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_get_ttl_dbi(w, 1, 2, "a", 1, 150, &v, &vl, SAP_TTL_LAZY_DELETE) == SAP_NOTFOUND);
+    /* Verify it's gone from backend */
+    CHECK(txn_get_dbi(w, 1, "a", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    /* Test 4: cursor_get_ttl_dbi SHOULD lazily delete */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    Cursor *cur = cursor_open_dbi(w, 1);
+    CHECK(cur != NULL);
+    CHECK(cursor_first(cur) == SAP_OK);
+    /* Currently looking at "b". Simulate time = 250 so it's expired. */
+    CHECK(cursor_get_ttl_dbi(cur, 2, 250, &v, &vl, SAP_TTL_LAZY_DELETE) == SAP_NOTFOUND);
+    /* Verify it's gone from backend */
+    CHECK(txn_get_dbi(w, 1, "b", 1, &v, &vl) == SAP_NOTFOUND);
+    cursor_close(cur);
     CHECK(txn_commit(w) == SAP_OK);
 
     db_close(db);
@@ -4028,6 +4183,9 @@ int main(void)
     test_reserve();
     test_put_if();
     test_ttl_helpers();
+    test_ttl_metadata_protection();
+    test_ttl_checkpoint();
+    test_ttl_lazy_delete();
     test_multi_dbi();
     test_multi_dbi_txn();
     test_checkpoint_restore();

@@ -469,8 +469,6 @@ static int dispatch_outbox_frame(const uint8_t *frame, uint32_t frame_len, void 
     rc = find_worker_slot(dispatch, to_worker, &slot);
     if (rc != SAP_OK)
     {
-        fprintf(stderr, "runner-multiwriter-stress: dispatcher unknown to_worker=%u rc=%d\\n",
-                to_worker, rc);
         return rc;
     }
 
@@ -746,6 +744,19 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
                 uint64_t c2 = 0u;
                 uint64_t c3 = 0u;
                 uint64_t c4 = 0u;
+                uint32_t j;
+
+                for (j = 0u; j < STRESS_WORKER_COUNT; j++)
+                {
+                    if (workers[j].worker.last_error != SAP_OK)
+                    {
+                        fprintf(stderr,
+                                "runner-multiwriter-stress: round=%u worker[%u] died with "
+                                "last_error=%d\n",
+                                round_index, j, workers[j].worker.last_error);
+                    }
+                }
+
                 (void)app_state_read_counter(db, k_counter_stage1, sizeof(k_counter_stage1), &c1);
                 (void)app_state_read_counter(db, k_counter_stage2, sizeof(k_counter_stage2), &c2);
                 (void)app_state_read_counter(db, k_counter_stage3, sizeof(k_counter_stage3), &c3);
@@ -792,6 +803,10 @@ done:
                 fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] join failed\n",
                         round_index, i);
                 rc = SAP_ERROR;
+            }
+            if (workers[i].worker.last_error != SAP_OK)
+            {
+                rc = workers[i].worker.last_error;
             }
             workers[i].started = 0;
         }

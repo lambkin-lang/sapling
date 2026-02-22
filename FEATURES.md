@@ -604,19 +604,19 @@ Phase C status (started):
    `sap_wasi_runtime_v0_init_adapter` + optional streaming invoke support were
    added, and shim init now supports configurable reply-buffer capacity via
    `sap_wasi_shim_v0_init_with_options` (removing fixed-cap-only behavior).
-9. [In progress][P1] Investigate and harden concurrent multi-writer threaded
+9. [Done][P1] Investigate and harden concurrent multi-writer threaded
    behavior in runner-style workloads sharing one DB handle:
    - added storage hardening guards in allocator/leaf insert paths to avoid
      out-of-bounds writes on corrupted free-space metadata
    - added optional shared DB gate APIs on runner workers plus transient
      `SAP_NOTFOUND`/`SAP_CONFLICT` normalization in worker tick path
-   - remaining: stabilize runtime semantics under sustained threaded churn
-     (`runner-multiwriter-stress` still reproduces instability)
-10. [In progress][P1] Added dedicated threaded runner-style multi-writer stress
+   - stabilized runtime semantics under sustained threaded churn
+     (`runner-multiwriter-stress` safely completes without deadlocks)
+10. [Done][P1] Added dedicated threaded runner-style multi-writer stress
     harness target (`tests/stress/runner_multiwriter_stress.c`,
     `make runner-multiwriter-stress`) and build gating entry point
     (`make runner-multiwriter-stress-build`) wired into phase-C checks;
-    runtime stress execution remains manual until stabilization closes item 9.
+    runtime stress execution has been stabilized and passes reliably.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
@@ -709,12 +709,12 @@ Current constraints:
 - TTL helper keys must satisfy `key_len <= UINT16_MAX - 9`.
 
 Next priorities:
-1. [P1] Harden sweep correctness: when draining index entries, verify lookup
+1. [x] Harden sweep correctness: when draining index entries, verify lookup
    expiry exactly matches index expiry before deleting data rows (mismatch
    should prune stale metadata only).
-2. [P1] Add a protected TTL metadata mode so raw `txn_put*`/`txn_del*` calls
+2. [x] Add a protected TTL metadata mode so raw `txn_put*`/`txn_del*` calls
    cannot violate reserved lookup/index key-prefix invariants in `ttl_dbi`.
-3. [P1] Add resumable sweep checkpoints to continue long expiration drains.
+3. [x] Add resumable sweep checkpoints to continue long expiration drains.
 4. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
 5. [P2] Add host-runner background sweep cadence and observability counters.
 

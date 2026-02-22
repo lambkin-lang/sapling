@@ -37,6 +37,8 @@ typedef struct
     int64_t lease_ttl_ms;
     uint32_t requeue_max_attempts;
     uint32_t retry_budget_max;
+    uint32_t ttl_sweep_cadence_ms;
+    uint32_t ttl_sweep_max_batch;
 } SapRunnerV0Policy;
 
 typedef struct
@@ -52,6 +54,8 @@ typedef struct
     uint64_t step_latency_samples;
     uint64_t step_latency_total_ms;
     uint32_t step_latency_max_ms;
+    uint64_t ttl_sweeps_run;
+    uint64_t ttl_expired_entries_deleted;
 } SapRunnerV0Metrics;
 
 /*
@@ -140,6 +144,15 @@ typedef struct
 } SapRunnerV0DbGate;
 #endif
 
+#define SAP_RUNNER_V0_MAX_TTL_PAIRS 8
+
+typedef struct
+{
+    uint32_t data_dbi;
+    uint32_t ttl_dbi;
+    SapSweepCheckpoint cp;
+} SapRunnerV0TTLPair;
+
 typedef int (*sap_runner_v0_message_handler)(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg,
                                              void *ctx);
 
@@ -158,11 +171,18 @@ typedef struct
     uint64_t ticks;
     int stop_requested;
     int last_error;
+    int64_t last_ttl_sweep_ms;
+    uint32_t ttl_pair_count;
+    SapRunnerV0TTLPair ttl_pairs[SAP_RUNNER_V0_MAX_TTL_PAIRS];
 #ifdef SAPLING_THREADED
     pthread_t thread;
     int thread_started;
 #endif
 } SapRunnerV0Worker;
+
+/* Register a TTL mapping to be automatically swept by the worker run loop. */
+int sap_runner_v0_worker_register_ttl_pair(SapRunnerV0Worker *worker, uint32_t data_dbi,
+                                           uint32_t ttl_dbi);
 
 /* Open required DBIs from generated WIT schema metadata. */
 int sap_runner_v0_bootstrap_dbis(DB *db);
