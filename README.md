@@ -35,6 +35,8 @@ notifications.
 - `make runner-intent-sink-test` runs composed outbox+timer intent sink tests
 - `make runner-native-example` runs a non-WASI worker example wired through `attempt_handler_v0`
 - `make runner-threaded-pipeline-example` runs a threaded 4-worker order pipeline example
+- `make runner-multiwriter-stress-build` builds the threaded runner-style multiwriter stress harness
+- `make runner-multiwriter-stress` runs the threaded runner-style multiwriter stress harness (investigative repro; may currently fail while hardening is in progress)
 - `make runner-phasee-bench-run` runs the Phase E runner coupling-study benchmark
 - `make runner-release-checklist` runs the Phase F release checklist automation
 - `make wasi-runtime-test` runs concrete WASI runtime wrapper tests
@@ -84,11 +86,11 @@ Both require a WASI sysroot:
 - `docs/WASI_RUNTIME_V0.md` defines the concrete runtime invocation layer used by the shim.
 - `docs/WASI_SHIM_V0.md` defines runner worker integration with the WASI shim/runtime path.
 
-## Source layout transition (phase 0)
+## Source layout transition (phase 0 completed)
 - Canonical engine sources now live in:
   - `include/sapling/sapling.h`
   - `src/sapling/sapling.c`
-- Top-level `sapling.h` and `sapling.c` are temporary compatibility shims.
+- Top-level `sapling.h` and `sapling.c` compatibility shims have been retired.
 
 ## Important runtime constraints
 - `db_open` requires `page_size` in `[256, 65535]`.

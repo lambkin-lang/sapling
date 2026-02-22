@@ -128,6 +128,18 @@ typedef struct
     void *replay_hook_ctx;
 } SapRunnerV0;
 
+#ifdef SAPLING_THREADED
+typedef struct
+{
+    pthread_mutex_t mutex;
+} SapRunnerV0DbGate;
+#else
+typedef struct
+{
+    uint8_t unused;
+} SapRunnerV0DbGate;
+#endif
+
 typedef int (*sap_runner_v0_message_handler)(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg,
                                              void *ctx);
 
@@ -142,6 +154,7 @@ typedef struct
     void *now_ms_ctx;
     void (*sleep_ms_fn)(uint32_t sleep_ms, void *ctx);
     void *sleep_ms_ctx;
+    SapRunnerV0DbGate *db_gate;
     uint64_t ticks;
     int stop_requested;
     int last_error;
@@ -194,6 +207,9 @@ int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
 int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config *cfg,
                               sap_runner_v0_message_handler handler, void *handler_ctx,
                               uint32_t max_batch);
+int sap_runner_v0_db_gate_init(SapRunnerV0DbGate *gate);
+void sap_runner_v0_db_gate_shutdown(SapRunnerV0DbGate *gate);
+void sap_runner_v0_worker_set_db_gate(SapRunnerV0Worker *worker, SapRunnerV0DbGate *gate);
 int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out);
 void sap_runner_v0_worker_set_idle_policy(SapRunnerV0Worker *worker, uint32_t max_idle_sleep_ms);
 void sap_runner_v0_worker_set_policy(SapRunnerV0Worker *worker, const SapRunnerV0Policy *policy);

@@ -174,6 +174,10 @@ Replay hook frame-lifetime contract:
 - `sap_runner_v0_worker_set_time_hooks`: optional clock/sleep hook injection
   used by lease timing, timer due checks, idle-sleep calculations, and
   dispatch latency timing in worker-driven paths
+- `sap_runner_v0_db_gate_init` / `sap_runner_v0_db_gate_shutdown`: initialize
+  optional shared DB gate mutex for threaded worker groups
+- `sap_runner_v0_worker_set_db_gate`: attach a shared DB gate so worker tick
+  and idle-sleep due checks serialize DB access across workers
 - `sap_runner_v0_worker_compute_idle_sleep_ms`: compute timer-aware idle sleep
   from next due timer and configured max idle budget
 - `sap_runner_v0_worker_request_stop` / `sap_runner_v0_worker_shutdown`
@@ -185,3 +189,9 @@ Threaded helpers are also exposed:
 These launch a polling loop only when `SAPLING_THREADED` is enabled; idle
 sleep uses timer-aware budgeting from the scheduler helper. Without threaded
 support they return `SAP_ERROR`.
+
+Worker tick transient handling:
+- `SAP_BUSY` remains the canonical retryable idle signal
+- `SAP_NOTFOUND` and `SAP_CONFLICT` from worker poll/timer paths are now
+  normalized to `SAP_BUSY` in worker tick to avoid fatal thread exit under
+  transient contention/reordering races

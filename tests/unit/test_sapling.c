@@ -5,7 +5,7 @@
  * Copyright (c) 2026 lambkin-lang
  */
 
-#include "sapling.h"
+#include "sapling/sapling.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -259,8 +259,8 @@ static int snapshot_find_first_page_type(const struct MemBuf *mb, uint8_t page_t
     return 0;
 }
 
-static int snapshot_find_leaf_overflow_ref(const struct MemBuf *mb, const void *key, uint32_t key_len,
-                                           uint32_t *ref_offset_out)
+static int snapshot_find_leaf_overflow_ref(const struct MemBuf *mb, const void *key,
+                                           uint32_t key_len, uint32_t *ref_offset_out)
 {
     uint32_t page_size;
     uint32_t num_pages;

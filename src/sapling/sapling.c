@@ -803,9 +803,29 @@ static uint32_t raw_alloc(struct Txn *txn)
     if (txn->free_pgno != INVALID_PGNO)
     {
         uint32_t pgno = txn->free_pgno;
-        txn->free_pgno = rd32(db->pages[pgno]);
-        memset(db->pages[pgno], 0, db->page_size);
-        return pgno;
+        uint32_t next = INVALID_PGNO;
+        if (pgno >= txn->num_pages || pgno >= db->pages_cap || !db->pages[pgno])
+        {
+            /* Harden against free-list head corruption under heavy churn. */
+            txn->free_pgno = INVALID_PGNO;
+            pgno = INVALID_PGNO;
+        }
+        else
+        {
+            next = rd32(db->pages[pgno]);
+            if (next != INVALID_PGNO &&
+                (next >= txn->num_pages || next >= db->pages_cap || !db->pages[next]))
+            {
+                /*
+                 * If the next pointer is invalid, drop the tail and fall back
+                 * to fresh-page growth instead of dereferencing invalid memory.
+                 */
+                next = INVALID_PGNO;
+            }
+            txn->free_pgno = next;
+            memset(db->pages[pgno], 0, db->page_size);
+            return pgno;
+        }
     }
     uint32_t pgno = txn->num_pages;
     if (pgno >= db->pages_cap)
@@ -1268,15 +1288,45 @@ static int leaf_find(const struct DB *db, uint32_t dbi, const void *pg, const vo
     return pos;
 }
 
-static int leaf_insert(void *pg, int pos, const void *key, uint16_t klen, const void *val,
-                       uint16_t vlen, void **val_out)
+static int leaf_insert(void *pg, uint32_t page_size, int pos, const void *key, uint16_t klen,
+                       const void *val, uint16_t vlen, void **val_out)
 {
+    int n;
+    uint32_t dend;
+    uint32_t min_dend;
+    uint32_t min_dend_after;
+    uint32_t free_bytes;
+    uint32_t cell_sz;
     uint32_t store_vlen = leaf_value_store_len(vlen);
-    uint32_t need = SLOT_SZ + leaf_cell_size(klen, vlen);
-    if (need > L_FREE(pg))
+    uint32_t need;
+    uint16_t coff;
+
+    if (!pg || !key || (!val_out && !val))
         return -1;
-    uint16_t dend = (uint16_t)L_DEND(pg);
-    uint16_t coff = (uint16_t)(dend - leaf_cell_size(klen, vlen));
+
+    n = (int)PG_NUM(pg);
+    dend = (uint32_t)L_DEND(pg);
+    cell_sz = leaf_cell_size(klen, vlen);
+    min_dend = LEAF_HDR + (uint32_t)n * SLOT_SZ;
+    min_dend_after = LEAF_HDR + (uint32_t)(n + 1) * SLOT_SZ;
+    if (page_size < LEAF_HDR || pos < 0 || pos > n)
+        return -1;
+    if (dend < min_dend || dend > page_size)
+        return -1;
+    if (cell_sz > dend)
+        return -1;
+
+    free_bytes = dend - min_dend;
+    need = SLOT_SZ + cell_sz;
+    if (need > free_bytes)
+        return -1;
+
+    coff = (uint16_t)(dend - cell_sz);
+    if ((uint32_t)coff < min_dend_after)
+        return -1;
+    if ((uint32_t)coff + cell_sz > page_size)
+        return -1;
+
     wr16(PB(pg, coff), klen);
     wr16(PB(pg, coff + 2), vlen);
     memcpy(PB(pg, coff + LCELL_HDR), key, klen);
@@ -1290,7 +1340,6 @@ static int leaf_insert(void *pg, int pos, const void *key, uint16_t klen, const 
         memcpy(PB(pg, coff + LCELL_HDR + klen), val, store_vlen);
     }
     SET_L_DEND(pg, coff);
-    int n = (int)PG_NUM(pg);
     if (n > pos)
         memmove(PB(pg, LEAF_HDR + (uint32_t)(pos + 1) * SLOT_SZ),
                 PB(pg, LEAF_HDR + (uint32_t)pos * SLOT_SZ), (uint32_t)(n - pos) * SLOT_SZ);
@@ -1487,8 +1536,8 @@ static uint32_t leaf_split(struct Txn *txn, uint32_t dbi, uint32_t lpgno, void *
     {
         void *dst = (j < left_n) ? lpg : rpg;
         int dpos = (j < left_n) ? j : j - left_n;
-        leaf_insert(dst, dpos, kbuf + koff[j], (uint16_t)kl2[j], vbuf + voff[j], (uint16_t)vl2[j],
-                    NULL);
+        leaf_insert(dst, db->page_size, dpos, kbuf + koff[j], (uint16_t)kl2[j], vbuf + voff[j],
+                    (uint16_t)vl2[j], NULL);
     }
 
     uint16_t sep_off = (uint16_t)L_SLOT(rpg, 0);
@@ -1693,8 +1742,8 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             goto cleanup;
         }
         pg_init_leaf(db->pages[pgno], pgno, db->page_size);
-        if (leaf_insert(db->pages[pgno], 0, key, (uint16_t)key_len, store_val, store_vlen, rout) <
-            0)
+        if (leaf_insert(db->pages[pgno], db->page_size, 0, key, (uint16_t)key_len, store_val,
+                        store_vlen, rout) < 0)
         {
             rc = SAP_ERROR;
             goto cleanup;
@@ -1794,7 +1843,8 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             pos = leaf_find(db, dbi, lpg, key, key_len, &found);
         }
 
-        if (leaf_insert(lpg, pos, key, (uint16_t)key_len, store_val, store_vlen, rout) == 0)
+        if (leaf_insert(lpg, db->page_size, pos, key, (uint16_t)key_len, store_val, store_vlen,
+                        rout) == 0)
         {
             if (!is_update)
                 txn->dbs[dbi].num_entries++;
@@ -2415,8 +2465,8 @@ static int txn_load_sorted_empty_fast(struct Txn *txn, uint32_t dbi, const void 
                 goto cleanup;
             }
 
-            if (leaf_insert(leaf, (int)PG_NUM(leaf), store_key, store_klen, store_val, store_vlen,
-                            NULL) == 0)
+            if (leaf_insert(leaf, db->page_size, (int)PG_NUM(leaf), store_key, store_klen,
+                            store_val, store_vlen, NULL) == 0)
             {
                 if (PG_NUM(leaf) == 1)
                 {
@@ -3216,8 +3266,8 @@ static int ttl_encode_lookup_key(const void *key, uint32_t key_len, uint8_t **ou
     return SAP_OK;
 }
 
-static int ttl_encode_index_key(const void *key, uint32_t key_len, uint64_t expiry, uint8_t **out_key,
-                                uint32_t *out_len)
+static int ttl_encode_index_key(const void *key, uint32_t key_len, uint64_t expiry,
+                                uint8_t **out_key, uint32_t *out_len)
 {
     uint8_t *buf;
     uint32_t len;
@@ -3319,7 +3369,8 @@ int txn_put_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
         goto abort_child;
 
     wr64(expiry_buf, expires_at_ms);
-    rc = txn_put_dbi(child, ttl_dbi, lookup_key, lookup_len, expiry_buf, (uint32_t)sizeof(expiry_buf));
+    rc = txn_put_dbi(child, ttl_dbi, lookup_key, lookup_len, expiry_buf,
+                     (uint32_t)sizeof(expiry_buf));
     if (rc != SAP_OK)
         goto abort_child;
 
@@ -3374,8 +3425,8 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
     return txn_get_dbi((Txn *)txn, data_dbi, key, key_len, val_out, val_len_out);
 }
 
-static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
-                               uint64_t max_to_delete, uint64_t *deleted_count_out)
+static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi,
+                               uint64_t now_ms, uint64_t max_to_delete, uint64_t *deleted_count_out)
 {
     struct TTLKeyList expired = {0};
     Cursor *cur;
@@ -4787,7 +4838,7 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
 
     leaf_remove(lpg, pos);
 
-    if (leaf_insert(lpg, pos, key_buf, klen, val, (uint16_t)val_len, NULL) == 0)
+    if (leaf_insert(lpg, db->page_size, pos, key_buf, klen, val, (uint16_t)val_len, NULL) == 0)
     {
         (void)txn_track_change(txn, dbi, key_buf, klen);
         rc = SAP_OK;

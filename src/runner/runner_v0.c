@@ -120,6 +120,29 @@ static void worker_set_stop_requested(SapRunnerV0Worker *worker, int stop_reques
 }
 
 #ifdef SAPLING_THREADED
+static void worker_db_gate_lock(SapRunnerV0Worker *worker)
+{
+    if (!worker || !worker->db_gate)
+    {
+        return;
+    }
+    (void)pthread_mutex_lock(&worker->db_gate->mutex);
+}
+
+static void worker_db_gate_unlock(SapRunnerV0Worker *worker)
+{
+    if (!worker || !worker->db_gate)
+    {
+        return;
+    }
+    (void)pthread_mutex_unlock(&worker->db_gate->mutex);
+}
+#else
+static void worker_db_gate_lock(SapRunnerV0Worker *worker) { (void)worker; }
+static void worker_db_gate_unlock(SapRunnerV0Worker *worker) { (void)worker; }
+#endif
+
+#ifdef SAPLING_THREADED
 static void default_sleep_ms(uint32_t sleep_ms, void *ctx)
 {
     struct timespec ts;
@@ -1441,16 +1464,58 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
     worker->now_ms_ctx = NULL;
     worker->sleep_ms_fn = NULL;
     worker->sleep_ms_ctx = NULL;
+    worker->db_gate = NULL;
     worker->ticks = 0u;
     worker_set_stop_requested(worker, 0);
     worker->last_error = SAP_OK;
     return SAP_OK;
 }
 
+int sap_runner_v0_db_gate_init(SapRunnerV0DbGate *gate)
+{
+    if (!gate)
+    {
+        return SAP_ERROR;
+    }
+#ifdef SAPLING_THREADED
+    if (pthread_mutex_init(&gate->mutex, NULL) != 0)
+    {
+        return SAP_ERROR;
+    }
+    return SAP_OK;
+#else
+    gate->unused = 0u;
+    return SAP_ERROR;
+#endif
+}
+
+void sap_runner_v0_db_gate_shutdown(SapRunnerV0DbGate *gate)
+{
+    if (!gate)
+    {
+        return;
+    }
+#ifdef SAPLING_THREADED
+    (void)pthread_mutex_destroy(&gate->mutex);
+#else
+    gate->unused = 0u;
+#endif
+}
+
+void sap_runner_v0_worker_set_db_gate(SapRunnerV0Worker *worker, SapRunnerV0DbGate *gate)
+{
+    if (!worker)
+    {
+        return;
+    }
+    worker->db_gate = gate;
+}
+
 int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out)
 {
-    int rc;
+    int rc = SAP_OK;
     uint32_t processed = 0u;
+    int gate_locked = 0;
 
     if (processed_out)
     {
@@ -1465,18 +1530,26 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
         return SAP_BUSY;
     }
 
+    worker_db_gate_lock(worker);
+    gate_locked = 1;
+
     rc = poll_inbox_with_clock(&worker->runner, worker->max_batch, worker->handler,
                                worker->handler_ctx, &processed, worker->now_ms_fn,
                                worker->now_ms_ctx);
     if (rc != SAP_OK)
     {
+        if (rc == SAP_NOTFOUND || rc == SAP_CONFLICT)
+        {
+            rc = SAP_BUSY;
+            goto out;
+        }
         if (rc != SAP_BUSY)
         {
             worker->last_error = rc;
             emit_log_event(&worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u, (int32_t)rc,
                            processed);
         }
-        return rc;
+        goto out;
     }
 
     if (processed < worker->max_batch)
@@ -1492,13 +1565,18 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                                            timer_dispatch_handler, &timer_ctx, &timer_processed);
         if (rc != SAP_OK)
         {
+            if (rc == SAP_NOTFOUND || rc == SAP_CONFLICT)
+            {
+                rc = SAP_BUSY;
+                goto out;
+            }
             if (rc != SAP_BUSY)
             {
                 worker->last_error = rc;
                 emit_log_event(&worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u,
                                (int32_t)rc, processed);
             }
-            return rc;
+            goto out;
         }
         processed += timer_processed;
     }
@@ -1508,7 +1586,14 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
         *processed_out = processed;
     }
     worker->ticks++;
-    return SAP_OK;
+    rc = SAP_OK;
+
+out:
+    if (gate_locked)
+    {
+        worker_db_gate_unlock(worker);
+    }
+    return rc;
 }
 
 void sap_runner_v0_worker_set_idle_policy(SapRunnerV0Worker *worker, uint32_t max_idle_sleep_ms)
@@ -1549,6 +1634,7 @@ int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32
     int rc;
     int64_t next_due = 0;
     uint32_t max_idle = 0u;
+    int gate_locked = 0;
 
     if (!worker || !sleep_ms_out)
     {
@@ -1556,20 +1642,28 @@ int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32
     }
     *sleep_ms_out = 0u;
 
+    worker_db_gate_lock(worker);
+    gate_locked = 1;
     max_idle = (worker->max_idle_sleep_ms == 0u) ? 1u : worker->max_idle_sleep_ms;
     rc = sap_runner_scheduler_v0_next_due(worker->runner.db, &next_due);
     if (rc == SAP_NOTFOUND)
     {
         *sleep_ms_out = max_idle;
-        return SAP_OK;
+        rc = SAP_OK;
+        goto out;
     }
     if (rc != SAP_OK)
     {
-        return rc;
+        goto out;
     }
 
     rc = sap_runner_scheduler_v0_compute_sleep_ms(worker_now_ms(worker), next_due, max_idle,
                                                   sleep_ms_out);
+out:
+    if (gate_locked)
+    {
+        worker_db_gate_unlock(worker);
+    }
     return rc;
 }
 

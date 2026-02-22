@@ -216,7 +216,7 @@ When writing reusable library code:
 
 - `README.md` for build/runtime constraints
 - `FEATURES.md` for implemented and planned features
-- `test_sapling.c` sections:
+- `tests/unit/test_sapling.c` sections:
   - nested transaction tests
   - `txn_put_if` tests
   - watch notification and watch API hardening tests

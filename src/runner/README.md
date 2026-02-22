@@ -16,8 +16,9 @@ Implemented foundation:
   (metrics snapshots + structured log events).
 - `SapRunnerV0Worker` shell: runner tick/stop APIs and optional pthread
   start/join helpers (gated by `SAPLING_THREADED`), synchronized stop signaling,
-  retryable handling of transient `SAP_BUSY`, and clock hooks applied to lease
-  timing + step-latency measurement in worker-driven paths.
+  retryable handling of transient `SAP_BUSY`/`SAP_NOTFOUND`/`SAP_CONFLICT`,
+  optional shared DB gate coordination for threaded workers, and clock hooks
+  applied to lease timing + step-latency measurement in worker-driven paths.
 - `txctx_v0.h` / `txctx_v0.c`: phase-B host transaction context scaffold with
   read-set tracking, write-set staging, intent buffering, and
   validate/apply helpers for short write-txn commit phases.

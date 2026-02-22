@@ -19,5 +19,5 @@ source tree for long-term maintainability.
 
 ## Compatibility window
 
-Top-level `sapling.c` and `sapling.h` are currently compatibility shims.
-New code should include `sapling/sapling.h` from `include/`.
+The Phase 0 compatibility window has closed. Top-level `sapling.c` and `sapling.h` shims have been retired.
+All code must include `sapling/sapling.h` from `include/`.

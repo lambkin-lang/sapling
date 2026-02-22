@@ -604,12 +604,19 @@ Phase C status (started):
    `sap_wasi_runtime_v0_init_adapter` + optional streaming invoke support were
    added, and shim init now supports configurable reply-buffer capacity via
    `sap_wasi_shim_v0_init_with_options` (removing fixed-cap-only behavior).
-9. [P1] Investigate and harden concurrent multi-writer threaded behavior in
-   runner-style workloads sharing one DB handle; initial runner-threaded
-   pipeline prototype surfaced a crash path under sustained write contention.
-10. [P1] Add a dedicated stress/regression target for threaded runner-style
-    multi-writer churn (queue/forward/retry mix), and keep it in CI once the
-    hardening fix lands.
+9. [In progress][P1] Investigate and harden concurrent multi-writer threaded
+   behavior in runner-style workloads sharing one DB handle:
+   - added storage hardening guards in allocator/leaf insert paths to avoid
+     out-of-bounds writes on corrupted free-space metadata
+   - added optional shared DB gate APIs on runner workers plus transient
+     `SAP_NOTFOUND`/`SAP_CONFLICT` normalization in worker tick path
+   - remaining: stabilize runtime semantics under sustained threaded churn
+     (`runner-multiwriter-stress` still reproduces instability)
+10. [In progress][P1] Added dedicated threaded runner-style multi-writer stress
+    harness target (`tests/stress/runner_multiwriter_stress.c`,
+    `make runner-multiwriter-stress`) and build gating entry point
+    (`make runner-multiwriter-stress-build`) wired into phase-C checks;
+    runtime stress execution remains manual until stabilization closes item 9.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
