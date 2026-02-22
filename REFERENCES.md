@@ -101,6 +101,38 @@ procedure described in the problem statement.
 - **Source code read:** yes — scanned for layout ideas; no code was
   copied.
 
+### redb
+- **URL:** https://github.com/cberner/redb
+- **License:** MIT / Apache 2.0
+- **What was learned:** a modern, safe Rust MVCC B-Tree design mimicking LMDB's MVCC strategies. Provides clean-room confirmation of how single-writer/multiple-reader concurrency and free-page recycling can be structured.
+- **Source code read:** no
+
+### bbolt
+- **URL:** https://github.com/etcd-io/bbolt
+- **License:** MIT
+- **What was learned:** a Go-based clone of LMDB architecture that illustrates bucket (DBI) nesting and cursor iterations. Validated the design pattern of isolated concurrent readers.
+- **Source code read:** no
+
+---
+
+## Architecture and Semantics Inspiration
+
+While no code was copied from these works, their architectural and semantic patterns were instrumental in shaping the deterministic, memory-isolated Wasm runner that hosts Sapling.
+
+### FoundationDB (Tuple Layer and Determinism)
+- **URL:** https://apple.github.io/foundationdb/
+- **License:** Apache 2.0
+- **Concept:** FoundationDB's Deterministic Simulation Testing and its "Tuple Layer" (packing primitives into ordered byte strings) heavily inspired the semantic mapping of WIT types and deterministic Wasm harness evaluation strategies. The ability to simulate failure scenarios deterministically is a core inspiration for the runner harness.
+
+### TigerBeetle
+- **URL:** https://github.com/tigerbeetle/tigerbeetle
+- **License:** Apache 2.0
+- **Concept:** TigerBeetle evaluates determinism and explicit memory control in Zig. Its design, which avoids fragmented dynamic allocation (malloc/free) after startup and relies on pre-allocated resource pools, significantly influences how the Phase-C runner threads, memory bounds, and WebAssembly Linear Memory integration are scoped.
+
+### WebAssembly (WASI) Standards
+- **Component Model Specifications:** specifically the evolving definitions for `wasi-keyvalue` and `wasi-messaging` developed by the Bytecode Alliance.
+- **Concept:** Sapling's "Phase C" runner layers (Mailbox, Dead-Letter, Outbox) intentionally align with the logical structures defined in the `wasi-messaging` proposals, allowing transparent semantic integration for Lambkin and Wasm actors. The core store semantics align with `wasi-keyvalue` representations.
+
 ---
 
 ## Works NOT consulted (source code)

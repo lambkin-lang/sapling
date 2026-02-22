@@ -59,8 +59,8 @@ Both require a WASI sysroot:
 - `make wasm-check WASI_SYSROOT=/path/to/wasi-sysroot`
 
 ## Learning guide
-- `TUTORIAL_STM_OCC.md` explains STM/OCC, CAS, retry loops, nested
-  transactions, watch semantics, and key concurrency terminology.
+- `TUTORIAL_CONCURRENCY_ACTORS.md` explains STM/OCC, CAS, retry loops, nested
+  transactions, watch semantics, key concurrency terminology, and the Lambkin Actor Model.
 - `docs/REPO_LAYOUT.md` describes the source tree migration and compatibility
   shims.
 - `docs/WIT_SCHEMA.md` describes WIT-first schema conventions and codegen.

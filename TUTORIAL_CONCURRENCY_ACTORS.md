@@ -1,4 +1,4 @@
-# STM/OCC Tutorial for Sapling
+# STM, OCC, and Actor Tutorial for Sapling
 
 This guide explains the concurrency terms used in this project and maps them
 to concrete Sapling APIs so readers can reason about correctness and
@@ -99,6 +99,29 @@ Nested transaction behavior:
 This maps well to composable "atomic subroutines" where inner operations can
 fail without forcing whole-process failure.
 
+## Wasm, WIT, and the Lambkin Actor Model
+
+Sapling serves as the semantic foundation for **Lambkin**, a Wasm-aligned programming language built on top of the Actor model. This integration involves several key concepts:
+
+### Semantic Foundation
+- **WebAssembly (Wasm) Linear Memory**: Wasm's single linear memory model is fundamental. Workers share *no memory* other than what is mediated through Sapling (the database and message queues).
+- **WIT IDL Models**: Schema layouts, database records, and the internal structures are robustly defined using WebAssembly Interface Types (WIT). The WIT file acts as the ultimate ground truth for both the C host engine and the Wasm guest modules.
+- **WASI Standards**: The messaging layers (like Phase C's mailbox, outbox, and timers) align conceptually with the Bytecode Alliance's `wasi-messaging` specifications. Sapling's underlying storage abstractions map cleanly to `wasi-keyvalue`.
+
+### The Lambkin Language Experience
+Lambkin programmers do not explicitly deal with a traditional heap or raw pointers. Instead:
+- State is referenced and passed around using **paths and database cursors**.
+- Business logic is written inside `atomic { ... }` blocks which translate seamlessly to Sapling's nested transactions.
+- The language provides **extensive static checking** to guarantee that the logic inside an `atomic` block is strictly side-effect free.
+- The closest construct to a heap allocation is a lambda closure. However, closures in Lambkin are thread-confined and execute dynamically; they are not "storable" types, preserving the capability to cleanly rollback state during a transaction abort without memory leaks.
+
+### Virtual Actors in Sapling
+Because threads share no memory and all communication occurs through records and queues, each Wasm module instance functions essentially as a **Virtual Actor**.
+- An Actor wakes up when a message arrives via a mailbox or timer intent.
+- It deterministically processes the message within an optimistic transaction.
+- It atomically commits state changes to the database AND zero or more new messages to an outbox.
+- If contention occurs (`SAP_BUSY` or `SAP_CONFLICT`), the statically side-effect free actor logic is cleanly rolled back and replayed against fresh database state.
+
 ## Designing host-level atomic blocks for Wasm workers
 
 For a host runner with system threads and single-threaded Wasm guests:
@@ -191,6 +214,7 @@ When writing reusable library code:
 
 ## Glossary
 
+- Actor: An isolated, concurrent computational entity that communicates strictly via message passing. In Sapling, a Wasm worker.
 - Atomicity: all-or-nothing effect of a transaction.
 - CAS (Compare-And-Swap): conditional update based on expected current value.
 - Commit: finalize transaction changes.
@@ -209,7 +233,9 @@ When writing reusable library code:
 - STM: Software Transactional Memory programming model (`atomic {}` semantics).
 - Top-level transaction: transaction with no parent.
 - Nested transaction: child transaction scoped under a parent transaction.
+- WASI: WebAssembly System Interface. In Sapling, specifically relates to semantic mappings for `wasi-keyvalue` and `wasi-messaging`.
 - Watch: callback registration for commit-time notifications on DBI/prefix.
+- WIT: WebAssembly Interface Types. The Interface Description Language used to contractually define runtime data structures.
 - Write set: buffered intended mutations for commit.
 
 ## Suggested next reading

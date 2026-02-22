@@ -750,3 +750,27 @@ int txn_merge(Txn *txn, DBI dbi,
               const void *operand, uint32_t op_len,
               sap_merge_fn merge, void *ctx);
 ```
+
+---
+
+## Priority 7 — Refinement and Formal Verification (Lambkin Alignment)
+
+Sapling is specifically designed as the semantic host for **Lambkin**, a statically typed, refinement-based language. Lambkin strictly adheres to the **"Big analysis, small binaries"** philosophy: it leverages heavy compiler analysis (Liquid Fixpoint, Z3, extensive escape analysis) to mathematically prove the safety and bounds of programs. This enables incredibly tiny, extremely fast embedded deployments that strip away heavy runtime machinery.
+
+Because Lambkin favors Universal Wasm with linear memory over heavier options like WasmGC, Sapling must gracefully co-evolve to map these language guarantees down to the host storage tier.
+
+### 1. WIT Semantic Annotations (Liquid WIT)
+Extend the WIT IDL with a pseudo-annotation DSL inside the comments (e.g., `/// @refine(value >= 0)`).
+- **Goal:** The custom `wit_schema_codegen.py` parser will read these annotations to automatically generate C-level assert checks, protective `SAP_INVALID` barriers at the Wasm boundary, and inputs for the deterministic `fault_harness`.
+
+### 2. Zero-Cost `atomic` Reads via Escape Analysis
+Because the Lambkin compiler can statically prove when an `atomic { ... }` block contains only reads and no cross-thread side-effects:
+- **Goal:** Emitting a specialized "read-only guarantee" hint to the Sapling runner. The runner can instantly map the Wasm invocation to a lock-free `TXN_RDONLY` MVCC snapshot without securing the database write mutex or tracking a write-set.
+
+### 3. Trusted Execution Proofs (Eliding Host Checks)
+Wasm workers are traditionally treated as black boxes, forcing Sapling to redundantly validate schema inputs and bounding restrictions on every call.
+- **Goal:** Allow the Lambkin compiler to embed a `.lambkin_verified` proof section into the binary. When Sapling loads a proven binary, it enters a "Trusted Mode" that bypasses redundant host-side defensive validation and executes bare-metal fast-path operations.
+
+### 4. ACSL and Frama-C Host Verification
+If the Lambkin language guarantees absolutely correct interaction from the guest, the Sapling C engine becomes the weakest point.
+- **Goal:** Annotate the core engine logic (e.g. `txn_sweep_ttl_dbi`, `txn_put_if`, allocation boundaries) using ACSL (ANSI/ISO C Specification Language). Utilize external tools like Frama-C or CBMC to formally prove that the host environment perfectly honors the constraints expected by the Lambkin Z3 proofs.
