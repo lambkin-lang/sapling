@@ -3523,12 +3523,9 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
         const void *lookup_val = NULL;
         uint32_t lookup_vlen = 0;
         int md_deleted = 0;
-        int drc = txn_del_dbi((Txn *)txn, data_dbi, expired.keys[i], expired.lens[i]);
-        if (drc != SAP_OK && drc != SAP_NOTFOUND)
-        {
-            rc = drc;
-            break;
-        }
+        int do_delete_data = 0;
+        int drc;
+
         rc = ttl_encode_lookup_key(expired.keys[i], expired.lens[i], &lookup_key, &lookup_len);
         if (rc != SAP_OK)
             break;
@@ -3556,30 +3553,66 @@ static int txn_sweep_ttl_inner(struct Txn *txn, uint32_t data_dbi, uint32_t ttl_
             break;
         }
 
-        drc = txn_del_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len);
-        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        if (drc == SAP_NOTFOUND)
         {
-            rc = drc;
-            free(lookup_key);
-            free(index_key);
-            break;
+            do_delete_data = 0;
         }
-        if (drc == SAP_OK)
-            md_deleted = 1;
-
-        drc = txn_del_dbi((Txn *)txn, ttl_dbi, index_key, index_len);
-        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        else
         {
-            rc = drc;
-            free(lookup_key);
-            free(index_key);
-            break;
+            if (rd64(lookup_val) == expired.expiries[i])
+                do_delete_data = 1;
+            else
+                do_delete_data = 0;
         }
-        if (drc == SAP_OK)
-            md_deleted = 1;
 
-        if (md_deleted)
-            deleted++;
+        if (do_delete_data)
+        {
+            drc = txn_del_dbi((Txn *)txn, data_dbi, expired.keys[i], expired.lens[i]);
+            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            {
+                rc = drc;
+                free(lookup_key);
+                free(index_key);
+                break;
+            }
+
+            drc = txn_del_dbi((Txn *)txn, ttl_dbi, lookup_key, lookup_len);
+            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            {
+                rc = drc;
+                free(lookup_key);
+                free(index_key);
+                break;
+            }
+            if (drc == SAP_OK)
+                md_deleted = 1;
+
+            drc = txn_del_dbi((Txn *)txn, ttl_dbi, index_key, index_len);
+            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            {
+                rc = drc;
+                free(lookup_key);
+                free(index_key);
+                break;
+            }
+            if (drc == SAP_OK)
+                md_deleted = 1;
+
+            if (md_deleted)
+                deleted++;
+        }
+        else
+        {
+            drc = txn_del_dbi((Txn *)txn, ttl_dbi, index_key, index_len);
+            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            {
+                rc = drc;
+                free(lookup_key);
+                free(index_key);
+                break;
+            }
+        }
+
         free(lookup_key);
         free(index_key);
     }

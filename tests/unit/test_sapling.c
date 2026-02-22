@@ -2592,6 +2592,54 @@ static void test_ttl_helpers(void)
     CHECK(deleted == 1);
     CHECK(txn_commit(w) == SAP_OK);
 
+    /* Test TTL mismatch (sweep should silently prune stale indices but preserve authoritative data)
+     */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "hero", 4, "alive", 5, 2000) == SAP_OK);
+    CHECK(txn_commit(w) == SAP_OK);
+
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    {
+        uint8_t buf[13];
+        uint64_t v_exp = 1500;
+        buf[0] = 1; /* TTL_META_INDEX_TAG */
+        buf[1] = (uint8_t)((v_exp >> 56) & 0xff);
+        buf[2] = (uint8_t)((v_exp >> 48) & 0xff);
+        buf[3] = (uint8_t)((v_exp >> 40) & 0xff);
+        buf[4] = (uint8_t)((v_exp >> 32) & 0xff);
+        buf[5] = (uint8_t)((v_exp >> 24) & 0xff);
+        buf[6] = (uint8_t)((v_exp >> 16) & 0xff);
+        buf[7] = (uint8_t)((v_exp >> 8) & 0xff);
+        buf[8] = (uint8_t)(v_exp & 0xff);
+        memcpy(buf + 9, "hero", 4);
+        CHECK(txn_put_dbi(w, 2, buf, 13, NULL, 0) == SAP_OK);
+    }
+    CHECK(txn_commit(w) == SAP_OK);
+
+    /* Sweep at 1800 should hit the stale 1500 index, but preserve data and lookup metadata. */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 1800, &deleted) == SAP_OK);
+    CHECK(deleted == 0); /* no logical TTL rows actually expired */
+    CHECK(txn_commit(w) == SAP_OK);
+
+    r = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(r != NULL);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "hero", 4, 1800, &v, &vl) == SAP_OK);
+    CHECK(vl == 5 && memcmp(v, "alive", 5) == 0);
+    txn_abort(r);
+
+    /* Sweep at 2500 expires it truly */
+    w = txn_begin(db, NULL, 0);
+    CHECK(w != NULL);
+    deleted = 0;
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 2500, &deleted) == SAP_OK);
+    CHECK(deleted == 1);
+    CHECK(txn_commit(w) == SAP_OK);
+
     db_close(db);
 }
 
