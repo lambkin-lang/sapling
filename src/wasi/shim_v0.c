@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: MIT
  */
 #include "wasi/shim_v0.h"
+#include "runner/dedupe_v0.h"
+#include "generated/wit_schema_dbis.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +34,7 @@ typedef struct
     SapWasiShimV0 *shim;
     SapRunnerV0 *runner;
     const SapRunnerMessageV0 *msg;
+    int64_t now_ms;
 } WasiShimAtomicCtx;
 
 static int shim_push_reply_intent(SapRunnerTxStackV0 *stack, SapWasiShimV0 *shim,
@@ -97,20 +100,49 @@ static int shim_atomic_execute(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
 {
     WasiShimAtomicCtx *atomic = (WasiShimAtomicCtx *)ctx;
     SapWasiShimV0 *shim;
+    SapHostV0 host_ctx = {0};
     uint32_t reply_len = 0u;
     int rc;
 
-    (void)read_txn;
     if (!stack || !atomic || !atomic->shim || !atomic->runner || !atomic->msg)
     {
         return SAP_ERROR;
     }
     shim = atomic->shim;
-    rc = sap_wasi_runtime_v0_invoke(shim->runtime, atomic->msg, shim->reply_buf,
+
+    sap_host_v0_init(&host_ctx, stack, read_txn, atomic->runner->worker_id, atomic->now_ms);
+
+    if ((atomic->msg->flags & SAP_RUNNER_MESSAGE_FLAG_DEDUPE_REQUIRED) != 0u)
+    {
+        SapRunnerDedupeV0 dedupe = {0};
+        rc = sap_runner_dedupe_v0_get(read_txn, atomic->msg->message_id,
+                                      atomic->msg->message_id_len, &dedupe);
+        if (rc == SAP_OK && dedupe.accepted)
+        {
+            return SAP_OK;
+        }
+    }
+
+    rc = sap_wasi_runtime_v0_invoke(shim->runtime, &host_ctx, atomic->msg, shim->reply_buf,
                                     shim->reply_buf_cap, &reply_len);
     if (rc != SAP_OK)
     {
         return rc;
+    }
+
+    if ((atomic->msg->flags & SAP_RUNNER_MESSAGE_FLAG_DEDUPE_REQUIRED) != 0u)
+    {
+        SapRunnerDedupeV0 dedupe = {0};
+        dedupe.accepted = 1;
+        dedupe.last_seen_ts = atomic->now_ms;
+        // In a real implementation, we would compute a checksum of the reply here.
+        // For now, we leave it zeroed.
+        rc = sap_runner_dedupe_v0_stage_put(stack, atomic->msg->message_id,
+                                            atomic->msg->message_id_len, &dedupe);
+        if (rc != SAP_OK)
+        {
+            return rc;
+        }
     }
     if (!shim->emit_outbox_events || reply_len == 0u)
     {
@@ -242,6 +274,7 @@ int sap_wasi_shim_v0_runner_handler(SapRunnerV0 *runner, const SapRunnerMessageV
     atomic_ctx.shim = shim;
     atomic_ctx.runner = runner;
     atomic_ctx.msg = msg;
+    atomic_ctx.now_ms = 0; // TODO: Pass real time if needed for TTL
     rc =
         sap_runner_attempt_v0_run(shim->db, &shim->attempt_policy, shim_atomic_execute, &atomic_ctx,
                                   sap_runner_intent_sink_v0_publish, &shim->intent_sink, &stats);

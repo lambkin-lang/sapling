@@ -293,6 +293,7 @@ Atomic blocks in guest code are treated as side-effect-free transactional logic:
 - retries may be automatic on retryable conflicts
 - nested atomic blocks are closed-nested (child merges into parent context)
 - only outermost successful commit makes changes durable
+- Host API for guests to interact with Sapling DBIs within an atomic block (done)
 
 Inside an atomic block:
 - allowed: transactional reads/writes and message/timer intent creation

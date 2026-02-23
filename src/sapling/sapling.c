@@ -2128,6 +2128,7 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
     if (dbi >= db->num_dbs)
         return SAP_NOTFOUND;
 
+
     int is_ttl_meta = (db->dbs[dbi].flags & DBI_TTL_META) != 0;
     if (is_ttl_meta)
     {
@@ -2169,14 +2170,16 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
         pgno = int_child(pg, idx);
     }
 
-    uint32_t leaf_pgno = txn_cow(txn, pgno);
-    if (leaf_pgno == INVALID_PGNO)
-        return SAP_ERROR;
-    void *lpg = db->pages[leaf_pgno];
+    void *lpg = db->pages[pgno];
     int found;
     int pos = leaf_find(db, dbi, lpg, key, key_len, &found);
     if (!found)
         return SAP_NOTFOUND;
+
+    uint32_t leaf_pgno = txn_cow(txn, pgno);
+    if (leaf_pgno == INVALID_PGNO)
+        return SAP_ERROR;
+    lpg = db->pages[leaf_pgno];
     {
         uint16_t off = (uint16_t)L_SLOT(lpg, pos);
         if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)

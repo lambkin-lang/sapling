@@ -12,6 +12,7 @@
 #include "runner/timer_v0.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -349,7 +350,13 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
         txn_abort(txn);
         return rc;
     }
-    if (key_len != SAP_RUNNER_INBOX_KEY_V0_SIZE || val_len == 0u)
+    if (key_len != SAP_RUNNER_INBOX_KEY_V0_SIZE)
+    {
+        cursor_close(cur);
+        txn_abort(txn);
+        return SAP_ERROR;
+    }
+    if (val_len == 0u)
     {
         cursor_close(cur);
         txn_abort(txn);

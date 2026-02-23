@@ -67,10 +67,11 @@ static int encode_message(uint32_t to_worker, uint8_t *buf, uint32_t buf_len, ui
     return sap_runner_message_v0_encode(&msg, buf, buf_len, out_len);
 }
 
-static int guest_call(void *ctx, const uint8_t *request, uint32_t request_len, uint8_t *reply_buf,
-                      uint32_t reply_buf_cap, uint32_t *reply_len_out)
+static int guest_call(void *ctx, SapHostV0 *host, const uint8_t *request, uint32_t request_len,
+                      uint8_t *reply_buf, uint32_t reply_buf_cap, uint32_t *reply_len_out)
 {
     GuestCtx *g = (GuestCtx *)ctx;
+    (void)host;
     (void)request;
     (void)request_len;
     if (!g || !reply_buf || !reply_len_out)

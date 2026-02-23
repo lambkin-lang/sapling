@@ -33,9 +33,10 @@
 #   make runner-outbox-test — run phase-C outbox append/drain tests
 #   make runner-timer-test — run phase-C timer ingestion/drain tests
 #   make runner-scheduler-test — run phase-C timer scheduling helper tests
-#   make runner-intent-sink-test — run composed outbox+timer intent sink tests
-#   make runner-native-example — run non-WASI attempt-handler integration example
-#   make runner-threaded-pipeline-example — run threaded 4-worker order pipeline example
+RUNNER_INTENT_SINK_TEST_BIN = $(BIN_DIR)/runner_intent_sink_test
+RUNNER_NATIVE_EXAMPLE_BIN = $(BIN_DIR)/runner_native_example
+RUNNER_HOST_API_EXAMPLE_BIN = $(BIN_DIR)/runner_host_api_example
+RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_example
 #   make runner-multiwriter-stress-build — build threaded runner-style multi-writer stress harness
 #   make runner-multiwriter-stress — run threaded runner-style multi-writer stress harness (investigative repro)
 #   make runner-phasee-bench — build phase-E runner coupling study benchmark
@@ -115,10 +116,15 @@ RUNNER_TIMER_TEST_BIN = $(BIN_DIR)/runner_timer_test
 RUNNER_SCHEDULER_TEST_BIN = $(BIN_DIR)/runner_scheduler_test
 RUNNER_INTENT_SINK_TEST_BIN = $(BIN_DIR)/runner_intent_sink_test
 RUNNER_NATIVE_EXAMPLE_BIN = $(BIN_DIR)/runner_native_example
+RUNNER_HOST_API_EXAMPLE_BIN = $(BIN_DIR)/runner_host_api_example
 RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_example
+RUNNER_DEDUPE_TEST_BIN = $(BIN_DIR)/runner_dedupe_test
+RUNNER_LEASE_TEST_BIN = $(BIN_DIR)/runner_lease_test
 RUNNER_MULTIWRITER_STRESS_BIN = $(BIN_DIR)/runner_multiwriter_stress
 RUNNER_PHASEE_BENCH_BIN = $(BIN_DIR)/bench_runner_phasee
 RUNNER_TTL_SWEEP_TEST_BIN = $(BIN_DIR)/runner_ttl_sweep_test
+WASM_RUNNER_TEST_BIN = $(BIN_DIR)/wasm_runner_test
+WASI_DEDUPE_TEST_BIN = $(BIN_DIR)/wasi_dedupe_test
 WASI_RUNTIME_TEST_BIN = $(BIN_DIR)/wasi_runtime_test
 WASI_SHIM_TEST_BIN = $(BIN_DIR)/wasi_shim_test
 BENCH_COUNT ?= 100000
@@ -154,6 +160,7 @@ WASI_LDFLAGS ?= --target=$(WASI_TARGET) --sysroot=$(WASI_SYSROOT)
 WASM_LIB  = $(LIB_DIR)/libsapling_wasm.a
 WASM_OBJ  = $(OBJ_DIR)/sapling_wasm.o
 WASM_SMOKE = $(BIN_DIR)/wasm_smoke.wasm
+WASM_GUEST_EXAMPLE = $(BIN_DIR)/wasm_guest_example.wasm
 # Dynamic Source Discovery
 C_SOURCES := $(shell find src tests benchmarks examples -type f -name '*.c')
 C_HEADERS := $(shell find src tests benchmarks examples -type f -name '*.h')
@@ -176,7 +183,7 @@ WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 
 ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
 
-.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -240,6 +247,14 @@ $(WASM_SMOKE): tests/unit/wasm_smoke.c $(SAPLING_SRC) $(SAPLING_HDR)
 	fi
 	@mkdir -p $(dir $@)
 	$(WASI_CC) $(WASI_CFLAGS) tests/unit/wasm_smoke.c $(SAPLING_SRC) -o $(WASM_SMOKE) $(WASI_LDFLAGS)
+
+$(WASM_GUEST_EXAMPLE): tests/unit/wasm_guest_example.c
+	@if [ -z "$(WASI_SYSROOT)" ]; then \
+		echo "WASI_SYSROOT is required (example: /opt/wasi-sdk/share/wasi-sysroot)"; \
+		exit 1; \
+	fi
+	@mkdir -p $(dir $@)
+	$(WASI_CC) $(WASI_CFLAGS) tests/unit/wasm_guest_example.c -o $(WASM_GUEST_EXAMPLE) $(WASI_LDFLAGS)
 
 
 # Generic object compilation
@@ -322,6 +337,10 @@ $(RUNNER_TTL_SWEEP_TEST_BIN): $(OBJ_DIR)/tests/unit/test_runner_ttl_sweep.o $(AL
 $(RUNNER_NATIVE_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_native_example.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/examples/native/runner_native_example.o $(ALL_LIB_OBJS) -o $(RUNNER_NATIVE_EXAMPLE_BIN) $(LDFLAGS)
+
+$(RUNNER_HOST_API_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_host_api_example.o $(ALL_LIB_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/examples/native/runner_host_api_example.o $(ALL_LIB_OBJS) -o $(RUNNER_HOST_API_EXAMPLE_BIN) $(LDFLAGS)
 
 $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_threaded_pipeline_example.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
@@ -416,6 +435,24 @@ runner-attempt-handler-test: wit-schema-generate $(RUNNER_ATTEMPT_HANDLER_TEST_B
 	./$(RUNNER_ATTEMPT_HANDLER_TEST_BIN)
 
 runner-integration-test: CFLAGS += -O2 -g
+runner-dedupe-test: $(RUNNER_DEDUPE_TEST_BIN)
+	./$(RUNNER_DEDUPE_TEST_BIN)
+
+$(RUNNER_DEDUPE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_dedupe_test.o $(ALL_LIB_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+
+runner-lease-test: $(RUNNER_LEASE_TEST_BIN)
+	./$(RUNNER_LEASE_TEST_BIN)
+
+$(RUNNER_LEASE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_lease_test.o $(ALL_LIB_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+
+wasm-runner-test: $(WASM_RUNNER_TEST_BIN)
+	./$(WASM_RUNNER_TEST_BIN)
+
+$(WASM_RUNNER_TEST_BIN): $(OBJ_DIR)/tests/unit/wasm_runner_test.o $(ALL_LIB_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+
 runner-integration-test: $(RUNNER_INTEGRATION_TEST_BIN)
 	./$(RUNNER_INTEGRATION_TEST_BIN)
 
@@ -457,6 +494,10 @@ runner-native-example: CFLAGS += -O2 -g
 runner-native-example: wit-schema-generate $(RUNNER_NATIVE_EXAMPLE_BIN)
 	./$(RUNNER_NATIVE_EXAMPLE_BIN)
 
+runner-host-api-example: CFLAGS += -O2 -g
+runner-host-api-example: wit-schema-generate $(RUNNER_HOST_API_EXAMPLE_BIN)
+	./$(RUNNER_HOST_API_EXAMPLE_BIN)
+
 runner-threaded-pipeline-example: CFLAGS += -O2 -g -DSAPLING_THREADED
 runner-threaded-pipeline-example: LDFLAGS += -lpthread
 runner-threaded-pipeline-example: $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN)
@@ -494,6 +535,13 @@ wasi-shim-test: CFLAGS += -O2 -g
 wasi-shim-test: wit-schema-generate $(WASI_SHIM_TEST_BIN)
 	./$(WASI_SHIM_TEST_BIN)
 
+wasi-dedupe-test: CFLAGS += -O2 -g
+wasi-dedupe-test: wit-schema-generate $(WASI_DEDUPE_TEST_BIN)
+	./$(WASI_DEDUPE_TEST_BIN)
+
+$(WASI_DEDUPE_TEST_BIN): $(OBJ_DIR)/tests/unit/wasi_dedupe_test.o $(ALL_LIB_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+
 stress-harness: $(STRESS_BIN)
 	./$(STRESS_BIN)
 
@@ -511,5 +559,5 @@ clean:
 		runner_attempt_test runner_attempt_handler_test runner_atomic_integration_test \
 		runner_recovery_integration_test runner_mailbox_test runner_dead_letter_test \
 		runner_outbox_test runner_timer_test runner_scheduler_test runner_intent_sink_test \
-		runner_native_example runner_threaded_pipeline_example runner_multiwriter_stress \
-		bench_runner_phasee runner_ttl_sweep_test wasi_runtime_test wasi_shim_test
+		runner_native_example runner_host_api_example runner_threaded_pipeline_example runner_multiwriter_stress \
+		bench_runner_phasee runner_ttl_sweep_test wasi_runtime_test wasi_shim_test wasi_dedupe_test wasm_runner_test runner_dedupe_test runner_lease_test wasm_guest_example.wasm wasm_smoke.wasm

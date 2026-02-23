@@ -678,6 +678,15 @@ int sap_runner_txctx_v0_apply_writes(const SapRunnerTxCtxV0 *ctx, Txn *txn)
 
         if (rc != SAP_OK)
         {
+            if (entry->kind == SAP_RUNNER_TX_WRITE_KIND_DEL && rc == SAP_NOTFOUND)
+            {
+                /* Idempotent delete of non-existent key is fine */
+                rc = SAP_OK;
+            }
+        }
+
+        if (rc != SAP_OK)
+        {
             return rc;
         }
     }

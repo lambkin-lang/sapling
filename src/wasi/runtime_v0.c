@@ -38,8 +38,8 @@ static int stream_collect_write(const uint8_t *chunk, uint32_t chunk_len, void *
     return SAP_OK;
 }
 
-static int legacy_adapter_invoke(void *ctx, const uint8_t *request, uint32_t request_len,
-                                 uint8_t *reply_buf, uint32_t reply_buf_cap,
+static int legacy_adapter_invoke(void *ctx, SapHostV0 *host, const uint8_t *request,
+                                 uint32_t request_len, uint8_t *reply_buf, uint32_t reply_buf_cap,
                                  uint32_t *reply_len_out)
 {
     SapWasiRuntimeV0 *runtime = (SapWasiRuntimeV0 *)ctx;
@@ -47,8 +47,8 @@ static int legacy_adapter_invoke(void *ctx, const uint8_t *request, uint32_t req
     {
         return SAP_ERROR;
     }
-    return runtime->entry_fn_compat(runtime->entry_ctx_compat, request, request_len, reply_buf,
-                                    reply_buf_cap, reply_len_out);
+    return runtime->entry_fn_compat(runtime->entry_ctx_compat, host, request, request_len,
+                                    reply_buf, reply_buf_cap, reply_len_out);
 }
 
 static const SapWasiRuntimeV0Adapter k_legacy_adapter = {
@@ -91,8 +91,9 @@ int sap_wasi_runtime_v0_init(SapWasiRuntimeV0 *runtime, const char *entry_name,
     return SAP_OK;
 }
 
-int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, const SapRunnerMessageV0 *msg,
-                               uint8_t *reply_buf, uint32_t reply_buf_cap, uint32_t *reply_len_out)
+int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, SapHostV0 *host,
+                               const SapRunnerMessageV0 *msg, uint8_t *reply_buf,
+                               uint32_t reply_buf_cap, uint32_t *reply_len_out)
 {
     StreamCollectCtx collect = {0};
     uint32_t produced = 0u;
@@ -119,7 +120,7 @@ int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, const SapRunnerMessage
         collect.buf = reply_buf;
         collect.cap = reply_buf_cap;
         collect.len = 0u;
-        rc = runtime->adapter->invoke_stream(runtime->adapter_ctx, request, request_len,
+        rc = runtime->adapter->invoke_stream(runtime->adapter_ctx, host, request, request_len,
                                              stream_collect_write, &collect, &produced);
         if (rc == SAP_OK)
         {
@@ -139,7 +140,7 @@ int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, const SapRunnerMessage
     }
     else
     {
-        rc = runtime->adapter->invoke(runtime->adapter_ctx, request, request_len, reply_buf,
+        rc = runtime->adapter->invoke(runtime->adapter_ctx, host, request, request_len, reply_buf,
                                       reply_buf_cap, reply_len_out);
     }
 
