@@ -715,8 +715,8 @@ Next priorities:
 2. [x] Add a protected TTL metadata mode so raw `txn_put*`/`txn_del*` calls
    cannot violate reserved lookup/index key-prefix invariants in `ttl_dbi`.
 3. [x] Add resumable sweep checkpoints to continue long expiration drains.
-4. [P2] Add optional lazy-expiry deletes on read/cursor paths in write txns.
-5. [P2] Add host-runner background sweep cadence and observability counters.
+4. [x] Add optional lazy-expiry deletes on read/cursor paths in write txns.
+5. [x] Add host-runner background sweep cadence and observability counters.
 
 ### Range delete (done, scan-backed for now)
 `txn_del_range` is available with half-open semantics `[lo, hi)` and currently
@@ -759,7 +759,7 @@ Sapling is specifically designed as the semantic host for **Lambkin**, a statica
 
 Because Lambkin favors Universal Wasm with linear memory over heavier options like WasmGC, Sapling must gracefully co-evolve to map these language guarantees down to the host storage tier.
 
-### 1. WIT Semantic Annotations (Liquid WIT)
+### 1. WIT Semantic Annotations (Liquid WIT) (done)
 Extend the WIT IDL with a pseudo-annotation DSL inside the comments (e.g., `/// @refine(value >= 0)`).
 - **Goal:** The custom `wit_schema_codegen.py` parser will read these annotations to automatically generate C-level assert checks, protective `SAP_INVALID` barriers at the Wasm boundary, and inputs for the deterministic `fault_harness`.
 

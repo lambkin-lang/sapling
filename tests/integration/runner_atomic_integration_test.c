@@ -33,7 +33,15 @@ static void test_free(void *ctx, void *p, uint32_t sz)
 
 static PageAllocator g_alloc = {test_alloc, test_free, NULL};
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void)
+{
+    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    if (db)
+    {
+        dbi_open(db, 10u, NULL, NULL, 0u);
+    }
+    return db;
+}
 
 static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, uint32_t val_len)
 {
@@ -49,7 +57,7 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
     {
         return SAP_ERROR;
     }
-    rc = txn_put_dbi(txn, 0u, key, key_len, val, val_len);
+    rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
     if (rc != SAP_OK)
     {
         txn_abort(txn);
@@ -76,7 +84,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     {
         return SAP_ERROR;
     }
-    rc = txn_get_dbi(txn, 0u, key, key_len, val_out, val_len_out);
+    rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
     return rc;
 }
@@ -138,7 +146,7 @@ static int nested_retry_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
     }
     atomic->calls++;
 
-    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 0u, "state", 5u, &state_val, &state_len) !=
+    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "state", 5u, &state_val, &state_len) !=
         SAP_OK)
     {
         return SAP_ERROR;
@@ -148,7 +156,7 @@ static int nested_retry_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
     {
         return SAP_ERROR;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "nested.commit", 13u, "yes", 3u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "nested.commit", 13u, "yes", 3u) != SAP_OK)
     {
         return SAP_ERROR;
     }
@@ -161,7 +169,7 @@ static int nested_retry_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
     {
         return SAP_ERROR;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "nested.abort", 12u, "no", 2u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "nested.abort", 12u, "no", 2u) != SAP_OK)
     {
         return SAP_ERROR;
     }
@@ -170,7 +178,7 @@ static int nested_retry_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
         return SAP_ERROR;
     }
 
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "state", 5u, "done", 4u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "state", 5u, "done", 4u) != SAP_OK)
     {
         return SAP_ERROR;
     }

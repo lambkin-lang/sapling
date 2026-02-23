@@ -48,7 +48,15 @@ static void test_free(void *ctx, void *p, uint32_t sz)
 
 static PageAllocator g_alloc = {test_alloc, test_free, NULL};
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void)
+{
+    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    if (db)
+    {
+        dbi_open(db, 10u, NULL, NULL, 0u);
+    }
+    return db;
+}
 
 static int ensure_runner_schema(DB *db)
 {
@@ -81,7 +89,7 @@ static int app_state_get(DB *db, const void *key, uint32_t key_len, const void *
     {
         return SAP_ERROR;
     }
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_APP_STATE, key, key_len, val_out, val_len_out);
+    rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
     return rc;
 }
@@ -120,8 +128,8 @@ static int atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *r
         return SAP_CONFLICT;
     }
 
-    rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_APP_STATE, key, sizeof(key),
-                                             msg->payload, msg->payload_len);
+    rc = sap_runner_txstack_v0_stage_put_dbi(stack, 10u, key, sizeof(key), msg->payload,
+                                             msg->payload_len);
     if (rc != SAP_OK)
     {
         return rc;

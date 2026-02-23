@@ -658,6 +658,7 @@ int main(void)
         fprintf(stderr, "runner-threaded-pipeline-example: db_open failed\n");
         goto done;
     }
+    dbi_open(pipeline.db, 10u, NULL, NULL, 0u);
     if (pthread_mutex_init(&pipeline.db_mu, NULL) != 0)
     {
         fprintf(stderr, "runner-threaded-pipeline-example: mutex init failed\n");

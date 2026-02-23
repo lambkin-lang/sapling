@@ -33,7 +33,15 @@ static void test_free(void *ctx, void *p, uint32_t sz)
 
 static PageAllocator g_alloc = {test_alloc, test_free, NULL};
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void)
+{
+    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    if (db)
+    {
+        dbi_open(db, 10u, NULL, NULL, 0u);
+    }
+    return db;
+}
 
 static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, uint32_t val_len)
 {
@@ -49,7 +57,7 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
     {
         return SAP_ERROR;
     }
-    rc = txn_put_dbi(txn, 0u, key, key_len, val, val_len);
+    rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
     if (rc != SAP_OK)
     {
         txn_abort(txn);
@@ -76,7 +84,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     {
         return SAP_ERROR;
     }
-    rc = txn_get_dbi(txn, 0u, key, key_len, val_out, val_len_out);
+    rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
     return rc;
 }
@@ -138,12 +146,12 @@ static int happy_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
     }
     happy->calls++;
 
-    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 0u, "k", 1u, &val, &val_len) !=
+    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "k", 1u, &val, &val_len) !=
         SAP_NOTFOUND)
     {
         return SAP_ERROR;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "k", 1u, "v", 1u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "k", 1u, "v", 1u) != SAP_OK)
     {
         return SAP_ERROR;
     }
@@ -179,11 +187,11 @@ static int conflict_once_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *
     }
     cc->calls++;
 
-    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 0u, "k", 1u, &val, &val_len) != SAP_OK)
+    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "k", 1u, &val, &val_len) != SAP_OK)
     {
         return SAP_ERROR;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "k", 1u, "final", 5u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "k", 1u, "final", 5u) != SAP_OK)
     {
         return SAP_ERROR;
     }
@@ -217,7 +225,7 @@ static int nested_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
     {
         return SAP_ERROR;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "x", 1u, "1", 1u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "x", 1u, "1", 1u) != SAP_OK)
     {
         return SAP_ERROR;
     }
@@ -230,7 +238,7 @@ static int nested_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
     {
         return SAP_ERROR;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 0u, "y", 1u, "tmp", 3u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "y", 1u, "tmp", 3u) != SAP_OK)
     {
         return SAP_ERROR;
     }

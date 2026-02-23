@@ -3,6 +3,7 @@
 #define SAPLING_WIT_SCHEMA_DBIS_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 typedef struct {
     uint32_t dbi;
@@ -18,6 +19,181 @@ typedef struct {
 #define SAP_WIT_DBI_TIMERS 4u
 #define SAP_WIT_DBI_DEDUPE 5u
 #define SAP_WIT_DBI_DEAD_LETTER 6u
+
+typedef struct __attribute__((packed)) {
+    uint32_t namespace_offset;
+    uint32_t namespace_len;
+    uint32_t key_offset;
+    uint32_t key_len;
+} SapWit_dbi0_app_state_key;
+
+static inline int sap_wit_validate_dbi0_app_state_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi0_app_state_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint32_t body_offset;
+    uint32_t body_len;
+    uint64_t revision;
+    uint64_t updated_at;
+    double confidence;
+} SapWit_dbi0_app_state_value;
+
+static inline int sap_wit_validate_dbi0_app_state_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi0_app_state_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t worker_unknown_layout;
+    uint64_t seq;
+} SapWit_dbi1_inbox_key;
+
+static inline int sap_wit_validate_dbi1_inbox_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi1_inbox_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t envelope_unknown_layout;
+} SapWit_dbi1_inbox_value;
+
+static inline int sap_wit_validate_dbi1_inbox_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi1_inbox_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t seq;
+} SapWit_dbi2_outbox_key;
+
+static inline int sap_wit_validate_dbi2_outbox_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi2_outbox_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t envelope_unknown_layout;
+    uint64_t committed_at;
+} SapWit_dbi2_outbox_value;
+
+static inline int sap_wit_validate_dbi2_outbox_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi2_outbox_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint32_t message_id_offset;
+    uint32_t message_id_len;
+} SapWit_dbi3_leases_key;
+
+static inline int sap_wit_validate_dbi3_leases_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi3_leases_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t state_unknown_layout;
+} SapWit_dbi3_leases_value;
+
+static inline int sap_wit_validate_dbi3_leases_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi3_leases_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t due_ts;
+    uint32_t message_id_offset;
+    uint32_t message_id_len;
+} SapWit_dbi4_timers_key;
+
+static inline int sap_wit_validate_dbi4_timers_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi4_timers_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t envelope_unknown_layout;
+} SapWit_dbi4_timers_value;
+
+static inline int sap_wit_validate_dbi4_timers_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi4_timers_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint32_t message_id_offset;
+    uint32_t message_id_len;
+} SapWit_dbi5_dedupe_key;
+
+static inline int sap_wit_validate_dbi5_dedupe_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi5_dedupe_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint8_t accepted;
+    uint64_t last_seen_ts;
+    uint32_t checksum_offset;
+    uint32_t checksum_len;
+} SapWit_dbi5_dedupe_value;
+
+static inline int sap_wit_validate_dbi5_dedupe_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi5_dedupe_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t worker_unknown_layout;
+    uint64_t seq;
+} SapWit_dbi6_dead_letter_key;
+
+static inline int sap_wit_validate_dbi6_dead_letter_key(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi6_dead_letter_key)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
+typedef struct __attribute__((packed)) {
+    uint64_t envelope_unknown_layout;
+    uint64_t failure_code;
+    uint64_t attempts;
+    uint64_t failed_at;
+} SapWit_dbi6_dead_letter_value;
+
+static inline int sap_wit_validate_dbi6_dead_letter_value(const void *data, uint32_t len) {
+    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
+    if (len < sizeof(SapWit_dbi6_dead_letter_value)) return -1; /* SAP_INVALID_DATA */
+    (void)data; /* No refinement constraints */
+    return 0;
+}
+
 
 extern const SapWitDbiSchema sap_wit_dbi_schema[];
 extern const uint32_t sap_wit_dbi_schema_count;

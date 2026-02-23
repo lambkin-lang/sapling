@@ -367,6 +367,8 @@ int sap_runner_txctx_v0_read_dbi(SapRunnerTxCtxV0 *ctx, Txn *txn, uint32_t dbi, 
     }
 }
 
+#include "generated/wit_schema_dbis.h"
+
 int sap_runner_txctx_v0_stage_put_dbi(SapRunnerTxCtxV0 *ctx, uint32_t dbi, const void *key,
                                       uint32_t key_len, const void *val, uint32_t val_len)
 {
@@ -380,6 +382,41 @@ int sap_runner_txctx_v0_stage_put_dbi(SapRunnerTxCtxV0 *ctx, uint32_t dbi, const
     if (val_len > 0u && !val)
     {
         return SAP_ERROR;
+    }
+
+    /* Enforce liquid WIT schema refinement boundaries dynamically per DBI. */
+    switch (dbi)
+    {
+    case SAP_WIT_DBI_APP_STATE:
+        if (sap_wit_validate_dbi0_app_state_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    case SAP_WIT_DBI_INBOX:
+        if (sap_wit_validate_dbi1_inbox_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    case SAP_WIT_DBI_OUTBOX:
+        if (sap_wit_validate_dbi2_outbox_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    case SAP_WIT_DBI_LEASES:
+        if (sap_wit_validate_dbi3_leases_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    case SAP_WIT_DBI_TIMERS:
+        if (sap_wit_validate_dbi4_timers_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    case SAP_WIT_DBI_DEDUPE:
+        if (sap_wit_validate_dbi5_dedupe_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    case SAP_WIT_DBI_DEAD_LETTER:
+        if (sap_wit_validate_dbi6_dead_letter_value(val, val_len) != 0)
+            return SAP_INVALID_DATA;
+        break;
+    default:
+        break; /* Unknown custom DBI, skip strict WIT barriers */
     }
 
     rc = find_write_index(ctx, dbi, key, key_len, &idx);

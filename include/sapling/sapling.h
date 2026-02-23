@@ -18,8 +18,9 @@
 #define SAP_FULL 3     /* key+value too large for a single page      */
 #define SAP_READONLY 4 /* write attempted on a read-only transaction */
 #define SAP_BUSY 5     /* write txn active or metadata change blocked */
-#define SAP_EXISTS 6   /* key already exists (with SAP_NOOVERWRITE)  */
-#define SAP_CONFLICT 7 /* compare-and-swap value mismatch            */
+#define SAP_EXISTS 6       /* key already exists (with SAP_NOOVERWRITE)  */
+#define SAP_CONFLICT 7     /* compare-and-swap value mismatch            */
+#define SAP_INVALID_DATA 8 /* invalid payload structure (layout/refinement) */
 
 /* ------------------------------------------------------------------ */
 /* Compile-time tunables                                                */
