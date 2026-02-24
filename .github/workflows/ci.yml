@@ -5,9 +5,12 @@ on:
     branches:
       - main
   pull_request:
+  schedule:
+    - cron: "0 7 * * *"
 
 jobs:
   test-and-bench:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     env:
       WASM_TOOLS_VERSION: 1.245.1
@@ -58,3 +61,51 @@ jobs:
 
       - name: Benchmark regression guardrail
         run: make bench-ci BENCH_COUNT=100000 BENCH_ROUNDS=3 CC=clang
+
+  seq-fuzz-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Seq fuzz smoke
+        run: |
+          make seq-fuzz \
+            CC=clang \
+            CXX=clang++ \
+            LLVM_SYMBOLIZER="$(command -v llvm-symbolizer || true)" \
+            SEQ_FUZZ_RUNS=5000 \
+            SEQ_FUZZ_MAX_LEN=1024
+
+  seq-fuzz-scheduled:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Seq fuzz long run
+        run: |
+          make seq-fuzz \
+            CC=clang \
+            CXX=clang++ \
+            LLVM_SYMBOLIZER="$(command -v llvm-symbolizer || true)" \
+            SEQ_FUZZ_RUNS=250000 \
+            SEQ_FUZZ_MAX_LEN=4096
