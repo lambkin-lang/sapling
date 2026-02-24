@@ -12,6 +12,8 @@
 #   make bench-run    — run sorted-load benchmark harness
 #   make seq-bench    — build seq benchmark harness
 #   make seq-bench-run — run seq benchmark harness
+#   make text-bench   — build text benchmark harness
+#   make text-bench-run — run text benchmark harness
 #   make bench-ci     — benchmark regression guardrail against baseline
 #   make seq-fuzz     — build and run seq libFuzzer model harness
 #   make text-fuzz    — build and run text libFuzzer model harness
@@ -117,6 +119,7 @@ TEST_SEQ_BIN = $(BIN_DIR)/test_seq
 TEST_TEXT_BIN = $(BIN_DIR)/test_text
 BENCH_BIN = $(BIN_DIR)/bench_sapling
 BENCH_SEQ_BIN = $(BIN_DIR)/bench_seq
+BENCH_TEXT_BIN = $(BIN_DIR)/bench_text
 STRESS_BIN = $(BIN_DIR)/fault_harness
 SEQ_FUZZ_BIN = $(BIN_DIR)/fuzz_seq
 TEXT_FUZZ_BIN = $(BIN_DIR)/fuzz_text
@@ -227,7 +230,7 @@ WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test seq-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test seq-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -282,6 +285,13 @@ seq-bench: $(BENCH_SEQ_BIN)
 seq-bench-run: CFLAGS += -O3 -g
 seq-bench-run: $(BENCH_SEQ_BIN)
 	./$(BENCH_SEQ_BIN) --count $(BENCH_COUNT) --rounds $(BENCH_ROUNDS)
+
+text-bench: CFLAGS += -O3 -g
+text-bench: $(BENCH_TEXT_BIN)
+
+text-bench-run: CFLAGS += -O3 -g
+text-bench-run: $(BENCH_TEXT_BIN)
+	./$(BENCH_TEXT_BIN) --count $(BENCH_COUNT) --rounds $(BENCH_ROUNDS)
 
 seq-fuzz: CFLAGS += -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
 seq-fuzz: LDFLAGS += -fsanitize=fuzzer,address,undefined
@@ -379,6 +389,10 @@ $(BENCH_BIN): $(OBJ_DIR)/benchmarks/bench_sapling.o $(CORE_OBJS)
 $(BENCH_SEQ_BIN): $(OBJ_DIR)/benchmarks/bench_seq.o $(SEQ_OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_seq.o $(SEQ_OBJ) -o $(BENCH_SEQ_BIN) $(LDFLAGS)
+
+$(BENCH_TEXT_BIN): $(OBJ_DIR)/benchmarks/bench_text.o $(TEXT_OBJ) $(SEQ_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_text.o $(TEXT_OBJ) $(SEQ_OBJ) -o $(BENCH_TEXT_BIN) $(LDFLAGS)
 
 $(STRESS_BIN): $(OBJ_DIR)/tests/stress/fault_harness.o $(OBJ_DIR)/src/common/fault_inject.o $(CORE_OBJS)
 	@mkdir -p $(dir $@)
@@ -664,7 +678,7 @@ phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-
 phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-recovery-test
 
 clean:
-	rm -rf $(BUILD_DIR) test_sapling test_text test_seq bench_sapling bench_seq fuzz_seq fuzz_text fault_harness runner_wire_test \
+	rm -rf $(BUILD_DIR) test_sapling test_text test_seq bench_sapling bench_seq bench_text fuzz_seq fuzz_text fault_harness runner_wire_test \
 		runner_lifecycle_test runner_lifecycle_test_tsan runner_txctx_test runner_txstack_test \
 		runner_attempt_test runner_attempt_handler_test runner_atomic_integration_test \
 		runner_recovery_integration_test runner_mailbox_test runner_dead_letter_test \

@@ -59,6 +59,8 @@ test_sapling
 test_text
 test_seq
 bench_sapling
+bench_seq
+bench_text
 fault_harness
 runner_wire_test
 runner_lifecycle_test
