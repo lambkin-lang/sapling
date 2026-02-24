@@ -225,7 +225,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
     while (i < size)
     {
-        uint8_t op = data[i++] % 14u;
+        uint8_t op = data[i++] % 15u;
 
         switch (op)
         {
@@ -559,6 +559,50 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 __builtin_trap();
             }
             model_free(&before);
+            break;
+        }
+        case 13: /* clone + mutate clone should not affect original */
+        {
+            Text    *clone = text_clone(text);
+            ModelVec clone_model;
+            uint32_t cp = 0x61u;
+
+            model_init(&clone_model);
+            if (!clone)
+            {
+                model_free(&clone_model);
+                break;
+            }
+            if (!model_clone(&clone_model, &model))
+            {
+                text_free(clone);
+                model_free(&clone_model);
+                goto out;
+            }
+            if (!text_matches_model(clone, &clone_model))
+                __builtin_trap();
+
+            if (i + 4 <= size)
+            {
+                cp = normalize_codepoint(read_u32(&data[i]));
+                i += 4;
+            }
+            if (text_push_back(clone, cp) == SEQ_OK)
+            {
+                if (!model_push_back(&clone_model, cp))
+                {
+                    text_free(clone);
+                    model_free(&clone_model);
+                    goto out;
+                }
+                if (!text_matches_model(clone, &clone_model))
+                    __builtin_trap();
+            }
+
+            if (!text_matches_model(text, &model))
+                __builtin_trap();
+            text_free(clone);
+            model_free(&clone_model);
             break;
         }
         default: /* invalid code points are rejected */
