@@ -88,6 +88,32 @@ jobs:
             SEQ_FUZZ_MAX_LEN=1024 \
             SEQ_FUZZ_CORPUS=.fuzz-corpus/seq
 
+  text-fuzz-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Text fuzz smoke
+        run: |
+          mkdir -p .fuzz-corpus/text
+          make text-fuzz \
+            CC=clang \
+            CXX=clang++ \
+            LLVM_SYMBOLIZER="$(command -v llvm-symbolizer || true)" \
+            TEXT_FUZZ_RUNS=5000 \
+            TEXT_FUZZ_MAX_LEN=1024 \
+            TEXT_FUZZ_CORPUS=.fuzz-corpus/text
+
   seq-fuzz-scheduled:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
@@ -120,4 +146,38 @@ jobs:
         with:
           name: seq-fuzz-corpus-${{ github.run_id }}
           path: .fuzz-corpus/seq
+          if-no-files-found: ignore
+
+  text-fuzz-scheduled:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --version
+
+      - name: Text fuzz long run
+        run: |
+          mkdir -p .fuzz-corpus/text
+          make text-fuzz \
+            CC=clang \
+            CXX=clang++ \
+            LLVM_SYMBOLIZER="$(command -v llvm-symbolizer || true)" \
+            TEXT_FUZZ_RUNS=250000 \
+            TEXT_FUZZ_MAX_LEN=4096 \
+            TEXT_FUZZ_CORPUS=.fuzz-corpus/text
+
+      - name: Upload text fuzz corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: text-fuzz-corpus-${{ github.run_id }}
+          path: .fuzz-corpus/text
           if-no-files-found: ignore
