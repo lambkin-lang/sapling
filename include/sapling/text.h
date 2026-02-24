@@ -57,6 +57,34 @@ typedef int (*TextEmitCodepointFn)(uint32_t codepoint, void *emit_ctx);
 typedef int (*TextHandleExpandFn)(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
                                   void *resolver_ctx);
 
+/*
+ * Runtime resolver adapter for mixed-handle trees:
+ * - LITERAL payloads map to UTF-8 bytes.
+ * - TREE payloads map to nested Text values.
+ * - Expansion enforces depth and node-visit guards and rejects cycles.
+ */
+typedef int (*TextResolveLiteralUtf8Fn)(uint32_t literal_id, const uint8_t **utf8_out,
+                                        size_t *utf8_len_out, void *ctx);
+typedef int (*TextResolveTreeTextFn)(uint32_t tree_id, const Text **tree_out, void *ctx);
+
+typedef struct TextRuntimeResolver
+{
+    TextResolveLiteralUtf8Fn resolve_literal_utf8_fn;
+    TextResolveTreeTextFn    resolve_tree_text_fn;
+    void                    *ctx;
+    /* 0 => default 64 */
+    size_t max_tree_depth;
+    /* 0 => default 4096 */
+    size_t max_tree_visits;
+} TextRuntimeResolver;
+
+/*
+ * Adapter callback suitable for *_resolved APIs.
+ * resolver_ctx must point to TextRuntimeResolver.
+ */
+int text_expand_runtime_handle(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
+                               void *resolver_ctx);
+
 /* Lifecycle */
 Text *text_new(void);
 /* O(1) clone with copy-on-write sharing. */

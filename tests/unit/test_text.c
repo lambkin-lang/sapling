@@ -133,6 +133,31 @@ typedef struct
     size_t              calls;
 } ResolveCtx;
 
+typedef struct
+{
+    uint32_t       id;
+    const uint8_t *utf8;
+    size_t         utf8_len;
+    int            rc;
+} RuntimeLiteralEntry;
+
+typedef struct
+{
+    uint32_t    id;
+    const Text *text;
+    int         rc;
+} RuntimeTreeEntry;
+
+typedef struct
+{
+    const RuntimeLiteralEntry *literals;
+    size_t                     literal_count;
+    const RuntimeTreeEntry    *trees;
+    size_t                     tree_count;
+    size_t                     literal_calls;
+    size_t                     tree_calls;
+} RuntimeResolverCtx;
+
 static int test_expand_handle(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
                               void *resolver_ctx)
 {
@@ -155,6 +180,50 @@ static int test_expand_handle(TextHandle handle, TextEmitCodepointFn emit_fn, vo
             if (rc != SEQ_OK)
                 return rc;
         }
+        return SEQ_OK;
+    }
+
+    return SEQ_INVALID;
+}
+
+static int runtime_resolve_literal_utf8(uint32_t literal_id, const uint8_t **utf8_out,
+                                        size_t *utf8_len_out, void *ctx)
+{
+    RuntimeResolverCtx *resolver = (RuntimeResolverCtx *)ctx;
+    if (!resolver || !utf8_out || !utf8_len_out)
+        return SEQ_INVALID;
+
+    resolver->literal_calls++;
+    for (size_t i = 0; i < resolver->literal_count; i++)
+    {
+        const RuntimeLiteralEntry *entry = &resolver->literals[i];
+        if (entry->id != literal_id)
+            continue;
+        if (entry->rc != SEQ_OK)
+            return entry->rc;
+        *utf8_out = entry->utf8;
+        *utf8_len_out = entry->utf8_len;
+        return SEQ_OK;
+    }
+
+    return SEQ_INVALID;
+}
+
+static int runtime_resolve_tree_text(uint32_t tree_id, const Text **tree_out, void *ctx)
+{
+    RuntimeResolverCtx *resolver = (RuntimeResolverCtx *)ctx;
+    if (!resolver || !tree_out)
+        return SEQ_INVALID;
+
+    resolver->tree_calls++;
+    for (size_t i = 0; i < resolver->tree_count; i++)
+    {
+        const RuntimeTreeEntry *entry = &resolver->trees[i];
+        if (entry->id != tree_id)
+            continue;
+        if (entry->rc != SEQ_OK)
+            return entry->rc;
+        *tree_out = entry->text;
         return SEQ_OK;
     }
 
@@ -719,6 +788,181 @@ static void test_resolver_error_paths(void)
     text_free(text);
 }
 
+static void test_runtime_resolver_adapter(void)
+{
+    SECTION("runtime resolver adapter");
+    Text *root = text_new();
+    Text *tree_outer = text_new();
+    Text *tree_inner = text_new();
+    TextHandle h_cp_d = 0;
+    TextHandle h_cp_e = 0;
+    const uint8_t lit_a[] = {'A'};
+    const uint8_t lit_bc[] = {'B', 'C'};
+    const uint8_t lit_smile[] = {0xF0u, 0x9Fu, 0x99u, 0x82u};
+    const RuntimeLiteralEntry literals[] = {
+        {1u, lit_a, sizeof(lit_a), SEQ_OK},
+        {2u, lit_bc, sizeof(lit_bc), SEQ_OK},
+        {3u, lit_smile, sizeof(lit_smile), SEQ_OK},
+    };
+    RuntimeTreeEntry trees[] = {
+        {10u, tree_outer, SEQ_OK},
+        {11u, tree_inner, SEQ_OK},
+    };
+    RuntimeResolverCtx resolver_ctx = {literals, 3u, trees, 2u, 0u, 0u};
+    TextRuntimeResolver resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
+                                    &resolver_ctx, 8u, 32u};
+    const uint32_t expect_cps[] = {0x41u, 0x42u, 0x43u, 0x44u, 0x1F642u, 0x45u};
+    const uint8_t expect_utf8[] = {0x41u, 0x42u, 0x43u, 0x44u,
+                                   0xF0u, 0x9Fu, 0x99u, 0x82u, 0x45u};
+    uint8_t utf8_out[32];
+    size_t  cp_len = 0;
+    size_t  utf8_len = 0;
+    size_t  utf8_wrote = 0;
+    uint32_t cp = 0;
+
+    CHECK(root != NULL && tree_outer != NULL && tree_inner != NULL);
+    CHECK(text_handle_from_codepoint(0x44u, &h_cp_d) == SEQ_OK);
+    CHECK(text_handle_from_codepoint(0x45u, &h_cp_e) == SEQ_OK);
+
+    CHECK(text_push_back_handle(tree_inner, text_handle_make(TEXT_HANDLE_LITERAL, 2u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_inner, h_cp_d) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_outer, text_handle_make(TEXT_HANDLE_TREE, 11u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_outer, text_handle_make(TEXT_HANDLE_LITERAL, 3u)) == SEQ_OK);
+    CHECK(text_push_back_handle(root, text_handle_make(TEXT_HANDLE_LITERAL, 1u)) == SEQ_OK);
+    CHECK(text_push_back_handle(root, text_handle_make(TEXT_HANDLE_TREE, 10u)) == SEQ_OK);
+    CHECK(text_push_back_handle(root, h_cp_e) == SEQ_OK);
+
+    CHECK(text_utf8_length(root, &utf8_len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root, text_expand_runtime_handle, &resolver, &cp_len) ==
+          SEQ_OK);
+    CHECK(cp_len == 6u);
+    for (size_t i = 0; i < 6u; i++)
+        CHECK(text_get_codepoint_resolved(root, i, text_expand_runtime_handle, &resolver, &cp) ==
+                  SEQ_OK &&
+              cp == expect_cps[i]);
+    CHECK(text_get_codepoint_resolved(root, 6u, text_expand_runtime_handle, &resolver, &cp) ==
+          SEQ_RANGE);
+
+    CHECK(text_utf8_length_resolved(root, text_expand_runtime_handle, &resolver, &utf8_len) ==
+          SEQ_OK);
+    CHECK(utf8_len == sizeof(expect_utf8));
+    CHECK(text_to_utf8_resolved(root, text_expand_runtime_handle, &resolver, utf8_out,
+                                sizeof(utf8_out), &utf8_wrote) == SEQ_OK);
+    CHECK(utf8_wrote == sizeof(expect_utf8));
+    CHECK(memcmp(utf8_out, expect_utf8, sizeof(expect_utf8)) == 0);
+    CHECK(text_to_utf8_resolved(root, text_expand_runtime_handle, &resolver, utf8_out, 8u,
+                                &utf8_wrote) == SEQ_RANGE);
+    CHECK(utf8_wrote == sizeof(expect_utf8));
+
+    CHECK(resolver_ctx.literal_calls > 0u);
+    CHECK(resolver_ctx.tree_calls > 0u);
+
+    text_free(root);
+    text_free(tree_outer);
+    text_free(tree_inner);
+}
+
+static void test_runtime_resolver_guards_and_errors(void)
+{
+    SECTION("runtime resolver guards/errors");
+    Text *root_cycle = text_new();
+    Text *tree_a = text_new();
+    Text *tree_b = text_new();
+    Text *root_depth = text_new();
+    Text *tree_c = text_new();
+    Text *tree_d = text_new();
+    Text *root_visits = text_new();
+    Text *tree_e = text_new();
+    Text *tree_f = text_new();
+    Text *tree_g = text_new();
+    Text *root_literal = text_new();
+    const uint8_t bad_utf8[] = {0xC0u, 0xAFu};
+    const RuntimeLiteralEntry literals_bad[] = {
+        {5u, bad_utf8, sizeof(bad_utf8), SEQ_OK},
+    };
+    RuntimeTreeEntry cycle_trees[] = {
+        {20u, tree_a, SEQ_OK},
+        {21u, tree_b, SEQ_OK},
+    };
+    RuntimeTreeEntry depth_trees[] = {
+        {30u, tree_c, SEQ_OK},
+        {31u, tree_d, SEQ_OK},
+    };
+    RuntimeTreeEntry visits_trees[] = {
+        {40u, tree_e, SEQ_OK},
+        {41u, tree_f, SEQ_OK},
+        {42u, tree_g, SEQ_OK},
+    };
+    RuntimeResolverCtx cycle_ctx = {NULL, 0u, cycle_trees, 2u, 0u, 0u};
+    RuntimeResolverCtx depth_ctx = {NULL, 0u, depth_trees, 2u, 0u, 0u};
+    RuntimeResolverCtx visits_ctx = {NULL, 0u, visits_trees, 3u, 0u, 0u};
+    RuntimeResolverCtx bad_lit_ctx = {literals_bad, 1u, NULL, 0u, 0u, 0u};
+    TextRuntimeResolver cycle_resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
+                                          &cycle_ctx, 8u, 32u};
+    TextRuntimeResolver depth_resolver_bad = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
+                                              &depth_ctx, 1u, 32u};
+    TextRuntimeResolver depth_resolver_ok = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
+                                             &depth_ctx, 2u, 32u};
+    TextRuntimeResolver visits_resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
+                                           &visits_ctx, 8u, 2u};
+    TextRuntimeResolver visits_resolver_ok = {runtime_resolve_literal_utf8,
+                                              runtime_resolve_tree_text, &visits_ctx, 8u, 4u};
+    TextRuntimeResolver bad_lit_resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
+                                            &bad_lit_ctx, 8u, 32u};
+    TextRuntimeResolver missing_lit_cb = {NULL, runtime_resolve_tree_text, &bad_lit_ctx, 8u, 32u};
+    TextRuntimeResolver missing_tree_cb = {runtime_resolve_literal_utf8, NULL, &cycle_ctx, 8u, 32u};
+    size_t len = 0;
+
+    CHECK(root_cycle && tree_a && tree_b && root_depth && tree_c && tree_d);
+    CHECK(root_visits && tree_e && tree_f && tree_g && root_literal);
+
+    CHECK(text_push_back_handle(tree_a, text_handle_make(TEXT_HANDLE_TREE, 21u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_b, text_handle_make(TEXT_HANDLE_TREE, 20u)) == SEQ_OK);
+    CHECK(text_push_back_handle(root_cycle, text_handle_make(TEXT_HANDLE_TREE, 20u)) == SEQ_OK);
+    CHECK(text_codepoint_length_resolved(root_cycle, text_expand_runtime_handle, &cycle_resolver,
+                                         &len) == SEQ_INVALID);
+
+    CHECK(text_push_back_handle(tree_d, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x51u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_c, text_handle_make(TEXT_HANDLE_TREE, 31u)) == SEQ_OK);
+    CHECK(text_push_back_handle(root_depth, text_handle_make(TEXT_HANDLE_TREE, 30u)) == SEQ_OK);
+    CHECK(text_codepoint_length_resolved(root_depth, text_expand_runtime_handle,
+                                         &depth_resolver_bad, &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root_depth, text_expand_runtime_handle, &depth_resolver_ok,
+                                         &len) == SEQ_OK);
+    CHECK(len == 1u);
+
+    CHECK(text_push_back_handle(tree_f, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x61u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_g, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x62u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_e, text_handle_make(TEXT_HANDLE_TREE, 41u)) == SEQ_OK);
+    CHECK(text_push_back_handle(tree_e, text_handle_make(TEXT_HANDLE_TREE, 42u)) == SEQ_OK);
+    CHECK(text_push_back_handle(root_visits, text_handle_make(TEXT_HANDLE_TREE, 40u)) == SEQ_OK);
+    CHECK(text_codepoint_length_resolved(root_visits, text_expand_runtime_handle,
+                                         &visits_resolver, &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root_visits, text_expand_runtime_handle,
+                                         &visits_resolver_ok, &len) == SEQ_OK);
+    CHECK(len == 2u);
+
+    CHECK(text_push_back_handle(root_literal, text_handle_make(TEXT_HANDLE_LITERAL, 5u)) == SEQ_OK);
+    CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle, &bad_lit_resolver,
+                                         &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle, &missing_lit_cb,
+                                         &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root_cycle, text_expand_runtime_handle, &missing_tree_cb,
+                                         &len) == SEQ_INVALID);
+
+    text_free(root_cycle);
+    text_free(tree_a);
+    text_free(tree_b);
+    text_free(root_depth);
+    text_free(tree_c);
+    text_free(tree_d);
+    text_free(root_visits);
+    text_free(tree_e);
+    text_free(tree_f);
+    text_free(tree_g);
+    text_free(root_literal);
+}
+
 static void test_arena_allocator_exhaustion(void)
 {
     SECTION("arena allocator exhaustion");
@@ -770,6 +1014,8 @@ int main(void)
     test_handle_apis_and_strict_codepoint_wrappers();
     test_resolved_codepoint_view();
     test_resolver_error_paths();
+    test_runtime_resolver_adapter();
+    test_runtime_resolver_guards_and_errors();
     test_arena_allocator_exhaustion();
 
     print_summary();

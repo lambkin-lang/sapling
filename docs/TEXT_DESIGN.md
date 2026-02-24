@@ -23,6 +23,8 @@ Handle layout:
 - Raw handle APIs (`text_*_handle`) allow mixed leaf kinds.
 - Resolved APIs (`*_resolved`) accept a runtime resolver callback for
   expanding non-codepoint handles into code points on demand.
+- `text_expand_runtime_handle` is a built-in adapter over
+  `TextRuntimeResolver` callbacks (`literal -> UTF-8`, `tree -> Text*`).
 - `text_clone` provides shell-level copy-on-write sharing; writes detach.
 
 ## Semantics
@@ -38,6 +40,10 @@ Handle layout:
   - `text_get_codepoint_resolved`
   - `text_utf8_length_resolved`
   - `text_to_utf8_resolved`
+- Runtime adapter expansion rejects:
+  - UTF-8-invalid literal bytes
+  - tree cycles (same tree id re-entered on the active path)
+  - configured depth/visit guard exhaustion
 
 ## Runtime integration notes
 

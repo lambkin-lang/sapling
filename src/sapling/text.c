@@ -217,6 +217,162 @@ static int text_utf8_decode_one(const uint8_t *utf8, size_t utf8_len, size_t *co
     return SEQ_INVALID;
 }
 
+enum
+{
+    TEXT_RUNTIME_DEFAULT_MAX_DEPTH = 64,
+    TEXT_RUNTIME_DEFAULT_MAX_VISITS = 4096
+};
+
+typedef struct
+{
+    const TextRuntimeResolver *resolver;
+    TextEmitCodepointFn        emit_fn;
+    void                      *emit_ctx;
+    uint32_t                  *path;
+    size_t                     path_len;
+    size_t                     max_depth;
+    size_t                     max_visits;
+    size_t                     visits;
+} TextRuntimeExpandCtx;
+
+static int text_runtime_expand_handle_inner(TextHandle handle, size_t depth,
+                                            TextRuntimeExpandCtx *ctx)
+{
+    TextHandleKind kind = text_handle_kind(handle);
+    uint32_t       payload = text_handle_payload(handle);
+    int            rc = SEQ_OK;
+
+    if (!ctx || !ctx->resolver || !ctx->emit_fn)
+        return SEQ_INVALID;
+
+    if (kind == TEXT_HANDLE_CODEPOINT)
+    {
+        uint32_t codepoint = 0;
+        rc = text_handle_to_codepoint(handle, &codepoint);
+        if (rc != SEQ_OK)
+            return rc;
+        return ctx->emit_fn(codepoint, ctx->emit_ctx);
+    }
+
+    if (kind == TEXT_HANDLE_LITERAL)
+    {
+        const uint8_t *utf8 = NULL;
+        size_t         utf8_len = 0;
+        size_t         off = 0;
+
+        if (!ctx->resolver->resolve_literal_utf8_fn)
+            return SEQ_INVALID;
+        rc = ctx->resolver->resolve_literal_utf8_fn(payload, &utf8, &utf8_len,
+                                                    ctx->resolver->ctx);
+        if (rc != SEQ_OK)
+            return rc;
+        if (!utf8 && utf8_len > 0u)
+            return SEQ_INVALID;
+
+        while (off < utf8_len)
+        {
+            size_t   consumed = 0;
+            uint32_t codepoint = 0;
+
+            rc = text_utf8_decode_one(utf8 + off, utf8_len - off, &consumed, &codepoint);
+            if (rc != SEQ_OK)
+                return rc;
+            rc = ctx->emit_fn(codepoint, ctx->emit_ctx);
+            if (rc != SEQ_OK)
+                return rc;
+            off += consumed;
+        }
+        return SEQ_OK;
+    }
+
+    if (kind == TEXT_HANDLE_TREE)
+    {
+        const Text *tree = NULL;
+        size_t      n = 0;
+
+        if (!ctx->resolver->resolve_tree_text_fn)
+            return SEQ_INVALID;
+        if (depth >= ctx->max_depth)
+            return SEQ_INVALID;
+        for (size_t i = 0; i < ctx->path_len; i++)
+        {
+            if (ctx->path[i] == payload)
+                return SEQ_INVALID;
+        }
+        if (ctx->visits >= ctx->max_visits)
+            return SEQ_INVALID;
+
+        rc = ctx->resolver->resolve_tree_text_fn(payload, &tree, ctx->resolver->ctx);
+        if (rc != SEQ_OK)
+            return rc;
+        if (!tree || !text_is_valid(tree))
+            return SEQ_INVALID;
+
+        ctx->path[ctx->path_len++] = payload;
+        ctx->visits++;
+
+        n = text_length(tree);
+        for (size_t i = 0; i < n; i++)
+        {
+            TextHandle child = 0;
+            rc = text_get_handle(tree, i, &child);
+            if (rc != SEQ_OK)
+            {
+                ctx->path_len--;
+                return rc;
+            }
+            rc = text_runtime_expand_handle_inner(child, depth + 1u, ctx);
+            if (rc != SEQ_OK)
+            {
+                ctx->path_len--;
+                return rc;
+            }
+        }
+
+        ctx->path_len--;
+        return SEQ_OK;
+    }
+
+    return SEQ_INVALID;
+}
+
+int text_expand_runtime_handle(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
+                               void *resolver_ctx)
+{
+    const TextRuntimeResolver *resolver = (const TextRuntimeResolver *)resolver_ctx;
+    TextRuntimeExpandCtx       ctx;
+    size_t                     max_depth = 0;
+    size_t                     max_visits = 0;
+    int                        rc = SEQ_OK;
+
+    if (!resolver || !emit_fn)
+        return SEQ_INVALID;
+
+    max_depth = resolver->max_tree_depth ? resolver->max_tree_depth
+                                         : (size_t)TEXT_RUNTIME_DEFAULT_MAX_DEPTH;
+    max_visits = resolver->max_tree_visits ? resolver->max_tree_visits
+                                           : (size_t)TEXT_RUNTIME_DEFAULT_MAX_VISITS;
+    if (max_depth == 0u || max_visits == 0u)
+        return SEQ_INVALID;
+    if (max_depth > SIZE_MAX / sizeof(uint32_t))
+        return SEQ_INVALID;
+
+    ctx.resolver = resolver;
+    ctx.emit_fn = emit_fn;
+    ctx.emit_ctx = emit_ctx;
+    ctx.path = (uint32_t *)malloc(max_depth * sizeof(uint32_t));
+    if (!ctx.path)
+        return SEQ_OOM;
+    ctx.path_len = 0u;
+    ctx.max_depth = max_depth;
+    ctx.max_visits = max_visits;
+    ctx.visits = 0u;
+
+    rc = text_runtime_expand_handle_inner(handle, 0u, &ctx);
+    free(ctx.path);
+    return rc;
+}
+
 static void *text_allocator_malloc(void *ctx, size_t bytes)
 {
     (void)ctx;
