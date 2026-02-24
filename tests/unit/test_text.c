@@ -118,6 +118,49 @@ static void arena_free_noop(void *ctx, void *ptr)
     (void)ptr;
 }
 
+typedef struct
+{
+    TextHandle      handle;
+    const uint32_t *codepoints;
+    size_t          len;
+    int             rc;
+} ResolveEntry;
+
+typedef struct
+{
+    const ResolveEntry *entries;
+    size_t              count;
+    size_t              calls;
+} ResolveCtx;
+
+static int test_expand_handle(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
+                              void *resolver_ctx)
+{
+    ResolveCtx *ctx = (ResolveCtx *)resolver_ctx;
+
+    if (!ctx || !emit_fn)
+        return SEQ_INVALID;
+    ctx->calls++;
+
+    for (size_t i = 0; i < ctx->count; i++)
+    {
+        const ResolveEntry *entry = &ctx->entries[i];
+        if (entry->handle != handle)
+            continue;
+        if (entry->rc != SEQ_OK)
+            return entry->rc;
+        for (size_t j = 0; j < entry->len; j++)
+        {
+            int rc = emit_fn(entry->codepoints[j], emit_ctx);
+            if (rc != SEQ_OK)
+                return rc;
+        }
+        return SEQ_OK;
+    }
+
+    return SEQ_INVALID;
+}
+
 static void test_empty(void)
 {
     SECTION("empty");
@@ -316,13 +359,22 @@ static void test_invalid_args(void)
     CHECK(text_split_at(text, 0, &l, NULL) == SEQ_INVALID);
     CHECK(text_handle_from_codepoint(0x41u, NULL) == SEQ_INVALID);
     CHECK(text_handle_to_codepoint(0u, NULL) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(NULL, NULL, NULL, &utf8_len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(text, NULL, NULL, NULL) == SEQ_INVALID);
+    CHECK(text_get_codepoint_resolved(NULL, 0, NULL, NULL, &out) == SEQ_INVALID);
+    CHECK(text_get_codepoint_resolved(text, 0, NULL, NULL, NULL) == SEQ_INVALID);
     CHECK(text_from_utf8(NULL, (const uint8_t *)"a", 1) == SEQ_INVALID);
     CHECK(text_from_utf8(text, NULL, 1) == SEQ_INVALID);
     CHECK(text_utf8_length(NULL, &utf8_len) == SEQ_INVALID);
     CHECK(text_utf8_length(text, NULL) == SEQ_INVALID);
+    CHECK(text_utf8_length_resolved(NULL, NULL, NULL, &utf8_len) == SEQ_INVALID);
+    CHECK(text_utf8_length_resolved(text, NULL, NULL, NULL) == SEQ_INVALID);
     CHECK(text_to_utf8(NULL, (uint8_t *)&out, 1, &utf8_len) == SEQ_INVALID);
     CHECK(text_to_utf8(text, NULL, 1, &utf8_len) == SEQ_INVALID);
     CHECK(text_to_utf8(text, (uint8_t *)&out, 1, NULL) == SEQ_INVALID);
+    CHECK(text_to_utf8_resolved(NULL, NULL, NULL, (uint8_t *)&out, 1, &utf8_len) == SEQ_INVALID);
+    CHECK(text_to_utf8_resolved(text, NULL, NULL, NULL, 1, &utf8_len) == SEQ_INVALID);
+    CHECK(text_to_utf8_resolved(text, NULL, NULL, (uint8_t *)&out, 1, NULL) == SEQ_INVALID);
 
     text_free(text);
 }
@@ -497,6 +549,100 @@ static void test_handle_apis_and_strict_codepoint_wrappers(void)
     text_free(text);
 }
 
+static void test_resolved_codepoint_view(void)
+{
+    SECTION("resolved codepoint view");
+    Text      *text = text_new();
+    TextHandle h_a = 0;
+    TextHandle h_d = 0;
+    TextHandle h_literal = text_handle_make(TEXT_HANDLE_LITERAL, 7u);
+    TextHandle h_tree = text_handle_make(TEXT_HANDLE_TREE, 9u);
+    const uint32_t literal_cps[] = {0x42u, 0x43u};
+    const uint32_t tree_cps[] = {0x1F642u};
+    const ResolveEntry entries[] = {
+        {h_literal, literal_cps, 2u, SEQ_OK},
+        {h_tree, tree_cps, 1u, SEQ_OK},
+    };
+    ResolveCtx resolver = {entries, 2u, 0u};
+    size_t cp_len = 0;
+    size_t utf8_need = 0;
+    size_t utf8_wrote = 0;
+    uint8_t utf8_out[16];
+    const uint8_t expect_utf8[] = {0x41u, 0x42u, 0x43u, 0xF0u, 0x9Fu, 0x99u, 0x82u, 0x44u};
+    const uint32_t expect_cps[] = {0x41u, 0x42u, 0x43u, 0x1F642u, 0x44u};
+    uint32_t cp = 0;
+
+    CHECK(text != NULL);
+    CHECK(text_handle_from_codepoint(0x41u, &h_a) == SEQ_OK);
+    CHECK(text_handle_from_codepoint(0x44u, &h_d) == SEQ_OK);
+    CHECK(text_push_back_handle(text, h_a) == SEQ_OK);
+    CHECK(text_push_back_handle(text, h_literal) == SEQ_OK);
+    CHECK(text_push_back_handle(text, h_tree) == SEQ_OK);
+    CHECK(text_push_back_handle(text, h_d) == SEQ_OK);
+    CHECK(text_length(text) == 4u);
+
+    CHECK(text_codepoint_length_resolved(text, test_expand_handle, &resolver, &cp_len) == SEQ_OK);
+    CHECK(cp_len == 5u);
+
+    for (size_t i = 0; i < 5u; i++)
+        CHECK(text_get_codepoint_resolved(text, i, test_expand_handle, &resolver, &cp) == SEQ_OK &&
+              cp == expect_cps[i]);
+    CHECK(text_get_codepoint_resolved(text, 5u, test_expand_handle, &resolver, &cp) == SEQ_RANGE);
+
+    CHECK(text_utf8_length(text, &utf8_need) == SEQ_INVALID);
+    CHECK(text_utf8_length_resolved(text, test_expand_handle, &resolver, &utf8_need) == SEQ_OK);
+    CHECK(utf8_need == sizeof(expect_utf8));
+    CHECK(text_to_utf8_resolved(text, test_expand_handle, &resolver, utf8_out, sizeof(utf8_out),
+                                &utf8_wrote) == SEQ_OK);
+    CHECK(utf8_wrote == sizeof(expect_utf8));
+    CHECK(memcmp(utf8_out, expect_utf8, sizeof(expect_utf8)) == 0);
+    CHECK(text_to_utf8_resolved(text, test_expand_handle, &resolver, utf8_out, 7u, &utf8_wrote) ==
+          SEQ_RANGE);
+    CHECK(utf8_wrote == sizeof(expect_utf8));
+    CHECK(text_to_utf8_resolved(text, test_expand_handle, &resolver, NULL, 0u, &utf8_wrote) ==
+          SEQ_RANGE);
+    CHECK(utf8_wrote == sizeof(expect_utf8));
+
+    CHECK(resolver.calls > 0u);
+    text_free(text);
+}
+
+static void test_resolver_error_paths(void)
+{
+    SECTION("resolved error paths");
+    Text      *text = text_new();
+    TextHandle h_literal = text_handle_make(TEXT_HANDLE_LITERAL, 99u);
+    const uint32_t bad_cps[] = {0xD800u};
+    const ResolveEntry bad_entries[] = {
+        {h_literal, bad_cps, 1u, SEQ_OK},
+    };
+    const ResolveEntry oom_entries[] = {
+        {h_literal, NULL, 0u, SEQ_OOM},
+    };
+    ResolveCtx no_entries = {NULL, 0u, 0u};
+    ResolveCtx bad_resolver = {bad_entries, 1u, 0u};
+    ResolveCtx oom_resolver = {oom_entries, 1u, 0u};
+    uint32_t   cp = 0;
+    size_t     len = 0;
+
+    CHECK(text != NULL);
+    CHECK(text_push_back_handle(text, h_literal) == SEQ_OK);
+    CHECK(text_codepoint_length_resolved(text, NULL, NULL, &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(text, test_expand_handle, &no_entries, &len) ==
+          SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(text, test_expand_handle, &bad_resolver, &len) ==
+          SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(text, test_expand_handle, &oom_resolver, &len) ==
+          SEQ_OOM);
+    CHECK(text_get_codepoint_resolved(text, 0u, test_expand_handle, &oom_resolver, &cp) ==
+          SEQ_OOM);
+    CHECK(text_utf8_length_resolved(text, test_expand_handle, &oom_resolver, &len) == SEQ_OOM);
+    CHECK(text_to_utf8_resolved(text, test_expand_handle, &oom_resolver, NULL, 0u, &len) ==
+          SEQ_OOM);
+
+    text_free(text);
+}
+
 static void test_arena_allocator_exhaustion(void)
 {
     SECTION("arena allocator exhaustion");
@@ -544,6 +690,8 @@ int main(void)
     test_codepoint_validation();
     test_handle_codec();
     test_handle_apis_and_strict_codepoint_wrappers();
+    test_resolved_codepoint_view();
+    test_resolver_error_paths();
     test_arena_allocator_exhaustion();
 
     print_summary();

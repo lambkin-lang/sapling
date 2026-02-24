@@ -32,6 +32,64 @@ static int text_handle_is_storable(TextHandle handle)
     return 0;
 }
 
+typedef int (*TextVisitCodepointFn)(uint32_t codepoint, void *visit_ctx);
+
+typedef struct
+{
+    TextVisitCodepointFn visit_fn;
+    void                *visit_ctx;
+} TextExpandEmitCtx;
+
+static int text_expand_emit_one(uint32_t codepoint, void *emit_ctx)
+{
+    TextExpandEmitCtx *ctx = (TextExpandEmitCtx *)emit_ctx;
+    if (!ctx || !ctx->visit_fn || !text_codepoint_is_valid(codepoint))
+        return SEQ_INVALID;
+    return ctx->visit_fn(codepoint, ctx->visit_ctx);
+}
+
+static int text_visit_resolved_codepoints(const Text *text, TextHandleExpandFn expand_fn,
+                                          void *resolver_ctx, TextVisitCodepointFn visit_fn,
+                                          void *visit_ctx)
+{
+    size_t n = 0;
+
+    if (!text || !text->seq || !seq_is_valid(text->seq) || !visit_fn)
+        return SEQ_INVALID;
+
+    n = seq_length(text->seq);
+    for (size_t i = 0; i < n; i++)
+    {
+        TextHandle handle = 0;
+        int        rc = seq_get(text->seq, i, &handle);
+
+        if (rc != SEQ_OK)
+            return rc;
+
+        if (text_handle_kind(handle) == TEXT_HANDLE_CODEPOINT)
+        {
+            uint32_t codepoint = 0;
+            rc = text_handle_to_codepoint(handle, &codepoint);
+            if (rc != SEQ_OK)
+                return rc;
+            rc = visit_fn(codepoint, visit_ctx);
+            if (rc != SEQ_OK)
+                return rc;
+            continue;
+        }
+
+        if (!expand_fn)
+            return SEQ_INVALID;
+
+        TextExpandEmitCtx emit_ctx = {visit_fn, visit_ctx};
+        rc = expand_fn(handle, text_expand_emit_one, &emit_ctx, resolver_ctx);
+        if (rc != SEQ_OK)
+            return rc;
+    }
+
+    return SEQ_OK;
+}
+
 static size_t text_codepoint_utf8_size(uint32_t codepoint)
 {
     if (codepoint <= 0x7Fu)
@@ -444,6 +502,87 @@ int text_delete_handle(Text *text, size_t idx, TextHandle *out)
     return text_rebuild_from_split(text, left, right);
 }
 
+enum
+{
+    TEXT_VISIT_STOP = 100
+};
+
+typedef struct
+{
+    size_t total;
+} TextCodepointCountCtx;
+
+static int text_count_codepoint_visit(uint32_t codepoint, void *visit_ctx)
+{
+    TextCodepointCountCtx *ctx = (TextCodepointCountCtx *)visit_ctx;
+    (void)codepoint;
+    if (!ctx)
+        return SEQ_INVALID;
+    if (SIZE_MAX - ctx->total < 1u)
+        return SEQ_INVALID;
+    ctx->total++;
+    return SEQ_OK;
+}
+
+int text_codepoint_length_resolved(const Text *text, TextHandleExpandFn expand_fn,
+                                   void *resolver_ctx, size_t *codepoint_len_out)
+{
+    TextCodepointCountCtx ctx = {0};
+    int                   rc = SEQ_OK;
+
+    if (!codepoint_len_out)
+        return SEQ_INVALID;
+
+    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
+                                        text_count_codepoint_visit, &ctx);
+    if (rc != SEQ_OK)
+        return rc;
+    *codepoint_len_out = ctx.total;
+    return SEQ_OK;
+}
+
+typedef struct
+{
+    size_t   target;
+    size_t   pos;
+    uint32_t value;
+} TextCodepointGetCtx;
+
+static int text_get_codepoint_visit(uint32_t codepoint, void *visit_ctx)
+{
+    TextCodepointGetCtx *ctx = (TextCodepointGetCtx *)visit_ctx;
+    if (!ctx)
+        return SEQ_INVALID;
+    if (ctx->pos == ctx->target)
+    {
+        ctx->value = codepoint;
+        return TEXT_VISIT_STOP;
+    }
+    ctx->pos++;
+    return SEQ_OK;
+}
+
+int text_get_codepoint_resolved(const Text *text, size_t codepoint_idx,
+                                TextHandleExpandFn expand_fn, void *resolver_ctx, uint32_t *out)
+{
+    TextCodepointGetCtx ctx = {codepoint_idx, 0, 0};
+    int                 rc = SEQ_OK;
+
+    if (!out)
+        return SEQ_INVALID;
+
+    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
+                                        text_get_codepoint_visit, &ctx);
+    if (rc == TEXT_VISIT_STOP)
+    {
+        *out = ctx.value;
+        return SEQ_OK;
+    }
+    if (rc != SEQ_OK)
+        return rc;
+    return SEQ_RANGE;
+}
+
 int text_push_front(Text *text, uint32_t codepoint)
 {
     TextHandle handle = 0;
@@ -649,40 +788,76 @@ int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len)
     return SEQ_OK;
 }
 
-int text_utf8_length(const Text *text, size_t *utf8_len_out)
+typedef struct
 {
-    size_t total = 0;
-    size_t n = 0;
+    size_t total;
+} TextUtf8LengthCtx;
 
-    if (!text || !text->seq || !utf8_len_out || !seq_is_valid(text->seq))
+static int text_utf8_length_visit(uint32_t codepoint, void *visit_ctx)
+{
+    TextUtf8LengthCtx *ctx = (TextUtf8LengthCtx *)visit_ctx;
+    size_t             add = 0;
+
+    if (!ctx)
         return SEQ_INVALID;
 
-    n = seq_length(text->seq);
-    for (size_t i = 0; i < n; i++)
-    {
-        TextHandle handle = 0;
-        uint32_t codepoint = 0;
-        size_t   add = 0;
-
-        if (seq_get(text->seq, i, &handle) != SEQ_OK)
-            return SEQ_INVALID;
-        if (text_handle_to_codepoint(handle, &codepoint) != SEQ_OK)
-            return SEQ_INVALID;
-        add = text_codepoint_utf8_size(codepoint);
-        if (SIZE_MAX - total < add)
-            return SEQ_INVALID;
-        total += add;
-    }
-
-    *utf8_len_out = total;
+    add = text_codepoint_utf8_size(codepoint);
+    if (SIZE_MAX - ctx->total < add)
+        return SEQ_INVALID;
+    ctx->total += add;
     return SEQ_OK;
 }
 
-int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_len_out)
+int text_utf8_length_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
+                              size_t *utf8_len_out)
+{
+    TextUtf8LengthCtx ctx = {0};
+    int               rc = SEQ_OK;
+
+    if (!utf8_len_out)
+        return SEQ_INVALID;
+
+    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
+                                        text_utf8_length_visit, &ctx);
+    if (rc != SEQ_OK)
+        return rc;
+    *utf8_len_out = ctx.total;
+    return SEQ_OK;
+}
+
+int text_utf8_length(const Text *text, size_t *utf8_len_out)
+{
+    return text_utf8_length_resolved(text, NULL, NULL, utf8_len_out);
+}
+
+typedef struct
+{
+    uint8_t *out;
+    size_t   out_cap;
+    size_t   pos;
+} TextUtf8EncodeCtx;
+
+static int text_utf8_encode_visit(uint32_t codepoint, void *visit_ctx)
+{
+    TextUtf8EncodeCtx *ctx = (TextUtf8EncodeCtx *)visit_ctx;
+    uint8_t            enc[4];
+    size_t             enc_n = 0;
+
+    if (!ctx || !ctx->out)
+        return SEQ_INVALID;
+
+    enc_n = text_utf8_encode_one(codepoint, enc);
+    if (enc_n == 0 || ctx->pos + enc_n > ctx->out_cap)
+        return SEQ_INVALID;
+    for (size_t i = 0; i < enc_n; i++)
+        ctx->out[ctx->pos++] = enc[i];
+    return SEQ_OK;
+}
+
+int text_to_utf8_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
+                          uint8_t *out, size_t out_cap, size_t *utf8_len_out)
 {
     size_t need = 0;
-    size_t n = 0;
-    size_t pos = 0;
     int    rc = SEQ_OK;
 
     if (!text || !text->seq || !utf8_len_out || !seq_is_valid(text->seq))
@@ -690,7 +865,7 @@ int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_le
     if (!out && out_cap > 0)
         return SEQ_INVALID;
 
-    rc = text_utf8_length(text, &need);
+    rc = text_utf8_length_resolved(text, expand_fn, resolver_ctx, &need);
     if (rc != SEQ_OK)
         return rc;
     *utf8_len_out = need;
@@ -701,24 +876,17 @@ int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_le
     if (!out)
         return SEQ_INVALID;
 
-    n = seq_length(text->seq);
-    for (size_t i = 0; i < n; i++)
     {
-        TextHandle handle = 0;
-        uint32_t codepoint = 0;
-        uint8_t  enc[4];
-        size_t   enc_n = 0;
-
-        if (seq_get(text->seq, i, &handle) != SEQ_OK)
-            return SEQ_INVALID;
-        if (text_handle_to_codepoint(handle, &codepoint) != SEQ_OK)
-            return SEQ_INVALID;
-        enc_n = text_utf8_encode_one(codepoint, enc);
-        if (enc_n == 0 || pos + enc_n > out_cap)
-            return SEQ_INVALID;
-        for (size_t j = 0; j < enc_n; j++)
-            out[pos++] = enc[j];
+        TextUtf8EncodeCtx encode_ctx = {out, out_cap, 0};
+        rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
+                                            text_utf8_encode_visit, &encode_ctx);
+        if (rc != SEQ_OK)
+            return rc;
+        return (encode_ctx.pos == need) ? SEQ_OK : SEQ_INVALID;
     }
+}
 
-    return (pos == need) ? SEQ_OK : SEQ_INVALID;
+int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_len_out)
+{
+    return text_to_utf8_resolved(text, NULL, NULL, out, out_cap, utf8_len_out);
 }

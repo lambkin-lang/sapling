@@ -49,6 +49,14 @@ int           text_handle_from_codepoint(uint32_t codepoint, TextHandle *handle_
 int           text_handle_to_codepoint(TextHandle handle, uint32_t *codepoint_out);
 int           text_handle_is_codepoint(TextHandle handle);
 
+/*
+ * Expand a non-codepoint handle into zero or more Unicode scalar values.
+ * Implementations call emit_fn for each expanded codepoint.
+ */
+typedef int (*TextEmitCodepointFn)(uint32_t codepoint, void *emit_ctx);
+typedef int (*TextHandleExpandFn)(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
+                                  void *resolver_ctx);
+
 /* Lifecycle */
 Text *text_new(void);
 /*
@@ -73,6 +81,17 @@ int text_get_handle(const Text *text, size_t idx, TextHandle *out);
 int text_set_handle(Text *text, size_t idx, TextHandle handle);
 int text_insert_handle(Text *text, size_t idx, TextHandle handle);
 int text_delete_handle(Text *text, size_t idx, TextHandle *out);
+
+/*
+ * Resolved code-point view:
+ * - codepoint handles contribute one code point.
+ * - non-codepoint handles are expanded through expand_fn.
+ * - when non-codepoint handles exist and expand_fn is NULL, returns SEQ_INVALID.
+ */
+int text_codepoint_length_resolved(const Text *text, TextHandleExpandFn expand_fn,
+                                   void *resolver_ctx, size_t *codepoint_len_out);
+int text_get_codepoint_resolved(const Text *text, size_t codepoint_idx,
+                                TextHandleExpandFn expand_fn, void *resolver_ctx, uint32_t *out);
 
 /* End operations */
 int text_push_front(Text *text, uint32_t codepoint);
@@ -105,5 +124,9 @@ int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out);
 int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len);
 int text_utf8_length(const Text *text, size_t *utf8_len_out);
 int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_len_out);
+int text_utf8_length_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
+                              size_t *utf8_len_out);
+int text_to_utf8_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
+                          uint8_t *out, size_t out_cap, size_t *utf8_len_out);
 
 #endif /* SAPLING_TEXT_H */

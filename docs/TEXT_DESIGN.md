@@ -21,6 +21,8 @@ Handle layout:
 - Code-point APIs (`text_push_back`, `text_get`, `text_to_utf8`, etc.) are
   strict wrappers that only operate on code-point leaves.
 - Raw handle APIs (`text_*_handle`) allow mixed leaf kinds.
+- Resolved APIs (`*_resolved`) accept a runtime resolver callback for
+  expanding non-codepoint handles into code points on demand.
 
 ## Semantics
 
@@ -29,6 +31,12 @@ Handle layout:
   length.
 - UTF-8 encoding/length routines return `SEQ_INVALID` if any non-codepoint
   handle is present.
+- Resolved code-point/UTF-8 routines can operate on mixed-handle text without
+  flattening:
+  - `text_codepoint_length_resolved`
+  - `text_get_codepoint_resolved`
+  - `text_utf8_length_resolved`
+  - `text_to_utf8_resolved`
 
 ## Runtime integration notes
 
