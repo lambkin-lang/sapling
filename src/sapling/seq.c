@@ -227,6 +227,23 @@ static void seq_dealloc(const SeqAllocator *allocator, void *ptr)
     allocator->free_fn(allocator->ctx, ptr);
 }
 
+/* Checked size_t additions for measure accumulation. */
+static int size_add_checked(size_t a, size_t b, size_t *out)
+{
+    if (SIZE_MAX - a < b)
+        return 0;
+    *out = a + b;
+    return 1;
+}
+
+static int size_add3_checked(size_t a, size_t b, size_t c, size_t *out)
+{
+    size_t tmp = 0;
+    if (!size_add_checked(a, b, &tmp))
+        return 0;
+    return size_add_checked(tmp, c, out);
+}
+
 /* Return the leaf measure of one item at the given depth. */
 static inline size_t item_measure(SeqItem item, int depth)
 {
@@ -252,11 +269,17 @@ static SeqNode *node_new2(SeqItem a, SeqItem b, int child_depth, const SeqAlloca
     SeqNode *n = seq_alloc(allocator, sizeof(SeqNode));
     if (!n)
         return NULL;
+    size_t asz = item_measure(a, child_depth);
+    size_t bsz = item_measure(b, child_depth);
+    if (!size_add_checked(asz, bsz, &n->size))
+    {
+        seq_dealloc(allocator, n);
+        return NULL;
+    }
     n->arity    = 2;
     n->child[0] = a;
     n->child[1] = b;
     n->child[2] = 0;
-    n->size     = item_measure(a, child_depth) + item_measure(b, child_depth);
     return n;
 }
 
@@ -267,12 +290,18 @@ static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth,
     SeqNode *n = seq_alloc(allocator, sizeof(SeqNode));
     if (!n)
         return NULL;
+    size_t asz = item_measure(a, child_depth);
+    size_t bsz = item_measure(b, child_depth);
+    size_t csz = item_measure(c, child_depth);
+    if (!size_add3_checked(asz, bsz, csz, &n->size))
+    {
+        seq_dealloc(allocator, n);
+        return NULL;
+    }
     n->arity    = 3;
     n->child[0] = a;
     n->child[1] = b;
     n->child[2] = c;
-    n->size     = item_measure(a, child_depth) + item_measure(b, child_depth) +
-                  item_measure(c, child_depth);
     return n;
 }
 
@@ -413,32 +442,43 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth,
     case FTREE_SINGLE:
     {
         SeqItem b   = tree->single;
+        size_t bsz  = item_measure(b, item_depth);
+        size_t total_size = 0;
+        if (!size_add_checked(bsz, sz, &total_size))
+            return SEQ_OOM;
         FTree *mid = ftree_new(allocator);
         if (!mid)
             return SEQ_OOM;
         tree->tag           = FTREE_DEEP;
-        tree->size         += sz;
+        tree->size          = total_size;
         tree->deep.pr_count = 1;
         tree->deep.pr[0]    = item;
         tree->deep.pr_size  = sz;
         tree->deep.mid      = mid;
         tree->deep.sf_count = 1;
         tree->deep.sf[0]    = b;
-        tree->deep.sf_size  = item_measure(b, item_depth);
+        tree->deep.sf_size  = bsz;
         return SEQ_OK;
     }
 
     case FTREE_DEEP:
-        tree->size += sz;
+    {
+        size_t new_tree_size = 0;
+        if (!size_add_checked(tree->size, sz, &new_tree_size))
+            return SEQ_OOM;
         if (tree->deep.pr_count < 4)
         {
+            size_t new_pr_size = 0;
+            if (!size_add_checked(tree->deep.pr_size, sz, &new_pr_size))
+                return SEQ_OOM;
             /* Shift prefix right and insert at front */
             int n = tree->deep.pr_count;
             for (int i = n; i > 0; i--)
                 tree->deep.pr[i] = tree->deep.pr[i - 1];
             tree->deep.pr[0] = item;
             tree->deep.pr_count++;
-            tree->deep.pr_size += sz;
+            tree->deep.pr_size = new_pr_size;
+            tree->size = new_tree_size;
             return SEQ_OK;
         }
         /*
@@ -450,18 +490,24 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth,
                 node_new3(tree->deep.pr[1], tree->deep.pr[2], tree->deep.pr[3], item_depth,
                            allocator);
             if (!node)
+                return SEQ_OOM;
+            SeqItem old_front    = tree->deep.pr[0];
+            size_t old_front_sz = item_measure(old_front, item_depth);
+            size_t new_pr_size  = 0;
+            if (!size_add_checked(sz, old_front_sz, &new_pr_size))
             {
-                tree->size -= sz;
+                seq_node_free(node, item_depth, allocator);
                 return SEQ_OOM;
             }
-            SeqItem old_front    = tree->deep.pr[0];
             tree->deep.pr[0]    = item;
             tree->deep.pr[1]    = old_front;
             tree->deep.pr_count = 2;
-            tree->deep.pr_size  = sz + item_measure(old_front, item_depth);
+            tree->deep.pr_size  = new_pr_size;
+            tree->size          = new_tree_size;
             return ftree_push_front(tree->deep.mid, seq_item_from_node(node), item_depth + 1,
                                     allocator);
         }
+    }
     }
     return SEQ_OOM; /* unreachable */
 }
@@ -484,14 +530,18 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth,
     case FTREE_SINGLE:
     {
         SeqItem b   = tree->single;
+        size_t bsz  = item_measure(b, item_depth);
+        size_t total_size = 0;
+        if (!size_add_checked(bsz, sz, &total_size))
+            return SEQ_OOM;
         FTree *mid = ftree_new(allocator);
         if (!mid)
             return SEQ_OOM;
         tree->tag           = FTREE_DEEP;
-        tree->size         += sz;
+        tree->size          = total_size;
         tree->deep.pr_count = 1;
         tree->deep.pr[0]    = b;
-        tree->deep.pr_size  = item_measure(b, item_depth);
+        tree->deep.pr_size  = bsz;
         tree->deep.mid      = mid;
         tree->deep.sf_count = 1;
         tree->deep.sf[0]    = item;
@@ -500,12 +550,19 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth,
     }
 
     case FTREE_DEEP:
-        tree->size += sz;
+    {
+        size_t new_tree_size = 0;
+        if (!size_add_checked(tree->size, sz, &new_tree_size))
+            return SEQ_OOM;
         if (tree->deep.sf_count < 4)
         {
+            size_t new_sf_size = 0;
+            if (!size_add_checked(tree->deep.sf_size, sz, &new_sf_size))
+                return SEQ_OOM;
             tree->deep.sf[tree->deep.sf_count] = item;
             tree->deep.sf_count++;
-            tree->deep.sf_size += sz;
+            tree->deep.sf_size = new_sf_size;
+            tree->size = new_tree_size;
             return SEQ_OK;
         }
         /*
@@ -517,18 +574,24 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth,
                 node_new3(tree->deep.sf[0], tree->deep.sf[1], tree->deep.sf[2], item_depth,
                            allocator);
             if (!node)
+                return SEQ_OOM;
+            SeqItem old_last     = tree->deep.sf[3];
+            size_t old_last_sz = item_measure(old_last, item_depth);
+            size_t new_sf_size = 0;
+            if (!size_add_checked(old_last_sz, sz, &new_sf_size))
             {
-                tree->size -= sz;
+                seq_node_free(node, item_depth, allocator);
                 return SEQ_OOM;
             }
-            SeqItem old_last     = tree->deep.sf[3];
             tree->deep.sf[0]    = old_last;
             tree->deep.sf[1]    = item;
             tree->deep.sf_count = 2;
-            tree->deep.sf_size  = item_measure(old_last, item_depth) + sz;
+            tree->deep.sf_size  = new_sf_size;
+            tree->size          = new_tree_size;
             return ftree_push_back(tree->deep.mid, seq_item_from_node(node), item_depth + 1,
                                    allocator);
         }
+    }
     }
     return SEQ_OOM; /* unreachable */
 }
@@ -554,6 +617,8 @@ static SeqItem ftree_pop_front(FTree *tree, int item_depth, const SeqAllocator *
     }
 
     /* FTREE_DEEP */
+    assert(tree->deep.pr_count >= 1 && tree->deep.pr_count <= 4);
+    assert(tree->deep.sf_count >= 1 && tree->deep.sf_count <= 4);
     SeqItem item    = tree->deep.pr[0];
     size_t item_sz = item_measure(item, item_depth);
     tree->size    -= item_sz;
@@ -625,6 +690,8 @@ static SeqItem ftree_pop_back(FTree *tree, int item_depth, const SeqAllocator *a
     }
 
     /* FTREE_DEEP */
+    assert(tree->deep.pr_count >= 1 && tree->deep.pr_count <= 4);
+    assert(tree->deep.sf_count >= 1 && tree->deep.sf_count <= 4);
     SeqItem item    = tree->deep.sf[tree->deep.sf_count - 1];
     size_t item_sz = item_measure(item, item_depth);
     tree->size    -= item_sz;
@@ -689,9 +756,12 @@ static SeqItem item_get(SeqItem item, size_t idx, int item_depth)
     for (int i = 0; i < node->arity; i++)
     {
         size_t sz = item_measure(node->child[i], item_depth - 1);
-        if (idx < off + sz)
+        size_t next_off = 0;
+        if (!size_add_checked(off, sz, &next_off))
+            return 0;
+        if (idx < next_off)
             return item_get(node->child[i], idx - off, item_depth - 1);
-        off += sz;
+        off = next_off;
     }
     return 0; /* unreachable for valid idx */
 }
@@ -703,9 +773,12 @@ static SeqItem digit_get(const SeqItem *elems, int count, size_t idx, int item_d
     for (int i = 0; i < count; i++)
     {
         size_t sz = item_measure(elems[i], item_depth);
-        if (idx < off + sz)
+        size_t next_off = 0;
+        if (!size_add_checked(off, sz, &next_off))
+            return 0;
+        if (idx < next_off)
             return item_get(elems[i], idx - off, item_depth);
-        off += sz;
+        off = next_off;
     }
     return 0; /* unreachable for valid idx */
 }
@@ -778,14 +851,25 @@ static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, i
         for (int i = 0; i < pr_count; i++)
         {
             t->deep.pr[i] = pr[i];
-            t->deep.pr_size += item_measure(pr[i], item_depth);
+            size_t next_pr_size = 0;
+            if (!size_add_checked(t->deep.pr_size, item_measure(pr[i], item_depth),
+                                  &next_pr_size))
+            {
+                seq_dealloc(allocator, t);
+                return NULL;
+            }
+            t->deep.pr_size = next_pr_size;
         }
         t->deep.mid      = mid;
         t->deep.sf_count = sf_count;
         for (int i = 0; i < sf_count; i++)
             t->deep.sf[i] = sf[i];
         t->deep.sf_size = sf_size;
-        t->size         = t->deep.pr_size + mid->size + sf_size;
+        if (!size_add3_checked(t->deep.pr_size, mid->size, sf_size, &t->size))
+        {
+            seq_dealloc(allocator, t);
+            return NULL;
+        }
         return t;
     }
 
@@ -804,6 +888,13 @@ static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, i
         seq_node_free(node, item_depth, allocator);
         return NULL;
     }
+    size_t total_size = 0;
+    if (!size_add3_checked(node->size, mid->size, sf_size, &total_size))
+    {
+        seq_dealloc(allocator, t);
+        seq_node_free(node, item_depth, allocator);
+        return NULL;
+    }
     t->tag           = FTREE_DEEP;
     t->deep.pr_count = node->arity;
     t->deep.pr_size  = node->size;
@@ -814,7 +905,7 @@ static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, i
     for (int i = 0; i < sf_count; i++)
         t->deep.sf[i] = sf[i];
     t->deep.sf_size = sf_size;
-    t->size         = node->size + mid->size + sf_size;
+    t->size         = total_size;
     seq_dealloc(allocator, node);
     return t;
 }
@@ -842,9 +933,20 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
         for (int i = 0; i < sf_count; i++)
         {
             t->deep.sf[i] = sf[i];
-            t->deep.sf_size += item_measure(sf[i], item_depth);
+            size_t next_sf_size = 0;
+            if (!size_add_checked(t->deep.sf_size, item_measure(sf[i], item_depth),
+                                  &next_sf_size))
+            {
+                seq_dealloc(allocator, t);
+                return NULL;
+            }
+            t->deep.sf_size = next_sf_size;
         }
-        t->size = pr_size + mid->size + t->deep.sf_size;
+        if (!size_add3_checked(pr_size, mid->size, t->deep.sf_size, &t->size))
+        {
+            seq_dealloc(allocator, t);
+            return NULL;
+        }
         return t;
     }
 
@@ -862,6 +964,13 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
         seq_node_free(node, item_depth, allocator);
         return NULL;
     }
+    size_t total_size = 0;
+    if (!size_add3_checked(pr_size, mid->size, node->size, &total_size))
+    {
+        seq_dealloc(allocator, t);
+        seq_node_free(node, item_depth, allocator);
+        return NULL;
+    }
     t->tag           = FTREE_DEEP;
     t->deep.pr_count = pr_count;
     for (int i = 0; i < pr_count; i++)
@@ -872,7 +981,7 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
     t->deep.sf_size  = node->size;
     for (int i = 0; i < node->arity; i++)
         t->deep.sf[i] = node->child[i];
-    t->size = pr_size + mid->size + node->size;
+    t->size = total_size;
     seq_dealloc(allocator, node);
     return t;
 }
@@ -968,6 +1077,12 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
     FTree *new_mid = app3(t1->deep.mid, nodes, nc, t2->deep.mid, item_depth + 1, allocator);
     if (!new_mid)
         return NULL;
+    size_t merged_size = 0;
+    if (!size_add3_checked(t1->deep.pr_size, new_mid->size, t2->deep.sf_size, &merged_size))
+    {
+        seq_dealloc(allocator, t2);
+        return NULL;
+    }
 
     /* Reuse t1's shell; update middle and steal t2's suffix */
     t1->deep.mid      = new_mid;
@@ -975,7 +1090,7 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
     for (int i = 0; i < t2->deep.sf_count; i++)
         t1->deep.sf[i] = t2->deep.sf[i];
     t1->deep.sf_size = t2->deep.sf_size;
-    t1->size         = t1->deep.pr_size + new_mid->size + t1->deep.sf_size;
+    t1->size         = merged_size;
 
     seq_dealloc(allocator, t2);
     return t1;
@@ -992,14 +1107,25 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
  * Fills left_out with items before the found item, right_out with items
  * after it.  Returns the found item.
  */
-static SeqItem split_digit_at(SeqItem *items, int count, size_t idx, int item_depth,
-                             SmallItems *left_out, SmallItems *right_out)
+static SeqItem split_digit_at(const SeqItem *items, int count, int capacity, size_t idx,
+                               int item_depth, SmallItems *left_out,
+                               SmallItems *right_out)
 {
+    assert(items);
+    assert(left_out);
+    assert(right_out);
+    assert(count >= 1);
+    assert(count <= capacity);
+    assert(capacity >= 1 && capacity <= 4);
+
     size_t off = 0;
     for (int i = 0; i < count; i++)
     {
         size_t sz = item_measure(items[i], item_depth);
-        if (idx < off + sz)
+        size_t next_off = 0;
+        if (!size_add_checked(off, sz, &next_off))
+            return 0;
+        if (idx < next_off)
         {
             left_out->count = i;
             left_out->size  = off;
@@ -1010,12 +1136,16 @@ static SeqItem split_digit_at(SeqItem *items, int count, size_t idx, int item_de
             right_out->size  = 0;
             for (int j = i + 1; j < count; j++)
             {
+                size_t next_right_size = 0;
                 right_out->elems[j - i - 1]  = items[j];
-                right_out->size             += item_measure(items[j], item_depth);
+                if (!size_add_checked(right_out->size, item_measure(items[j], item_depth),
+                                      &next_right_size))
+                    return 0;
+                right_out->size = next_right_size;
             }
             return items[i];
         }
-        off += sz;
+        off = next_off;
     }
     return 0; /* unreachable for valid idx */
 }
@@ -1065,7 +1195,7 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
         SmallItems left_si  = {0};
         SmallItems right_si = {0};
         SeqItem found =
-            split_digit_at(tree->deep.pr, tree->deep.pr_count, idx, item_depth, &left_si,
+            split_digit_at(tree->deep.pr, tree->deep.pr_count, 4, idx, item_depth, &left_si,
                            &right_si);
 
         res.left  = small_items_to_tree(left_si.elems, left_si.count, item_depth, allocator);
@@ -1105,7 +1235,7 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
         SmallItems node_left  = {0};
         SmallItems node_right = {0};
         SeqItem found =
-            split_digit_at(node->child, node->arity, node_idx, item_depth, &node_left,
+            split_digit_at(node->child, node->arity, 3, node_idx, item_depth, &node_left,
                            &node_right);
 
         res.left = deep_r_items(tree->deep.pr, tree->deep.pr_count, tree->deep.pr_size,
@@ -1135,7 +1265,7 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
     SmallItems left_si  = {0};
     SmallItems right_si = {0};
     SeqItem found =
-        split_digit_at(tree->deep.sf, tree->deep.sf_count, sf_idx, item_depth, &left_si,
+        split_digit_at(tree->deep.sf, tree->deep.sf_count, 4, sf_idx, item_depth, &left_si,
                        &right_si);
 
     res.left = deep_r_items(tree->deep.pr, tree->deep.pr_count, tree->deep.pr_size,

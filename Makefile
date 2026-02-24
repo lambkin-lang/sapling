@@ -4,7 +4,8 @@
 #   make              — build the static library (libsapling.a)
 #   make test         — compile and run the test suite
 #   make debug        — build with debug symbols, no optimisation
-#   make asan         — build and test with AddressSanitizer
+#   make asan         — build and test with AddressSanitizer (core + seq)
+#   make asan-seq     — build and test seq with AddressSanitizer
 #   make tsan         — build and test with ThreadSanitizer (implies THREADED=1)
 #   make bench        — build benchmark harness
 #   make bench-run    — run sorted-load benchmark harness
@@ -188,7 +189,7 @@ WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test seq-test debug asan tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test seq-test debug asan asan-seq tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -207,8 +208,18 @@ test: $(TEST_BIN)
 asan: CFLAGS += -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 asan: LDFLAGS += -fsanitize=address,undefined
 asan: clean
+	@mkdir -p $(dir $(TEST_BIN)) $(dir $(TEST_SEQ_BIN))
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_sapling.c $(SAPLING_SRC) -o $(TEST_BIN) $(LDFLAGS)
 	./$(TEST_BIN)
+	$(CC) $(CFLAGS) -DSAPLING_SEQ_TESTING $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+	./$(TEST_SEQ_BIN)
+
+asan-seq: CFLAGS += -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
+asan-seq: LDFLAGS += -fsanitize=address,undefined
+asan-seq: clean
+	@mkdir -p $(dir $(TEST_SEQ_BIN))
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+	./$(TEST_SEQ_BIN)
 
 tsan: CFLAGS += -O1 -g -fsanitize=thread -DSAPLING_THREADED
 tsan: LDFLAGS += -fsanitize=thread -lpthread

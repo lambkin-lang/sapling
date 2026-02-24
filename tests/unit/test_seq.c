@@ -102,6 +102,49 @@ static void counting_free(void *ctx, void *ptr)
     }
 }
 
+typedef struct
+{
+    unsigned char *buf;
+    size_t         capacity;
+    size_t         used;
+    size_t         alloc_calls;
+    size_t         free_calls;
+    size_t         fail_calls;
+} ArenaAllocator;
+
+static void *arena_alloc(void *ctx, size_t bytes)
+{
+    ArenaAllocator *arena = (ArenaAllocator *)ctx;
+    size_t          align = sizeof(max_align_t);
+    size_t          start = arena->used;
+    size_t          rem   = start % align;
+    if (rem != 0)
+    {
+        size_t delta = align - rem;
+        if (SIZE_MAX - start < delta)
+        {
+            arena->fail_calls++;
+            return NULL;
+        }
+        start += delta;
+    }
+    if (bytes > arena->capacity || start > arena->capacity - bytes)
+    {
+        arena->fail_calls++;
+        return NULL;
+    }
+    arena->alloc_calls++;
+    arena->used = start + bytes;
+    return arena->buf + start;
+}
+
+static void arena_free_noop(void *ctx, void *ptr)
+{
+    ArenaAllocator *arena = (ArenaAllocator *)ctx;
+    if (ptr)
+        arena->free_calls++;
+}
+
 /* ================================================================== */
 /* Tests: empty / single                                                */
 /* ================================================================== */
@@ -436,6 +479,58 @@ static void test_split_preserves_allocator(void)
     seq_free(l);
     seq_free(r);
     CHECK(stats.free_calls == stats.alloc_calls);
+}
+
+static void test_arena_allocator_noop_free(void)
+{
+    SECTION("arena allocator with noop free");
+    unsigned char  storage[8192];
+    ArenaAllocator arena = {storage, sizeof(storage), 0, 0, 0, 0};
+    SeqAllocator   allocator = {arena_alloc, arena_free_noop, &arena};
+    Seq           *s = seq_new_with_allocator(&allocator);
+    CHECK(s != NULL);
+
+    for (size_t i = 0; i < 64; i++)
+        CHECK(seq_push_back(s, ip(i)) == SEQ_OK);
+
+    Seq *l = NULL;
+    Seq *r = NULL;
+    CHECK(seq_split_at(s, 17, &l, &r) == SEQ_OK);
+    CHECK(seq_concat(l, r) == SEQ_OK);
+    CHECK(seq_length(l) == 64);
+
+    seq_free(s);
+    seq_free(l);
+    seq_free(r);
+
+    CHECK(arena.alloc_calls > 0);
+    CHECK(arena.fail_calls == 0);
+    CHECK(arena.free_calls > 0);
+}
+
+static void test_arena_allocator_exhaustion(void)
+{
+    SECTION("arena allocator exhaustion");
+    unsigned char  storage[1024];
+    ArenaAllocator arena = {storage, sizeof(storage), 0, 0, 0, 0};
+    SeqAllocator   allocator = {arena_alloc, arena_free_noop, &arena};
+    Seq           *s = seq_new_with_allocator(&allocator);
+    CHECK(s != NULL);
+
+    int rc = SEQ_OK;
+    for (size_t i = 0; i < 1000; i++)
+    {
+        rc = seq_push_back(s, ip(i));
+        if (rc != SEQ_OK)
+            break;
+    }
+
+    CHECK(rc == SEQ_OOM);
+    CHECK(seq_is_valid(s) == 0);
+    CHECK(seq_push_back(s, ip(1234)) == SEQ_INVALID);
+    CHECK(arena.fail_calls > 0);
+
+    seq_free(s);
 }
 
 /* ================================================================== */
@@ -883,6 +978,209 @@ static void test_fault_injection_split(void)
 
     seq_free(s);
 }
+
+static void test_fault_injection_push_sweep(void)
+{
+    SECTION("fault injection: push sweep");
+    int saw_oom = 0;
+    int saw_ok  = 0;
+    for (int64_t fail_after = 0; fail_after <= 8; fail_after++)
+    {
+        Seq *s = seq_new();
+        CHECK(s != NULL);
+        CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
+
+        seq_test_fail_alloc_after(fail_after);
+        int rc = seq_push_back(s, ip(2));
+        seq_test_clear_alloc_fail();
+
+        if (rc == SEQ_OOM)
+        {
+            saw_oom = 1;
+            CHECK(seq_is_valid(s) == 0);
+            CHECK(seq_reset(s) == SEQ_OK);
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 0);
+        }
+        else if (rc == SEQ_OK)
+        {
+            uint32_t out = 0;
+            saw_ok = 1;
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 2);
+            CHECK(seq_get(s, 0, &out) == SEQ_OK);
+            CHECK(out == ip(1));
+            CHECK(seq_get(s, 1, &out) == SEQ_OK);
+            CHECK(out == ip(2));
+        }
+        else
+        {
+            CHECK(0);
+        }
+        seq_free(s);
+    }
+    CHECK(saw_oom == 1);
+    CHECK(saw_ok == 1);
+}
+
+static void test_fault_injection_concat_sweep(void)
+{
+    SECTION("fault injection: concat sweep");
+    int saw_oom = 0;
+    int saw_ok  = 0;
+    for (int64_t fail_after = 0; fail_after <= 64; fail_after++)
+    {
+        Seq *a = seq_new();
+        Seq *b = seq_new();
+        CHECK(a != NULL && b != NULL);
+        for (size_t i = 0; i < 32; i++)
+            CHECK(seq_push_back(a, ip(i)) == SEQ_OK);
+        for (size_t i = 32; i < 64; i++)
+            CHECK(seq_push_back(b, ip(i)) == SEQ_OK);
+
+        seq_test_fail_alloc_after(fail_after);
+        int rc = seq_concat(a, b);
+        seq_test_clear_alloc_fail();
+
+        if (rc == SEQ_OOM)
+        {
+            saw_oom = 1;
+            CHECK(seq_is_valid(a) == 0 || seq_is_valid(b) == 0);
+            CHECK(seq_reset(a) == SEQ_OK);
+            CHECK(seq_reset(b) == SEQ_OK);
+            CHECK(seq_is_valid(a) == 1);
+            CHECK(seq_is_valid(b) == 1);
+        }
+        else if (rc == SEQ_OK)
+        {
+            uint32_t out = 0;
+            saw_ok = 1;
+            CHECK(seq_length(a) == 64);
+            CHECK(seq_length(b) == 0);
+            CHECK(seq_get(a, 0, &out) == SEQ_OK);
+            CHECK(out == ip(0));
+            CHECK(seq_get(a, 63, &out) == SEQ_OK);
+            CHECK(out == ip(63));
+        }
+        else
+        {
+            CHECK(0);
+        }
+
+        seq_free(a);
+        seq_free(b);
+    }
+    CHECK(saw_oom == 1);
+    CHECK(saw_ok == 1);
+}
+
+static void test_fault_injection_split_sweep(void)
+{
+    SECTION("fault injection: split sweep");
+    int saw_oom = 0;
+    int saw_ok  = 0;
+    for (int64_t fail_after = 0; fail_after <= 64; fail_after++)
+    {
+        Seq *s = seq_new();
+        CHECK(s != NULL);
+        for (size_t i = 0; i < 24; i++)
+            CHECK(seq_push_back(s, ip(i)) == SEQ_OK);
+
+        Seq *l = (Seq *)(uintptr_t)11;
+        Seq *r = (Seq *)(uintptr_t)22;
+        seq_test_fail_alloc_after(fail_after);
+        int rc = seq_split_at(s, 11, &l, &r);
+        seq_test_clear_alloc_fail();
+
+        if (rc == SEQ_OOM)
+        {
+            uint32_t out = 0;
+            saw_oom = 1;
+            CHECK(l == (Seq *)(uintptr_t)11);
+            CHECK(r == (Seq *)(uintptr_t)22);
+            if (seq_is_valid(s) == 0)
+            {
+                CHECK(seq_reset(s) == SEQ_OK);
+                CHECK(seq_length(s) == 0);
+            }
+            else
+            {
+                CHECK(seq_length(s) == 24);
+                CHECK(seq_get(s, 0, &out) == SEQ_OK);
+                CHECK(out == ip(0));
+                CHECK(seq_get(s, 23, &out) == SEQ_OK);
+                CHECK(out == ip(23));
+            }
+        }
+        else if (rc == SEQ_OK)
+        {
+            uint32_t out = 0;
+            saw_ok = 1;
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 0);
+            CHECK(seq_length(l) == 11);
+            CHECK(seq_length(r) == 13);
+            CHECK(seq_get(l, 0, &out) == SEQ_OK);
+            CHECK(out == ip(0));
+            CHECK(seq_get(l, 10, &out) == SEQ_OK);
+            CHECK(out == ip(10));
+            CHECK(seq_get(r, 0, &out) == SEQ_OK);
+            CHECK(out == ip(11));
+            CHECK(seq_get(r, 12, &out) == SEQ_OK);
+            CHECK(out == ip(23));
+            seq_free(l);
+            seq_free(r);
+        }
+        else
+        {
+            CHECK(0);
+        }
+
+        seq_free(s);
+    }
+    CHECK(saw_oom == 1);
+    CHECK(saw_ok == 1);
+}
+
+static void test_fault_injection_reset_sweep(void)
+{
+    SECTION("fault injection: reset sweep");
+    int saw_oom = 0;
+    int saw_ok  = 0;
+    for (int64_t fail_after = 0; fail_after <= 4; fail_after++)
+    {
+        Seq *s = seq_new();
+        CHECK(s != NULL);
+        CHECK(seq_push_back(s, ip(7)) == SEQ_OK);
+
+        seq_test_fail_alloc_after(fail_after);
+        int rc = seq_reset(s);
+        seq_test_clear_alloc_fail();
+
+        if (rc == SEQ_OOM)
+        {
+            saw_oom = 1;
+            CHECK(seq_is_valid(s) == 0);
+            CHECK(seq_reset(s) == SEQ_OK);
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 0);
+        }
+        else if (rc == SEQ_OK)
+        {
+            saw_ok = 1;
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 0);
+        }
+        else
+        {
+            CHECK(0);
+        }
+
+        seq_free(s);
+    }
+    CHECK(saw_oom == 1);
+    CHECK(saw_ok == 1);
+}
 #endif
 
 /* ================================================================== */
@@ -906,6 +1204,8 @@ int main(void)
     test_custom_allocator_lifecycle();
     test_concat_allocator_mismatch();
     test_split_preserves_allocator();
+    test_arena_allocator_noop_free();
+    test_arena_allocator_exhaustion();
     test_split_at_basic();
     test_split_at_large();
     test_split_at_range();
@@ -921,6 +1221,10 @@ int main(void)
     test_fault_injection_push();
     test_fault_injection_concat();
     test_fault_injection_split();
+    test_fault_injection_push_sweep();
+    test_fault_injection_concat_sweep();
+    test_fault_injection_split_sweep();
+    test_fault_injection_reset_sweep();
 #endif
 
     print_summary();
