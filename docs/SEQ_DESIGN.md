@@ -130,6 +130,12 @@ the `[idx, n)` contract.
 - Each `Seq` carries a `SeqAllocator` (`alloc_fn`, `free_fn`, `ctx`).
   `seq_new()` uses the default `malloc/free` allocator, while
   `seq_new_with_allocator()` allows runtime/Wasm-specific allocation policy.
+- Allocator contract:
+  - `alloc_fn` returns storage suitably aligned for any object type.
+  - `alloc_fn` returns `NULL` on allocation failure.
+  - `free_fn` releases pointers previously returned by `alloc_fn`.
+  - allocator function pointers and `ctx` must outlive all `Seq` values that
+    use that allocator, including outputs produced by `seq_split_at`.
 - All `FTree` and `SeqNode` objects are allocated via the sequence allocator.
 - `seq_free` recursively frees every internal node.  Elements are `uint32_t`
   values, so no per-element payload is freed.

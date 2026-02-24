@@ -9,7 +9,10 @@
 #   make tsan         — build and test with ThreadSanitizer (implies THREADED=1)
 #   make bench        — build benchmark harness
 #   make bench-run    — run sorted-load benchmark harness
+#   make seq-bench    — build seq benchmark harness
+#   make seq-bench-run — run seq benchmark harness
 #   make bench-ci     — benchmark regression guardrail against baseline
+#   make seq-fuzz     — build and run seq libFuzzer model harness
 #   make wasm-lib     — build wasm32-wasi static library (requires WASI_SYSROOT)
 #   make wasm-check   — build wasm32-wasi smoke module (requires WASI_SYSROOT)
 #   make format       — apply clang-format to C sources
@@ -60,6 +63,10 @@ RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_examp
 #   THREADED=1        — enable thread-safe build (-DSAPLING_THREADED -lpthread)
 #   BENCH_COUNT=N     — entries per benchmark round (default 100000)
 #   BENCH_ROUNDS=N    — benchmark rounds (default 3)
+#   SEQ_FUZZ_RUNS=N   — seq-fuzz run budget (default 20000)
+#   SEQ_FUZZ_MAX_LEN=N — seq-fuzz max input length (default 4096)
+#   SEQ_FUZZ_CORPUS=DIR — writable seq-fuzz corpus directory (default .fuzz-corpus/seq)
+#   SEQ_FUZZ_SEED_CORPUS=DIR — optional read-only seed corpus (default tests/fuzz/corpus/seq)
 #   BENCH_BASELINE=F  — baseline file for bench-ci (default benchmarks/baseline.env)
 #   BENCH_ALLOWED_REGRESSION_PCT=N — override baseline regression budget
 #   RUNNER_PHASEE_BENCH_COUNT=N — message count for Phase E study benchmark
@@ -78,6 +85,7 @@ RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_examp
 #   WASM_TOOLS=BIN    — wasm-tools binary override
 
 CC       := /opt/homebrew/opt/llvm@21/bin/clang
+CXX      := /opt/homebrew/opt/llvm@21/bin/clang++
 CFLAGS   := -Wall -Wextra -Werror -std=c11
 INCLUDES := -Iinclude -Isrc -I.
 AR        = ar
@@ -101,7 +109,9 @@ LIB      = $(LIB_DIR)/libsapling.a
 TEST_BIN = $(BIN_DIR)/test_sapling
 TEST_SEQ_BIN = $(BIN_DIR)/test_seq
 BENCH_BIN = $(BIN_DIR)/bench_sapling
+BENCH_SEQ_BIN = $(BIN_DIR)/bench_seq
 STRESS_BIN = $(BIN_DIR)/fault_harness
+SEQ_FUZZ_BIN = $(BIN_DIR)/fuzz_seq
 RUNNER_WIRE_TEST_BIN = $(BIN_DIR)/runner_wire_test
 RUNNER_LIFECYCLE_TEST_BIN = $(BIN_DIR)/runner_lifecycle_test
 RUNNER_LIFECYCLE_TSAN_TEST_BIN = $(BIN_DIR)/runner_lifecycle_test_tsan
@@ -131,6 +141,16 @@ WASI_RUNTIME_TEST_BIN = $(BIN_DIR)/wasi_runtime_test
 WASI_SHIM_TEST_BIN = $(BIN_DIR)/wasi_shim_test
 BENCH_COUNT ?= 100000
 BENCH_ROUNDS ?= 3
+SEQ_FUZZ_RUNS ?= 20000
+SEQ_FUZZ_MAX_LEN ?= 4096
+SEQ_FUZZ_CORPUS ?= .fuzz-corpus/seq
+SEQ_FUZZ_SEED_CORPUS ?= tests/fuzz/corpus/seq
+SEQ_FUZZ_INPUT_CORPUS := $(if $(and $(wildcard $(SEQ_FUZZ_SEED_CORPUS)),$(filter-out $(SEQ_FUZZ_CORPUS),$(SEQ_FUZZ_SEED_CORPUS))),$(SEQ_FUZZ_SEED_CORPUS),)
+LLVM_SYMBOLIZER ?= $(shell command -v llvm-symbolizer 2>/dev/null || true)
+SEQ_FUZZ_CXXLIB_DIR ?= /opt/homebrew/opt/llvm@21/lib/c++
+comma := ,
+SEQ_FUZZ_CXXLIB_FLAGS := $(if $(wildcard $(SEQ_FUZZ_CXXLIB_DIR)),-L$(SEQ_FUZZ_CXXLIB_DIR) -Wl$(comma)-rpath$(comma)$(SEQ_FUZZ_CXXLIB_DIR) -lc++abi,)
+SEQ_FUZZ_SYMBOLIZER_ENV := $(if $(LLVM_SYMBOLIZER),ASAN_SYMBOLIZER_PATH=$(LLVM_SYMBOLIZER),)
 RUNNER_PHASEE_BENCH_COUNT ?= 5000
 RUNNER_PHASEE_BENCH_ROUNDS ?= 5
 RUNNER_PHASEE_BENCH_BATCH ?= 64
@@ -181,6 +201,8 @@ WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 
 CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o
 SEQ_OBJ := $(OBJ_DIR)/src/sapling/seq.o
+SEQ_TEST_OBJ := $(OBJ_DIR)/src/sapling/seq_test.o
+TEST_SEQ_OBJ := $(OBJ_DIR)/tests/unit/test_seq_seqtest.o
 COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
 RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
@@ -189,7 +211,7 @@ WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test seq-test debug asan asan-seq tsan bench bench-run bench-ci wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test seq-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run bench-ci seq-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -233,6 +255,22 @@ bench: $(BENCH_BIN)
 bench-run: CFLAGS += -O3 -g
 bench-run: $(BENCH_BIN)
 	./$(BENCH_BIN) --count $(BENCH_COUNT) --rounds $(BENCH_ROUNDS)
+
+seq-bench: CFLAGS += -O3 -g
+seq-bench: $(BENCH_SEQ_BIN)
+
+seq-bench-run: CFLAGS += -O3 -g
+seq-bench-run: $(BENCH_SEQ_BIN)
+	./$(BENCH_SEQ_BIN) --count $(BENCH_COUNT) --rounds $(BENCH_ROUNDS)
+
+seq-fuzz: CFLAGS += -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
+seq-fuzz: LDFLAGS += -fsanitize=fuzzer,address,undefined
+seq-fuzz:
+	@mkdir -p $(dir $(SEQ_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(SEQ_FUZZ_CORPUS)
+	$(CC) $(CFLAGS) $(INCLUDES) -c tests/fuzz/fuzz_seq.c -o $(OBJ_DIR)/tests/fuzz/fuzz_seq.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $(OBJ_DIR)/src/sapling/seq_fuzz.o
+	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_seq.o $(OBJ_DIR)/src/sapling/seq_fuzz.o -o $(SEQ_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
+	$(SEQ_FUZZ_SYMBOLIZER_ENV) ./$(SEQ_FUZZ_BIN) -runs=$(SEQ_FUZZ_RUNS) -max_len=$(SEQ_FUZZ_MAX_LEN) $(SEQ_FUZZ_CORPUS) $(SEQ_FUZZ_INPUT_CORPUS)
 
 bench-ci:
 	BENCH_COUNT="$(BENCH_COUNT)" \
@@ -282,17 +320,31 @@ $(TEST_BIN): $(OBJ_DIR)/tests/unit/test_sapling.o $(CORE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_sapling.o $(CORE_OBJS) -o $(TEST_BIN) $(LDFLAGS)
 
-$(TEST_SEQ_BIN): $(OBJ_DIR)/tests/unit/test_seq.o $(SEQ_OBJ)
+$(TEST_SEQ_OBJ): CFLAGS += -DSAPLING_SEQ_TESTING
+$(TEST_SEQ_OBJ): tests/unit/test_seq.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_seq.o $(SEQ_OBJ) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) -c tests/unit/test_seq.c -o $@
 
-seq-test: CFLAGS += -O2 -g -DSAPLING_SEQ_TESTING
+$(SEQ_TEST_OBJ): CFLAGS += -DSAPLING_SEQ_TESTING
+$(SEQ_TEST_OBJ): $(SEQ_SRC) $(SEQ_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $@
+
+$(TEST_SEQ_BIN): $(TEST_SEQ_OBJ) $(SEQ_TEST_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) $(TEST_SEQ_OBJ) $(SEQ_TEST_OBJ) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+
+seq-test: CFLAGS += -O2 -g
 seq-test: $(TEST_SEQ_BIN)
 	./$(TEST_SEQ_BIN)
 
 $(BENCH_BIN): $(OBJ_DIR)/benchmarks/bench_sapling.o $(CORE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_sapling.o $(CORE_OBJS) -o $(BENCH_BIN) $(LDFLAGS)
+
+$(BENCH_SEQ_BIN): $(OBJ_DIR)/benchmarks/bench_seq.o $(SEQ_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_seq.o $(SEQ_OBJ) -o $(BENCH_SEQ_BIN) $(LDFLAGS)
 
 $(STRESS_BIN): $(OBJ_DIR)/tests/stress/fault_harness.o $(OBJ_DIR)/src/common/fault_inject.o $(CORE_OBJS)
 	@mkdir -p $(dir $@)
@@ -578,7 +630,7 @@ phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-
 phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-recovery-test
 
 clean:
-	rm -rf $(BUILD_DIR) test_sapling test_seq bench_sapling fault_harness runner_wire_test \
+	rm -rf $(BUILD_DIR) test_sapling test_seq bench_sapling bench_seq fuzz_seq fault_harness runner_wire_test \
 		runner_lifecycle_test runner_lifecycle_test_tsan runner_txctx_test runner_txstack_test \
 		runner_attempt_test runner_attempt_handler_test runner_atomic_integration_test \
 		runner_recovery_integration_test runner_mailbox_test runner_dead_letter_test \

@@ -44,6 +44,14 @@ typedef struct Seq Seq;
 typedef void *(*SeqAllocFn)(void *ctx, size_t bytes);
 typedef void (*SeqFreeFn)(void *ctx, void *ptr);
 
+/*
+ * Allocator contract:
+ * - alloc_fn must return storage suitably aligned for any object type.
+ * - alloc_fn returns NULL on allocation failure.
+ * - free_fn must accept pointers previously returned by alloc_fn.
+ * - ctx and allocator function pointers must remain valid for the lifetime
+ *   of the sequence (including outputs produced by seq_split_at).
+ */
 typedef struct SeqAllocator
 {
     SeqAllocFn alloc_fn;
@@ -64,6 +72,8 @@ Seq *seq_new(void);
 /*
  * seq_new_with_allocator — allocate an empty sequence using allocator.
  * If allocator is NULL, the default malloc/free allocator is used.
+ * Sequences can only be concatenated when their allocator triples
+ * (alloc_fn, free_fn, ctx) are identical.
  * Returns NULL on allocation failure or invalid allocator function pointers.
  */
 Seq *seq_new_with_allocator(const SeqAllocator *allocator);

@@ -85,6 +85,13 @@ typedef struct
     size_t free_calls;
 } CountingAllocatorStats;
 
+typedef struct
+{
+    uint32_t *data;
+    size_t    len;
+    size_t    cap;
+} ModelVec;
+
 static void *counting_alloc(void *ctx, size_t bytes)
 {
     CountingAllocatorStats *stats = (CountingAllocatorStats *)ctx;
@@ -100,6 +107,131 @@ static void counting_free(void *ctx, void *ptr)
         stats->free_calls++;
         free(ptr);
     }
+}
+
+static void model_init(ModelVec *m)
+{
+    m->data = NULL;
+    m->len  = 0;
+    m->cap  = 0;
+}
+
+static void model_free(ModelVec *m)
+{
+    free(m->data);
+    m->data = NULL;
+    m->len  = 0;
+    m->cap  = 0;
+}
+
+static int model_reserve(ModelVec *m, size_t need)
+{
+    if (need <= m->cap)
+        return 1;
+
+    size_t new_cap = (m->cap > 0) ? m->cap : 16;
+    while (new_cap < need)
+    {
+        if (new_cap > SIZE_MAX / 2)
+            new_cap = need;
+        else
+            new_cap *= 2;
+    }
+    if (new_cap > SIZE_MAX / sizeof(uint32_t))
+        return 0;
+
+    uint32_t *next = (uint32_t *)realloc(m->data, new_cap * sizeof(uint32_t));
+    if (!next)
+        return 0;
+    m->data = next;
+    m->cap  = new_cap;
+    return 1;
+}
+
+static int model_push_back(ModelVec *m, uint32_t v)
+{
+    if (!model_reserve(m, m->len + 1))
+        return 0;
+    m->data[m->len++] = v;
+    return 1;
+}
+
+static int model_push_front(ModelVec *m, uint32_t v)
+{
+    if (!model_reserve(m, m->len + 1))
+        return 0;
+    memmove(&m->data[1], &m->data[0], m->len * sizeof(uint32_t));
+    m->data[0] = v;
+    m->len++;
+    return 1;
+}
+
+static int model_pop_back(ModelVec *m, uint32_t *out)
+{
+    if (m->len == 0)
+        return 0;
+    *out = m->data[m->len - 1];
+    m->len--;
+    return 1;
+}
+
+static int model_pop_front(ModelVec *m, uint32_t *out)
+{
+    if (m->len == 0)
+        return 0;
+    *out = m->data[0];
+    memmove(&m->data[0], &m->data[1], (m->len - 1) * sizeof(uint32_t));
+    m->len--;
+    return 1;
+}
+
+static int model_concat(ModelVec *dst, const ModelVec *src)
+{
+    if (!model_reserve(dst, dst->len + src->len))
+        return 0;
+    memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
+    dst->len += src->len;
+    return 1;
+}
+
+static uint32_t prng_u32(uint64_t *state)
+{
+    uint64_t x = *state;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    *state = x;
+    return (uint32_t)((x * 2685821657736338717ULL) >> 32);
+}
+
+static int seq_matches_model(Seq *seq, const ModelVec *model)
+{
+    if (seq_length(seq) != model->len)
+        return 0;
+    for (size_t i = 0; i < model->len; i++)
+    {
+        uint32_t out = 0;
+        if (seq_get(seq, i, &out) != SEQ_OK)
+            return 0;
+        if (out != model->data[i])
+            return 0;
+    }
+    return 1;
+}
+
+static int seq_matches_model_slice(Seq *seq, const ModelVec *model, size_t off, size_t n)
+{
+    if (seq_length(seq) != n)
+        return 0;
+    for (size_t i = 0; i < n; i++)
+    {
+        uint32_t out = 0;
+        if (seq_get(seq, i, &out) != SEQ_OK)
+            return 0;
+        if (out != model->data[off + i])
+            return 0;
+    }
+    return 1;
 }
 
 typedef struct
@@ -864,6 +996,185 @@ static void test_split_concat_identity(void)
     seq_free(r);
 }
 
+static void test_model_randomized(void)
+{
+    SECTION("model-based randomized operations");
+    enum
+    {
+        RUNS         = 6,
+        OPS_PER_RUN  = 12000,
+        MAX_MODEL_LEN = 1024
+    };
+
+    for (int run = 0; run < RUNS; run++)
+    {
+        uint64_t seed = 0x9E3779B97F4A7C15ULL ^ ((uint64_t)(run + 1) * 0xD1B54A32D192ED03ULL);
+        Seq     *seq  = seq_new();
+        ModelVec model;
+
+        model_init(&model);
+        CHECK(seq != NULL);
+        if (!seq)
+        {
+            model_free(&model);
+            continue;
+        }
+
+        for (int step = 0; step < OPS_PER_RUN; step++)
+        {
+            uint32_t choice = prng_u32(&seed) % 12;
+            if (model.len > MAX_MODEL_LEN)
+                choice = 2 + (prng_u32(&seed) % 2); /* pop to keep size bounded */
+
+            switch (choice)
+            {
+            case 0: /* push_front */
+            {
+                uint32_t v = prng_u32(&seed);
+                CHECK(seq_push_front(seq, v) == SEQ_OK);
+                CHECK(model_push_front(&model, v));
+                break;
+            }
+            case 1: /* push_back */
+            {
+                uint32_t v = prng_u32(&seed);
+                CHECK(seq_push_back(seq, v) == SEQ_OK);
+                CHECK(model_push_back(&model, v));
+                break;
+            }
+            case 2: /* pop_front */
+            {
+                uint32_t got = 0;
+                uint32_t exp = 0;
+                if (model.len == 0)
+                {
+                    CHECK(seq_pop_front(seq, &got) == SEQ_EMPTY);
+                }
+                else
+                {
+                    CHECK(seq_pop_front(seq, &got) == SEQ_OK);
+                    CHECK(model_pop_front(&model, &exp));
+                    CHECK(got == exp);
+                }
+                break;
+            }
+            case 3: /* pop_back */
+            {
+                uint32_t got = 0;
+                uint32_t exp = 0;
+                if (model.len == 0)
+                {
+                    CHECK(seq_pop_back(seq, &got) == SEQ_EMPTY);
+                }
+                else
+                {
+                    CHECK(seq_pop_back(seq, &got) == SEQ_OK);
+                    CHECK(model_pop_back(&model, &exp));
+                    CHECK(got == exp);
+                }
+                break;
+            }
+            case 4: /* get (in-range/out-of-range mix) */
+            {
+                uint32_t out = 0;
+                if (model.len > 0 && (prng_u32(&seed) & 1u))
+                {
+                    size_t idx = (size_t)(prng_u32(&seed) % model.len);
+                    CHECK(seq_get(seq, idx, &out) == SEQ_OK);
+                    CHECK(out == model.data[idx]);
+                }
+                else
+                {
+                    size_t idx = model.len + (size_t)(prng_u32(&seed) % 4u);
+                    CHECK(seq_get(seq, idx, &out) == SEQ_RANGE);
+                }
+                break;
+            }
+            case 5: /* split and re-concat into original seq */
+            {
+                size_t idx = (model.len == 0) ? 0 : (size_t)(prng_u32(&seed) % (model.len + 1));
+                Seq   *l   = NULL;
+                Seq   *r   = NULL;
+                CHECK(seq_split_at(seq, idx, &l, &r) == SEQ_OK);
+                CHECK(l != NULL && r != NULL);
+                if (l && r)
+                {
+                    CHECK(seq_length(seq) == 0);
+                    CHECK(seq_matches_model_slice(l, &model, 0, idx));
+                    CHECK(seq_matches_model_slice(r, &model, idx, model.len - idx));
+                    CHECK(seq_concat(seq, l) == SEQ_OK);
+                    CHECK(seq_concat(seq, r) == SEQ_OK);
+                }
+                seq_free(l);
+                seq_free(r);
+                break;
+            }
+            case 6: /* concat with random chunk */
+            {
+                Seq     *chunk = seq_new();
+                ModelVec chunk_model;
+                size_t   n = (size_t)(prng_u32(&seed) % 9u);
+
+                model_init(&chunk_model);
+                CHECK(chunk != NULL);
+                if (!chunk)
+                {
+                    model_free(&chunk_model);
+                    break;
+                }
+
+                for (size_t i = 0; i < n; i++)
+                {
+                    uint32_t v = prng_u32(&seed);
+                    if (prng_u32(&seed) & 1u)
+                    {
+                        CHECK(seq_push_front(chunk, v) == SEQ_OK);
+                        CHECK(model_push_front(&chunk_model, v));
+                    }
+                    else
+                    {
+                        CHECK(seq_push_back(chunk, v) == SEQ_OK);
+                        CHECK(model_push_back(&chunk_model, v));
+                    }
+                }
+
+                CHECK(seq_concat(seq, chunk) == SEQ_OK);
+                CHECK(model_concat(&model, &chunk_model));
+                seq_free(chunk);
+                model_free(&chunk_model);
+                break;
+            }
+            case 7: /* reset */
+                CHECK(seq_reset(seq) == SEQ_OK);
+                model.len = 0;
+                break;
+            case 8: /* split out-of-range */
+            {
+                Seq *l = (Seq *)(uintptr_t)1;
+                Seq *r = (Seq *)(uintptr_t)2;
+                CHECK(seq_split_at(seq, model.len + 1, &l, &r) == SEQ_RANGE);
+                CHECK(l == (Seq *)(uintptr_t)1);
+                CHECK(r == (Seq *)(uintptr_t)2);
+                break;
+            }
+            default: /* periodic full model check trigger */
+                break;
+            }
+
+            if ((step % 64) == 0)
+            {
+                CHECK(seq_is_valid(seq) == 1);
+                CHECK(seq_matches_model(seq, &model));
+            }
+        }
+
+        CHECK(seq_is_valid(seq) == 1);
+        CHECK(seq_matches_model(seq, &model));
+        seq_free(seq);
+        model_free(&model);
+    }
+}
+
 static void test_invalid_args(void)
 {
     SECTION("invalid argument handling");
@@ -1216,6 +1527,7 @@ int main(void)
     test_mixed_ops();
     test_concat_many();
     test_split_concat_identity();
+    test_model_randomized();
     test_invalid_args();
 #ifdef SAPLING_SEQ_TESTING
     test_fault_injection_push();

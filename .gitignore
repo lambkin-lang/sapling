@@ -82,3 +82,11 @@ _codeql_detected_source_root
 
 # Build directory
 build/
+
+# Local fuzz corpora and crash artifacts
+.fuzz-corpus/
+
+# Keep checked-in seq fuzz seed corpus stable; ignore evolved local files
+tests/fuzz/corpus/seq/*
+!tests/fuzz/corpus/seq/.gitignore
+!tests/fuzz/corpus/seq/seed_*.bin
