@@ -284,6 +284,7 @@ static void test_invalid_args(void)
     Text *text = text_new();
     Text *l = NULL;
     Text *r = NULL;
+    TextHandle handle = 0;
     uint32_t out = 0;
     size_t utf8_len = 0;
 
@@ -292,18 +293,29 @@ static void test_invalid_args(void)
     CHECK(text_reset(NULL) == SEQ_INVALID);
     CHECK(text_push_front(NULL, 1u) == SEQ_INVALID);
     CHECK(text_push_back(NULL, 1u) == SEQ_INVALID);
+    CHECK(text_push_front_handle(NULL, 1u) == SEQ_INVALID);
+    CHECK(text_push_back_handle(NULL, 1u) == SEQ_INVALID);
     CHECK(text_pop_front(NULL, &out) == SEQ_INVALID);
     CHECK(text_pop_back(NULL, &out) == SEQ_INVALID);
+    CHECK(text_pop_front_handle(NULL, &handle) == SEQ_INVALID);
+    CHECK(text_pop_back_handle(NULL, &handle) == SEQ_INVALID);
+    CHECK(text_get_handle(NULL, 0, &handle) == SEQ_INVALID);
     CHECK(text_get(NULL, 0, &out) == SEQ_INVALID);
     CHECK(text_get(text, 0, NULL) == SEQ_INVALID);
+    CHECK(text_get_handle(text, 0, NULL) == SEQ_INVALID);
     CHECK(text_set(NULL, 0, 1u) == SEQ_INVALID);
+    CHECK(text_set_handle(NULL, 0, 1u) == SEQ_INVALID);
     CHECK(text_insert(text, 1, 1u) == SEQ_RANGE);
+    CHECK(text_insert_handle(NULL, 0, 1u) == SEQ_INVALID);
     CHECK(text_delete(text, 0, &out) == SEQ_RANGE);
+    CHECK(text_delete_handle(NULL, 0, &handle) == SEQ_INVALID);
     CHECK(text_concat(text, NULL) == SEQ_INVALID);
     CHECK(text_concat(NULL, text) == SEQ_INVALID);
     CHECK(text_split_at(NULL, 0, &l, &r) == SEQ_INVALID);
     CHECK(text_split_at(text, 0, NULL, &r) == SEQ_INVALID);
     CHECK(text_split_at(text, 0, &l, NULL) == SEQ_INVALID);
+    CHECK(text_handle_from_codepoint(0x41u, NULL) == SEQ_INVALID);
+    CHECK(text_handle_to_codepoint(0u, NULL) == SEQ_INVALID);
     CHECK(text_from_utf8(NULL, (const uint8_t *)"a", 1) == SEQ_INVALID);
     CHECK(text_from_utf8(text, NULL, 1) == SEQ_INVALID);
     CHECK(text_utf8_length(NULL, &utf8_len) == SEQ_INVALID);
@@ -419,6 +431,72 @@ static void test_codepoint_validation(void)
     text_free(text);
 }
 
+static void test_handle_codec(void)
+{
+    SECTION("handle codec");
+    TextHandle cp_handle = 0;
+    TextHandle lit_handle = 0;
+    uint32_t   cp = 0;
+
+    CHECK(text_handle_from_codepoint(0x1F642u, &cp_handle) == SEQ_OK);
+    CHECK(text_handle_kind(cp_handle) == TEXT_HANDLE_CODEPOINT);
+    CHECK(text_handle_payload(cp_handle) == 0x1F642u);
+    CHECK(text_handle_is_codepoint(cp_handle) == 1);
+    CHECK(text_handle_to_codepoint(cp_handle, &cp) == SEQ_OK && cp == 0x1F642u);
+
+    lit_handle = text_handle_make(TEXT_HANDLE_LITERAL, 77u);
+    CHECK(text_handle_kind(lit_handle) == TEXT_HANDLE_LITERAL);
+    CHECK(text_handle_payload(lit_handle) == 77u);
+    CHECK(text_handle_is_codepoint(lit_handle) == 0);
+    CHECK(text_handle_to_codepoint(lit_handle, &cp) == SEQ_INVALID);
+
+    CHECK(text_handle_from_codepoint(0x110000u, &cp_handle) == SEQ_INVALID);
+    CHECK(text_handle_from_codepoint(0xD800u, &cp_handle) == SEQ_INVALID);
+    CHECK(text_handle_to_codepoint(text_handle_make(TEXT_HANDLE_CODEPOINT, 0xD800u), &cp) ==
+          SEQ_INVALID);
+}
+
+static void test_handle_apis_and_strict_codepoint_wrappers(void)
+{
+    SECTION("handle apis + strict codepoint wrappers");
+    Text      *text = text_new();
+    TextHandle cp_handle = 0;
+    TextHandle lit_handle = text_handle_make(TEXT_HANDLE_LITERAL, 21u);
+    TextHandle tree_handle = text_handle_make(TEXT_HANDLE_TREE, 42u);
+    TextHandle out_h = 0;
+    uint32_t   cp = 0;
+    size_t     need = 0;
+
+    CHECK(text != NULL);
+    CHECK(text_handle_from_codepoint(0x41u, &cp_handle) == SEQ_OK);
+    CHECK(text_push_back_handle(text, cp_handle) == SEQ_OK);
+    CHECK(text_push_back_handle(text, lit_handle) == SEQ_OK);
+    CHECK(text_push_back_handle(text, tree_handle) == SEQ_OK);
+    CHECK(text_push_back_handle(text, text_handle_make(TEXT_HANDLE_RESERVED, 1u)) ==
+          SEQ_INVALID);
+    CHECK(text_length(text) == 3);
+
+    CHECK(text_get_handle(text, 1, &out_h) == SEQ_OK && out_h == lit_handle);
+    CHECK(text_get(text, 0, &cp) == SEQ_OK && cp == 0x41u);
+    CHECK(text_get(text, 1, &cp) == SEQ_INVALID);
+    CHECK(text_utf8_length(text, &need) == SEQ_INVALID);
+
+    CHECK(text_pop_front(text, &cp) == SEQ_OK && cp == 0x41u);
+    CHECK(text_pop_front(text, &cp) == SEQ_INVALID);
+    CHECK(text_length(text) == 2);
+    CHECK(text_pop_front_handle(text, &out_h) == SEQ_OK && out_h == lit_handle);
+    CHECK(text_pop_front_handle(text, &out_h) == SEQ_OK && out_h == tree_handle);
+    CHECK(text_pop_front_handle(text, &out_h) == SEQ_EMPTY);
+
+    CHECK(text_insert_handle(text, 0, lit_handle) == SEQ_OK);
+    CHECK(text_delete(text, 0, &cp) == SEQ_INVALID);
+    CHECK(text_length(text) == 1);
+    CHECK(text_delete_handle(text, 0, &out_h) == SEQ_OK && out_h == lit_handle);
+    CHECK(text_length(text) == 0);
+
+    text_free(text);
+}
+
 static void test_arena_allocator_exhaustion(void)
 {
     SECTION("arena allocator exhaustion");
@@ -427,6 +505,7 @@ static void test_arena_allocator_exhaustion(void)
     SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
     Text        *text = text_new_with_allocator(&allocator);
     int          saw_oom = 0;
+    uint32_t     out = 0;
 
     CHECK(text != NULL);
     for (size_t i = 0; i < 4096; i++)
@@ -441,6 +520,8 @@ static void test_arena_allocator_exhaustion(void)
     CHECK(saw_oom == 1);
     CHECK(text_is_valid(text) == 0);
     CHECK(text_push_back(text, 0x41u) == SEQ_INVALID);
+    CHECK(text_pop_front(text, &out) == SEQ_INVALID);
+    CHECK(text_pop_back(text, &out) == SEQ_INVALID);
     CHECK(text_reset(text) != SEQ_OK);
 
     text_free(text);
@@ -461,6 +542,8 @@ int main(void)
     test_utf8_decode_rejects_invalid();
     test_utf8_buffer_contract();
     test_codepoint_validation();
+    test_handle_codec();
+    test_handle_apis_and_strict_codepoint_wrappers();
     test_arena_allocator_exhaustion();
 
     print_summary();

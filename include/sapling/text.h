@@ -18,6 +18,37 @@
 /* Opaque text handle. */
 typedef struct Text Text;
 
+/* ------------------------------------------------------------------ */
+/* Tagged text element handles                                         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Text stores leaves as uint32_t handles:
+ * - CODEPOINT: payload is a Unicode scalar value
+ * - LITERAL: payload is runtime-defined literal-table id
+ * - TREE: payload is runtime-defined subtree/COW id
+ */
+typedef uint32_t TextHandle;
+
+typedef enum TextHandleKind
+{
+    TEXT_HANDLE_CODEPOINT = 0u,
+    TEXT_HANDLE_LITERAL = 1u,
+    TEXT_HANDLE_TREE = 2u,
+    TEXT_HANDLE_RESERVED = 3u
+} TextHandleKind;
+
+#define TEXT_HANDLE_TAG_SHIFT 30u
+#define TEXT_HANDLE_TAG_MASK 0xC0000000u
+#define TEXT_HANDLE_PAYLOAD_MASK 0x3FFFFFFFu
+
+TextHandle    text_handle_make(TextHandleKind kind, uint32_t payload);
+TextHandleKind text_handle_kind(TextHandle handle);
+uint32_t      text_handle_payload(TextHandle handle);
+int           text_handle_from_codepoint(uint32_t codepoint, TextHandle *handle_out);
+int           text_handle_to_codepoint(TextHandle handle, uint32_t *codepoint_out);
+int           text_handle_is_codepoint(TextHandle handle);
+
 /* Lifecycle */
 Text *text_new(void);
 /*
@@ -30,8 +61,18 @@ void  text_free(Text *text);
 int   text_is_valid(const Text *text);
 int   text_reset(Text *text);
 
-/* Length in code points. */
+/* Length in stored leaves (code points when only CODEPOINT handles are present). */
 size_t text_length(const Text *text);
+
+/* Raw tagged-handle operations (element-count semantics). */
+int text_push_front_handle(Text *text, TextHandle handle);
+int text_push_back_handle(Text *text, TextHandle handle);
+int text_pop_front_handle(Text *text, TextHandle *out);
+int text_pop_back_handle(Text *text, TextHandle *out);
+int text_get_handle(const Text *text, size_t idx, TextHandle *out);
+int text_set_handle(Text *text, size_t idx, TextHandle handle);
+int text_insert_handle(Text *text, size_t idx, TextHandle handle);
+int text_delete_handle(Text *text, size_t idx, TextHandle *out);
 
 /* End operations */
 int text_push_front(Text *text, uint32_t codepoint);
@@ -58,7 +99,7 @@ int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out);
  * UTF-8 bridge (strict):
  * - Decoding rejects invalid UTF-8 (including overlong forms, surrogates,
  *   and code points > U+10FFFF).
- * - Encoding rejects invalid stored code points.
+ * - Encoding rejects non-codepoint handles and invalid code-point payloads.
  * - text_to_utf8 writes into caller-provided storage; it never allocates.
  */
 int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len);
