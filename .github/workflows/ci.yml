@@ -19,9 +19,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cppcheck clang clang-format clang-tidy
           # Install wasm-tools
-          curl -LO https://github.com/bytecodealliance/wasm-tools/releases/download/wasm-tools-1.201.0/wasm-tools-1.201.0-x86_64-linux.tar.gz
-          tar xzf wasm-tools-1.201.0-x86_64-linux.tar.gz
-          sudo mv wasm-tools-1.201.0-x86_64-linux/wasm-tools /usr/local/bin/
+          set -euo pipefail
+          WASM_TOOLS_VERSION=1.201.0
+          BASE_URL="https://github.com/bytecodealliance/wasm-tools/releases/download/wasm-tools-${WASM_TOOLS_VERSION}"
+          ARCHIVE=""
+          for candidate in \
+            "wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux.tar.gz" \
+            "wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux-musl.tar.gz"; do
+            if curl -fL -O "${BASE_URL}/${candidate}"; then
+              ARCHIVE="${candidate}"
+              break
+            fi
+          done
+          if [ -z "${ARCHIVE}" ]; then
+            echo "Failed to download wasm-tools ${WASM_TOOLS_VERSION} for Linux x86_64"
+            exit 1
+          fi
+          tar xzf "${ARCHIVE}"
+          EXTRACT_DIR="${ARCHIVE%.tar.gz}"
+          sudo mv "${EXTRACT_DIR}/wasm-tools" /usr/local/bin/
 
       - name: Build and test
         run: make test CC=clang
