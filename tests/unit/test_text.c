@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -251,6 +252,7 @@ static void test_invalid_args(void)
     Text *l = NULL;
     Text *r = NULL;
     uint32_t out = 0;
+    size_t utf8_len = 0;
 
     CHECK(text != NULL);
     CHECK(text_is_valid(NULL) == 0);
@@ -269,6 +271,117 @@ static void test_invalid_args(void)
     CHECK(text_split_at(NULL, 0, &l, &r) == SEQ_INVALID);
     CHECK(text_split_at(text, 0, NULL, &r) == SEQ_INVALID);
     CHECK(text_split_at(text, 0, &l, NULL) == SEQ_INVALID);
+    CHECK(text_from_utf8(NULL, (const uint8_t *)"a", 1) == SEQ_INVALID);
+    CHECK(text_from_utf8(text, NULL, 1) == SEQ_INVALID);
+    CHECK(text_utf8_length(NULL, &utf8_len) == SEQ_INVALID);
+    CHECK(text_utf8_length(text, NULL) == SEQ_INVALID);
+    CHECK(text_to_utf8(NULL, (uint8_t *)&out, 1, &utf8_len) == SEQ_INVALID);
+    CHECK(text_to_utf8(text, NULL, 1, &utf8_len) == SEQ_INVALID);
+    CHECK(text_to_utf8(text, (uint8_t *)&out, 1, NULL) == SEQ_INVALID);
+
+    text_free(text);
+}
+
+static void test_utf8_round_trip(void)
+{
+    SECTION("utf8 round trip");
+    Text *text = text_new();
+    const uint8_t utf8[] = {
+        0x41u,                   /* A */
+        0xC3u, 0xA9u,            /* e-acute */
+        0xE2u, 0x82u, 0xACu,     /* euro */
+        0xF0u, 0x9Fu, 0x99u, 0x82u /* 🙂 */
+    };
+    uint8_t out[16];
+    size_t need = 0;
+    size_t wrote = 0;
+    uint32_t cp = 0;
+
+    CHECK(text != NULL);
+    CHECK(text_from_utf8(text, utf8, sizeof(utf8)) == SEQ_OK);
+    CHECK(text_length(text) == 4);
+    CHECK(text_get(text, 0, &cp) == SEQ_OK && cp == 0x41u);
+    CHECK(text_get(text, 1, &cp) == SEQ_OK && cp == 0xE9u);
+    CHECK(text_get(text, 2, &cp) == SEQ_OK && cp == 0x20ACu);
+    CHECK(text_get(text, 3, &cp) == SEQ_OK && cp == 0x1F642u);
+
+    CHECK(text_utf8_length(text, &need) == SEQ_OK);
+    CHECK(need == sizeof(utf8));
+    CHECK(text_to_utf8(text, out, sizeof(out), &wrote) == SEQ_OK);
+    CHECK(wrote == sizeof(utf8));
+    CHECK(memcmp(out, utf8, sizeof(utf8)) == 0);
+
+    text_free(text);
+}
+
+static void test_utf8_decode_rejects_invalid(void)
+{
+    SECTION("utf8 decode rejects invalid");
+    Text *text = text_new();
+    uint32_t before[] = {0x61u, 0x62u};
+    const uint8_t overlong[] = {0xC0u, 0xAFu};
+    const uint8_t truncated[] = {0xE2u, 0x82u};
+    const uint8_t surrogate[] = {0xEDu, 0xA0u, 0x80u};
+    const uint8_t bad_cont[] = {0xE2u, 0x28u, 0xA1u};
+
+    CHECK(text != NULL);
+    CHECK(text_push_back(text, before[0]) == SEQ_OK);
+    CHECK(text_push_back(text, before[1]) == SEQ_OK);
+
+    CHECK(text_from_utf8(text, overlong, sizeof(overlong)) == SEQ_INVALID);
+    CHECK(text_equals_array(text, before, 2));
+
+    CHECK(text_from_utf8(text, truncated, sizeof(truncated)) == SEQ_INVALID);
+    CHECK(text_equals_array(text, before, 2));
+
+    CHECK(text_from_utf8(text, surrogate, sizeof(surrogate)) == SEQ_INVALID);
+    CHECK(text_equals_array(text, before, 2));
+
+    CHECK(text_from_utf8(text, bad_cont, sizeof(bad_cont)) == SEQ_INVALID);
+    CHECK(text_equals_array(text, before, 2));
+
+    text_free(text);
+}
+
+static void test_utf8_buffer_contract(void)
+{
+    SECTION("utf8 output buffer contract");
+    uint32_t vals[] = {0x41u, 0x20ACu};
+    Text    *text = text_from_array(vals, 2);
+    uint8_t  out[4];
+    size_t   need = 0;
+    size_t   wrote = 0;
+
+    CHECK(text != NULL);
+    CHECK(text_utf8_length(text, &need) == SEQ_OK);
+    CHECK(need == 4u);
+
+    CHECK(text_to_utf8(text, out, 3u, &wrote) == SEQ_RANGE);
+    CHECK(wrote == 4u);
+
+    CHECK(text_to_utf8(text, NULL, 0u, &wrote) == SEQ_RANGE);
+    CHECK(wrote == 4u);
+
+    CHECK(text_to_utf8(text, out, sizeof(out), &wrote) == SEQ_OK);
+    CHECK(wrote == 4u);
+    CHECK(out[0] == 0x41u);
+    CHECK(out[1] == 0xE2u && out[2] == 0x82u && out[3] == 0xACu);
+
+    text_free(text);
+}
+
+static void test_codepoint_validation(void)
+{
+    SECTION("codepoint validation");
+    uint32_t base[] = {0x61u, 0x62u};
+    Text    *text = text_from_array(base, 2);
+
+    CHECK(text != NULL);
+    CHECK(text_push_back(text, 0x110000u) == SEQ_INVALID);
+    CHECK(text_push_front(text, 0xD800u) == SEQ_INVALID);
+    CHECK(text_set(text, 0, 0x110000u) == SEQ_INVALID);
+    CHECK(text_insert(text, 1, 0xDFFFu) == SEQ_INVALID);
+    CHECK(text_equals_array(text, base, 2));
 
     text_free(text);
 }
@@ -284,6 +397,10 @@ int main(void)
     test_split_range_contract();
     test_custom_allocator();
     test_invalid_args();
+    test_utf8_round_trip();
+    test_utf8_decode_rejects_invalid();
+    test_utf8_buffer_contract();
+    test_codepoint_validation();
 
     print_summary();
     return g_fail ? 1 : 0;

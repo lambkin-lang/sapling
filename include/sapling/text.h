@@ -49,4 +49,14 @@ int text_delete(Text *text, size_t idx, uint32_t *out);
 int text_concat(Text *dest, Text *src);
 int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out);
 
+/*
+ * UTF-8 bridge (strict):
+ * - Decoding rejects invalid UTF-8 (including overlong forms, surrogates,
+ *   and code points > U+10FFFF).
+ * - Encoding rejects invalid stored code points.
+ */
+int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len);
+int text_utf8_length(const Text *text, size_t *utf8_len_out);
+int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_len_out);
+
 #endif /* SAPLING_TEXT_H */
