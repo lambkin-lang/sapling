@@ -56,6 +56,7 @@ dkms.conf
 
 # Sapling build artifacts
 test_sapling
+test_text
 test_seq
 bench_sapling
 fault_harness
