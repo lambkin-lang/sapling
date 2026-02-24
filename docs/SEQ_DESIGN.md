@@ -36,7 +36,7 @@ Deep { prefix: Digit, mid: FingerTree(d+1), suffix: Digit }
 A **Digit** holds 1–4 items inline (no separate allocation).
 
 An **item** at depth *d* is:
-- `d == 0` — a user `void *` (leaf element, measure = 1)
+- `d == 0` — a `uint32_t` handle (leaf element, measure = 1)
 - `d  > 0` — a `SeqNode *` whose `size` field caches the total number of
   leaves beneath it (measure = `node->size`)
 
@@ -98,6 +98,9 @@ handles the 2/3/4-item tail without leaving a remainder of 1.
 Both input trees are **consumed** (one shell is reused for the result, the
 other is freed).
 
+API note: `seq_concat` requires distinct sequence objects (`dest != src`);
+self-concat is rejected with `SEQ_INVALID`.
+
 ## Split
 
 `seq_split_at(seq, idx, &left, &right)` produces `left = [0, idx)` and
@@ -123,14 +126,25 @@ the `[idx, n)` contract.
 ## Memory Management
 
 - All `FTree` and `SeqNode` objects are heap-allocated with `malloc`.
-- `seq_free` recursively frees every internal node.  User data (`void *`
-  elements) are **never** freed.
+- `seq_free` recursively frees every internal node.  Elements are `uint32_t`
+  values, so no per-element payload is freed.
 - Operations that "consume" a tree (concat, split) either reuse the shell
   in place or free it immediately; nodes are transferred, not copied.
 - There is no structural sharing, so `seq_free` never double-frees.
 - On allocation failure `seq_push_front` / `seq_push_back` return `SEQ_OOM`.
-  Larger operations (`seq_concat`, `seq_split_at`) use `assert` for internal
-  allocations; the sequence should be considered invalid after an OOM there.
+  `seq_concat` / `seq_split_at` return `SEQ_OOM` instead of aborting; the
+  involved sequence object(s) may become invalid and subsequently return
+  `SEQ_INVALID`.
+- `seq_is_valid()` reports whether a sequence is still usable.
+- `seq_reset()` reinitializes a sequence to an empty valid state.
+- For invalid sequences, cleanup/reset prioritizes safety over full reclaim;
+  some internal allocations may be unrecoverable.
+
+### Test fault injection
+
+When compiled with `SAPLING_SEQ_TESTING`, the implementation exposes test hooks
+to fail allocations deterministically (`seq_test_fail_alloc_after`,
+`seq_test_clear_alloc_fail`).
 
 ## Thread Safety
 

@@ -48,13 +48,13 @@ static void print_summary(void)
  * Verify that seq contains exactly the values val[0..n-1] by indexed
  * lookup and by iterative pop-front.
  */
-static int seq_equals_array(Seq *seq, void **val, size_t n)
+static int seq_equals_array(Seq *seq, uint32_t *val, size_t n)
 {
     if (seq_length(seq) != n)
         return 0;
     for (size_t i = 0; i < n; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         if (seq_get(seq, i, &out) != SEQ_OK)
             return 0;
         if (out != val[i])
@@ -64,7 +64,7 @@ static int seq_equals_array(Seq *seq, void **val, size_t n)
 }
 
 /* Build a seq from val[0..n-1] by push_back. */
-static Seq *seq_from_array(void **val, size_t n)
+static Seq *seq_from_array(uint32_t *val, size_t n)
 {
     Seq *s = seq_new();
     assert(s);
@@ -73,10 +73,10 @@ static Seq *seq_from_array(void **val, size_t n)
     return s;
 }
 
-/* Convenience: cast int index to void* */
-static inline void *ip(size_t i)
+/* Convenience: cast int index to uint32_t handle */
+static inline uint32_t ip(size_t i)
 {
-    return (void *)(uintptr_t)i;
+    return (uint32_t)i;
 }
 
 /* ================================================================== */
@@ -90,7 +90,7 @@ static void test_empty(void)
     CHECK(s != NULL);
     CHECK(seq_length(s) == 0);
 
-    void *out = NULL;
+    uint32_t out = 0;
     CHECK(seq_pop_front(s, &out) == SEQ_EMPTY);
     CHECK(seq_pop_back(s, &out) == SEQ_EMPTY);
     CHECK(seq_get(s, 0, &out) == SEQ_RANGE);
@@ -102,12 +102,12 @@ static void test_single(void)
 {
     SECTION("single element");
     Seq  *s   = seq_new();
-    void *ptr = ip(42);
+    uint32_t ptr = ip(42);
 
     CHECK(seq_push_back(s, ptr) == SEQ_OK);
     CHECK(seq_length(s) == 1);
 
-    void *out = NULL;
+    uint32_t out = 0;
     CHECK(seq_get(s, 0, &out) == SEQ_OK);
     CHECK(out == ptr);
 
@@ -137,7 +137,7 @@ static void test_push_pop_front(void)
 
     for (size_t i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_get(s, i, &out) == SEQ_OK);
         CHECK(out == ip(N - 1 - i));
     }
@@ -145,7 +145,7 @@ static void test_push_pop_front(void)
     /* Pop from front; should come out N-1 down to 0 */
     for (size_t i = N; i > 0; i--)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_pop_front(s, &out) == SEQ_OK);
         CHECK(out == ip(i - 1));
     }
@@ -171,7 +171,7 @@ static void test_push_pop_back(void)
     /* Pop from back; should come out N-1 down to 0 */
     for (size_t i = N; i > 0; i--)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_pop_back(s, &out) == SEQ_OK);
         CHECK(out == ip(i - 1));
     }
@@ -198,10 +198,10 @@ static void test_alternating_push(void)
     CHECK(seq_length(s) == N);
 
     /* Reconstruct via pop_front to verify ordering */
-    void *popped[N];
+    uint32_t popped[N];
     for (int i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_pop_front(s, &out) == SEQ_OK);
         popped[i] = out;
     }
@@ -237,11 +237,11 @@ static void test_get(void)
 
     for (size_t i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_get(s, i, &out) == SEQ_OK);
         CHECK(out == ip(i));
     }
-    CHECK(seq_get(s, N, &(void *){NULL}) == SEQ_RANGE);
+    CHECK(seq_get(s, N, &(uint32_t){0}) == SEQ_RANGE);
 
     seq_free(s);
 }
@@ -253,8 +253,8 @@ static void test_get(void)
 static void test_concat_basic(void)
 {
     SECTION("concat basic");
-    void *a[] = {ip(0), ip(1), ip(2)};
-    void *b[] = {ip(3), ip(4), ip(5)};
+    uint32_t a[] = {ip(0), ip(1), ip(2)};
+    uint32_t b[] = {ip(3), ip(4), ip(5)};
     Seq  *sa  = seq_from_array(a, 3);
     Seq  *sb  = seq_from_array(b, 3);
 
@@ -262,7 +262,7 @@ static void test_concat_basic(void)
     CHECK(seq_length(sa) == 6);
     CHECK(seq_length(sb) == 0);
 
-    void *expect[] = {ip(0), ip(1), ip(2), ip(3), ip(4), ip(5)};
+    uint32_t expect[] = {ip(0), ip(1), ip(2), ip(3), ip(4), ip(5)};
     CHECK(seq_equals_array(sa, expect, 6));
 
     seq_free(sa);
@@ -272,7 +272,7 @@ static void test_concat_basic(void)
 static void test_concat_empty(void)
 {
     SECTION("concat with empty");
-    void *a[] = {ip(1), ip(2)};
+    uint32_t a[] = {ip(1), ip(2)};
     Seq  *sa  = seq_from_array(a, 2);
     Seq  *empty = seq_new();
 
@@ -285,7 +285,7 @@ static void test_concat_empty(void)
     Seq  *empty2 = seq_new();
     CHECK(seq_concat(empty2, sa2) == SEQ_OK);
     CHECK(seq_length(empty2) == 2);
-    void *out = NULL;
+    uint32_t out = 0;
     CHECK(seq_get(empty2, 0, &out) == SEQ_OK);
     CHECK(out == ip(1));
 
@@ -293,6 +293,19 @@ static void test_concat_empty(void)
     seq_free(empty);
     seq_free(sa2);
     seq_free(empty2);
+}
+
+static void test_concat_self_invalid(void)
+{
+    SECTION("concat self invalid");
+    uint32_t a[] = {ip(0), ip(1), ip(2), ip(3)};
+    Seq     *s   = seq_from_array(a, 4);
+
+    CHECK(seq_concat(s, s) == SEQ_INVALID);
+    CHECK(seq_length(s) == 4);
+    CHECK(seq_equals_array(s, a, 4));
+
+    seq_free(s);
 }
 
 static void test_concat_large(void)
@@ -314,7 +327,7 @@ static void test_concat_large(void)
 
     for (size_t i = 0; i < 2 * N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_get(left, i, &out) == SEQ_OK);
         CHECK(out == ip(i));
     }
@@ -334,7 +347,7 @@ static void test_split_at_basic(void)
     {
         N = 10
     };
-    void *vals[N];
+    uint32_t vals[N];
     for (int i = 0; i < N; i++)
         vals[i] = ip((size_t)i);
 
@@ -349,13 +362,13 @@ static void test_split_at_basic(void)
 
         for (size_t i = 0; i < split; i++)
         {
-            void *out = NULL;
+            uint32_t out = 0;
             seq_get(l, i, &out);
             CHECK(out == ip(i));
         }
         for (size_t i = 0; i < N - split; i++)
         {
-            void *out = NULL;
+            uint32_t out = 0;
             seq_get(r, i, &out);
             CHECK(out == ip(split + i));
         }
@@ -385,13 +398,13 @@ static void test_split_at_large(void)
 
     for (size_t i = 0; i < split; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         seq_get(l, i, &out);
         CHECK(out == ip(i));
     }
     for (size_t i = 0; i < N - split; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         seq_get(r, i, &out);
         CHECK(out == ip(split + i));
     }
@@ -404,7 +417,7 @@ static void test_split_at_large(void)
 static void test_split_at_range(void)
 {
     SECTION("split_at out-of-range");
-    void *a[] = {ip(1), ip(2)};
+    uint32_t a[] = {ip(1), ip(2)};
     Seq  *s   = seq_from_array(a, 2);
     Seq  *l   = NULL, *r = NULL;
 
@@ -443,7 +456,7 @@ static void test_large_push_pop(void)
     /* Verify get */
     for (size_t i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_get(s, i, &out) == SEQ_OK);
         CHECK(out == ip(i));
     }
@@ -451,7 +464,7 @@ static void test_large_push_pop(void)
     /* Pop all from front */
     for (size_t i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_pop_front(s, &out) == SEQ_OK);
         CHECK(out == ip(i));
     }
@@ -476,7 +489,7 @@ static void test_large_push_front_pop_back(void)
     /* Pop from back → should produce 0, 1, 2, ... */
     for (size_t i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         CHECK(seq_pop_back(s, &out) == SEQ_OK);
         CHECK(out == ip(i));
     }
@@ -515,13 +528,13 @@ static void test_concat_split_roundtrip(void)
 
     for (size_t i = 0; i < A; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         seq_get(l2, i, &out);
         CHECK(out == ip(i));
     }
     for (size_t i = 0; i < B; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         seq_get(r2, i, &out);
         CHECK(out == ip(A + i));
     }
@@ -569,7 +582,7 @@ static void test_mixed_ops(void)
 
     CHECK(seq_length(s) == 5);
 
-    void *out = NULL;
+    uint32_t out = 0;
     seq_get(s, 0, &out);
     CHECK(out == ip(10));
     seq_get(s, 2, &out);
@@ -611,7 +624,7 @@ static void test_concat_many(void)
     CHECK(seq_length(acc) == SEQS * PER);
     for (size_t i = 0; i < SEQS * PER; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         seq_get(acc, i, &out);
         CHECK(out == ip(i));
     }
@@ -644,7 +657,7 @@ static void test_split_concat_identity(void)
 
     for (size_t i = 0; i < N; i++)
     {
-        void *out = NULL;
+        uint32_t out = 0;
         seq_get(l, i, &out);
         CHECK(out == ip(i));
     }
@@ -653,6 +666,115 @@ static void test_split_concat_identity(void)
     seq_free(l);
     seq_free(r);
 }
+
+static void test_invalid_args(void)
+{
+    SECTION("invalid argument handling");
+    Seq      *s   = seq_new();
+    uint32_t  out = 0;
+    Seq      *l   = NULL;
+    Seq      *r   = NULL;
+
+    CHECK(s != NULL);
+    CHECK(seq_push_front(NULL, ip(1)) == SEQ_INVALID);
+    CHECK(seq_push_back(NULL, ip(1)) == SEQ_INVALID);
+    CHECK(seq_pop_front(NULL, &out) == SEQ_INVALID);
+    CHECK(seq_pop_back(NULL, &out) == SEQ_INVALID);
+    CHECK(seq_get(NULL, 0, &out) == SEQ_INVALID);
+    CHECK(seq_concat(NULL, s) == SEQ_INVALID);
+    CHECK(seq_concat(s, NULL) == SEQ_INVALID);
+    CHECK(seq_split_at(NULL, 0, &l, &r) == SEQ_INVALID);
+    CHECK(seq_split_at(s, 0, NULL, &r) == SEQ_INVALID);
+    CHECK(seq_split_at(s, 0, &l, NULL) == SEQ_INVALID);
+    CHECK(seq_pop_front(s, NULL) == SEQ_INVALID);
+    CHECK(seq_pop_back(s, NULL) == SEQ_INVALID);
+    CHECK(seq_get(s, 0, NULL) == SEQ_INVALID);
+    CHECK(seq_reset(NULL) == SEQ_INVALID);
+    CHECK(seq_is_valid(NULL) == 0);
+    CHECK(seq_is_valid(s) == 1);
+
+    seq_free(s);
+}
+
+#ifdef SAPLING_SEQ_TESTING
+static void test_fault_injection_push(void)
+{
+    SECTION("fault injection: push oom marks invalid");
+    Seq *s = seq_new();
+    CHECK(s != NULL);
+    CHECK(seq_is_valid(s) == 1);
+
+    CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
+    seq_test_fail_alloc_after(0);
+    CHECK(seq_push_back(s, ip(2)) == SEQ_OOM);
+    seq_test_clear_alloc_fail();
+
+    CHECK(seq_is_valid(s) == 0);
+    CHECK(seq_push_back(s, ip(3)) == SEQ_INVALID);
+    CHECK(seq_reset(s) == SEQ_OK);
+    CHECK(seq_is_valid(s) == 1);
+    CHECK(seq_length(s) == 0);
+
+    seq_free(s);
+}
+
+static void test_fault_injection_concat(void)
+{
+    SECTION("fault injection: concat oom marks invalid");
+    Seq *a = seq_new();
+    Seq *b = seq_new();
+    CHECK(a != NULL && b != NULL);
+    CHECK(seq_push_back(a, ip(10)) == SEQ_OK);
+    CHECK(seq_push_back(b, ip(20)) == SEQ_OK);
+
+    seq_test_fail_alloc_after(0);
+    CHECK(seq_concat(a, b) == SEQ_OOM);
+    seq_test_clear_alloc_fail();
+
+    CHECK(seq_is_valid(a) == 0);
+    CHECK(seq_is_valid(b) == 0);
+    CHECK(seq_concat(a, b) == SEQ_INVALID);
+
+    CHECK(seq_reset(a) == SEQ_OK);
+    CHECK(seq_reset(b) == SEQ_OK);
+    CHECK(seq_is_valid(a) == 1);
+    CHECK(seq_is_valid(b) == 1);
+
+    seq_free(a);
+    seq_free(b);
+}
+
+static void test_fault_injection_split(void)
+{
+    SECTION("fault injection: split oom marks invalid");
+    Seq *s = seq_new();
+    CHECK(s != NULL);
+    CHECK(seq_push_back(s, ip(0)) == SEQ_OK);
+    CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
+    CHECK(seq_push_back(s, ip(2)) == SEQ_OK);
+
+    Seq *l = (Seq *)(uintptr_t)1;
+    Seq *r = (Seq *)(uintptr_t)2;
+    /*
+     * Fail after split has allocated temporary Seq wrappers so we exercise
+     * internal split-tree allocation failure (which poisons seq).
+     */
+    seq_test_fail_alloc_after(4);
+    CHECK(seq_split_at(s, 1, &l, &r) == SEQ_OOM);
+    seq_test_clear_alloc_fail();
+
+    CHECK(l == (Seq *)(uintptr_t)1);
+    CHECK(r == (Seq *)(uintptr_t)2);
+    CHECK(seq_is_valid(s) == 0);
+    CHECK(seq_split_at(s, 0, &l, &r) == SEQ_INVALID);
+
+    CHECK(seq_reset(s) == SEQ_OK);
+    CHECK(seq_is_valid(s) == 1);
+    CHECK(seq_length(s) == 0);
+
+    seq_free(s);
+}
+#endif
 
 /* ================================================================== */
 /* main                                                                 */
@@ -670,6 +792,7 @@ int main(void)
     test_get();
     test_concat_basic();
     test_concat_empty();
+    test_concat_self_invalid();
     test_concat_large();
     test_split_at_basic();
     test_split_at_large();
@@ -681,6 +804,12 @@ int main(void)
     test_mixed_ops();
     test_concat_many();
     test_split_concat_identity();
+    test_invalid_args();
+#ifdef SAPLING_SEQ_TESTING
+    test_fault_injection_push();
+    test_fault_injection_concat();
+    test_fault_injection_split();
+#endif
 
     print_summary();
     return g_fail ? 1 : 0;

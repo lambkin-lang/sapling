@@ -275,7 +275,7 @@ $(TEST_SEQ_BIN): $(OBJ_DIR)/tests/unit/test_seq.o $(SEQ_OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_seq.o $(SEQ_OBJ) -o $(TEST_SEQ_BIN) $(LDFLAGS)
 
-seq-test: CFLAGS += -O2 -g
+seq-test: CFLAGS += -O2 -g -DSAPLING_SEQ_TESTING
 seq-test: $(TEST_SEQ_BIN)
 	./$(TEST_SEQ_BIN)
 
