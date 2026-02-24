@@ -34,10 +34,11 @@ typedef struct
     uint32_t last_req_len;
 } RuntimeStreamCtx;
 
-static int runtime_entry(void *ctx, const uint8_t *request, uint32_t request_len,
+static int runtime_entry(void *ctx, SapHostV0 *host, const uint8_t *request, uint32_t request_len,
                          uint8_t *reply_buf, uint32_t reply_buf_cap, uint32_t *reply_len_out)
 {
     RuntimeCtx *rt = (RuntimeCtx *)ctx;
+    (void)host;
     if (!rt || !reply_buf || !reply_len_out)
     {
         return SAP_ERROR;
@@ -67,13 +68,14 @@ static int runtime_entry(void *ctx, const uint8_t *request, uint32_t request_len
     return SAP_OK;
 }
 
-static int runtime_stream_entry(void *ctx, const uint8_t *request, uint32_t request_len,
-                                sap_wasi_runtime_v0_write_fn write, void *write_ctx,
-                                uint32_t *reply_len_out)
+static int runtime_stream_entry(void *ctx, SapHostV0 *host, const uint8_t *request,
+                                uint32_t request_len, sap_wasi_runtime_v0_write_fn write,
+                                void *write_ctx, uint32_t *reply_len_out)
 {
     static const uint8_t k_a[] = {'o', 'k'};
     static const uint8_t k_b[] = {'!', '!'};
     RuntimeStreamCtx *rt = (RuntimeStreamCtx *)ctx;
+    (void)host;
     int rc;
 
     if (!rt || !write || !reply_len_out)
@@ -122,7 +124,7 @@ static int test_runtime_invoke_success(void)
     msg.payload_len = 2u;
 
     CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", runtime_entry, &ctx) == SAP_OK);
-    CHECK(sap_wasi_runtime_v0_invoke(&runtime, &msg, reply, sizeof(reply), &reply_len) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_invoke(&runtime, NULL, &msg, reply, sizeof(reply), &reply_len) == SAP_OK);
     CHECK(reply_len == 2u);
     CHECK(memcmp(reply, "ok", 2u) == 0);
     CHECK(runtime.calls == 1u);
@@ -147,7 +149,7 @@ static int test_runtime_invoke_error(void)
     msg.payload_len = 0u;
 
     CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", runtime_entry, &ctx) == SAP_OK);
-    CHECK(sap_wasi_runtime_v0_invoke(&runtime, &msg, reply, sizeof(reply), &reply_len) ==
+    CHECK(sap_wasi_runtime_v0_invoke(&runtime, NULL, &msg, reply, sizeof(reply), &reply_len) ==
           SAP_CONFLICT);
     CHECK(runtime.calls == 1u);
     CHECK(runtime.last_rc == SAP_CONFLICT);
@@ -174,7 +176,7 @@ static int test_runtime_adapter_stream_success(void)
     msg.payload_len = 2u;
 
     CHECK(sap_wasi_runtime_v0_init_adapter(&runtime, "guest.main", &adapter, &ctx) == SAP_OK);
-    CHECK(sap_wasi_runtime_v0_invoke(&runtime, &msg, reply, sizeof(reply), &reply_len) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_invoke(&runtime, NULL, &msg, reply, sizeof(reply), &reply_len) == SAP_OK);
     CHECK(reply_len == 4u);
     CHECK(memcmp(reply, "ok!!", 4u) == 0);
     CHECK(ctx.calls == 1u);
@@ -202,7 +204,7 @@ static int test_runtime_adapter_stream_reply_overflow(void)
     msg.payload_len = 2u;
 
     CHECK(sap_wasi_runtime_v0_init_adapter(&runtime, "guest.main", &adapter, &ctx) == SAP_OK);
-    CHECK(sap_wasi_runtime_v0_invoke(&runtime, &msg, reply, sizeof(reply), &reply_len) == SAP_FULL);
+    CHECK(sap_wasi_runtime_v0_invoke(&runtime, NULL, &msg, reply, sizeof(reply), &reply_len) == SAP_FULL);
     CHECK(ctx.calls == 1u);
     CHECK(runtime.calls == 1u);
     CHECK(runtime.last_rc == SAP_FULL);

@@ -18,8 +18,9 @@
 #define SAP_FULL 3     /* key+value too large for a single page      */
 #define SAP_READONLY 4 /* write attempted on a read-only transaction */
 #define SAP_BUSY 5     /* write txn active or metadata change blocked */
-#define SAP_EXISTS 6   /* key already exists (with SAP_NOOVERWRITE)  */
-#define SAP_CONFLICT 7 /* compare-and-swap value mismatch            */
+#define SAP_EXISTS 6       /* key already exists (with SAP_NOOVERWRITE)  */
+#define SAP_CONFLICT 7     /* compare-and-swap value mismatch            */
+#define SAP_INVALID_DATA 8 /* invalid payload structure (layout/refinement) */
 
 /* ------------------------------------------------------------------ */
 /* Compile-time tunables                                                */
@@ -99,7 +100,8 @@ int db_restore(DB *db, sap_read_fn reader, void *ctx);
 /* dbi_open/dbi_set_dupsort require no active read or write txns;        */
 /* otherwise they return SAP_BUSY.                                       */
 /* ------------------------------------------------------------------ */
-#define DBI_DUPSORT 0x01u /* sorted duplicate keys                    */
+#define DBI_DUPSORT 0x01u  /* sorted duplicate keys                    */
+#define DBI_TTL_META 0x02u /* protected DBI for TTL metadata rows        */
 
 int dbi_open(DB *db, uint32_t dbi, keycmp_fn cmp, void *cmp_ctx, unsigned flags);
 int dbi_set_dupsort(DB *db, uint32_t dbi, keycmp_fn vcmp, void *vcmp_ctx);
@@ -238,12 +240,39 @@ int txn_merge(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const v
  * Both DBIs must be non-DUPSORT and distinct.
  * User keys for TTL helpers must satisfy key_len <= UINT16_MAX - 9.
  */
+#define SAP_TTL_LAZY_DELETE 0x01u /* Inline expiry deletion on write txns */
+
 int txn_put_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
                     uint32_t key_len, const void *val, uint32_t val_len,
                     uint64_t expires_at_ms);
+
 int txn_get_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
                     uint32_t key_len, uint64_t now_ms, const void **val_out,
-                    uint32_t *val_len_out);
+                    uint32_t *val_len_out, unsigned flags);
+
+/* Retrieve the TTL expiry of the current cursor key and evaluate. 
+ * If expired and SAP_TTL_LAZY_DELETE is passed on a write txn, deletes the row
+ * and returns SAP_NOTFOUND. Otherwise returns the data value.
+ */
+int cursor_get_ttl_dbi(Cursor *data_cur, uint32_t ttl_dbi, uint64_t now_ms,
+                       const void **val_out, uint32_t *val_len_out, unsigned flags);
+
+typedef struct
+{
+    uint8_t *index_key;
+    uint32_t index_len;
+    uint32_t index_cap;
+} SapSweepCheckpoint;
+
+void sap_sweep_checkpoint_clear(SapSweepCheckpoint *cp);
+
+/* Bounded sweep variant with optional resumable checkpoint; max_to_delete==0 is a no-op success.
+ * If cp is provided, it avoids scanning from the start of the index on each batch.
+ * Initialize cp with zeroes: `SapSweepCheckpoint cp = {0};` and call `sap_sweep_checkpoint_clear` after use.
+ */
+int txn_sweep_ttl_dbi_checkpoint(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
+                                 uint64_t max_to_delete, SapSweepCheckpoint *cp,
+                                 uint64_t *deleted_count_out);
 /* Bounded sweep variant; max_to_delete==0 is a no-op success. */
 int txn_sweep_ttl_dbi_limit(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, uint64_t now_ms,
                             uint64_t max_to_delete, uint64_t *deleted_count_out);

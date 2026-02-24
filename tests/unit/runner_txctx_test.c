@@ -33,7 +33,15 @@ static void test_free(void *ctx, void *p, uint32_t sz)
 
 static PageAllocator g_alloc = {test_alloc, test_free, NULL};
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void)
+{
+    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    if (db)
+    {
+        dbi_open(db, 10u, NULL, NULL, 0u);
+    }
+    return db;
+}
 
 static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, uint32_t val_len)
 {
@@ -49,7 +57,7 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
     {
         return SAP_ERROR;
     }
-    rc = txn_put_dbi(txn, 0u, key, key_len, val, val_len);
+    rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
     if (rc != SAP_OK)
     {
         txn_abort(txn);
@@ -76,7 +84,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     {
         return SAP_ERROR;
     }
-    rc = txn_get_dbi(txn, 0u, key, key_len, val_out, val_len_out);
+    rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
     return rc;
 }
@@ -96,12 +104,12 @@ static int test_read_set_validation_and_conflict(void)
 
     rtxn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rtxn != NULL);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 0u, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_OK);
     CHECK(val_len == 2u);
     CHECK(memcmp(val, "v1", 2u) == 0);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 0u, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_OK);
     CHECK(sap_runner_txctx_v0_read_count(&ctx) == 1u);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 0u, "missing", 7u, &val, &val_len) ==
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "missing", 7u, &val, &val_len) ==
           SAP_NOTFOUND);
     txn_abort(rtxn);
 
@@ -136,9 +144,9 @@ static int test_write_set_apply_and_coalesce(void)
     CHECK(db_put(db, "b", 1u, "old", 3u) == SAP_OK);
     CHECK(sap_runner_txctx_v0_init(&ctx) == SAP_OK);
 
-    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 0u, "a", 1u, "v1", 2u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 0u, "a", 1u, "v2", 2u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 0u, "b", 1u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "a", 1u, "v1", 2u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "a", 1u, "v2", 2u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 10u, "b", 1u) == SAP_OK);
     CHECK(sap_runner_txctx_v0_write_count(&ctx) == 2u);
 
     wtxn = txn_begin(db, NULL, 0u);
@@ -168,16 +176,16 @@ static int test_read_your_write_semantics(void)
     CHECK(db_put(db, "k", 1u, "db", 2u) == SAP_OK);
     CHECK(sap_runner_txctx_v0_init(&ctx) == SAP_OK);
 
-    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 0u, "k", 1u, "local", 5u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "k", 1u, "local", 5u) == SAP_OK);
     rtxn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rtxn != NULL);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 0u, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "local", 5u) == 0);
     CHECK(sap_runner_txctx_v0_read_count(&ctx) == 0u);
 
-    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 0u, "k", 1u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 0u, "k", 1u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 10u, "k", 1u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_NOTFOUND);
     txn_abort(rtxn);
 
     sap_runner_txctx_v0_dispose(&ctx);

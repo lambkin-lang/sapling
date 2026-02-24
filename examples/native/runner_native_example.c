@@ -96,8 +96,7 @@ static int app_state_read_counter(DB *db, uint64_t *counter_out)
         return SAP_ERROR;
     }
 
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_APP_STATE, k_counter_key, sizeof(k_counter_key), &val,
-                     &val_len);
+    rc = txn_get_dbi(txn, 10u, k_counter_key, sizeof(k_counter_key), &val, &val_len);
     if (rc == SAP_NOTFOUND)
     {
         txn_abort(txn);
@@ -137,7 +136,7 @@ static int app_state_read_blob(DB *db, const uint8_t *key, uint32_t key_len, uin
     {
         return SAP_ERROR;
     }
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_APP_STATE, key, key_len, &val, &val_len);
+    rc = txn_get_dbi(txn, 10u, key, key_len, &val, &val_len);
     if (rc != SAP_OK)
     {
         txn_abort(txn);
@@ -247,8 +246,8 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     }
     atomic->calls++;
 
-    rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_APP_STATE, k_counter_key,
-                                        sizeof(k_counter_key), &cur, &cur_len);
+    rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, k_counter_key, sizeof(k_counter_key),
+                                        &cur, &cur_len);
     if (rc == SAP_OK)
     {
         if (!cur || cur_len != 8u)
@@ -264,8 +263,8 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
     count++;
     wr64be(raw_count, count);
-    rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_APP_STATE, k_counter_key,
-                                             sizeof(k_counter_key), raw_count, sizeof(raw_count));
+    rc = sap_runner_txstack_v0_stage_put_dbi(stack, 10u, k_counter_key, sizeof(k_counter_key),
+                                             raw_count, sizeof(raw_count));
     if (rc != SAP_OK)
     {
         return rc;
@@ -277,8 +276,8 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     {
         return rc;
     }
-    rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_APP_STATE, k_last_key,
-                                             sizeof(k_last_key), msg->payload, msg->payload_len);
+    rc = sap_runner_txstack_v0_stage_put_dbi(stack, 10u, k_last_key, sizeof(k_last_key),
+                                             msg->payload, msg->payload_len);
     if (rc != SAP_OK)
     {
         (void)sap_runner_txstack_v0_abort_top(stack);
@@ -348,11 +347,13 @@ int main(void)
     DB *db = NULL;
 
     db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    dbi_open(db, 10u, NULL, NULL, 0u);
     if (!db)
     {
         fprintf(stderr, "runner-native-example: db_open failed\n");
         goto done;
     }
+    dbi_open(db, 10u, NULL, NULL, 0u);
 
     cfg.db = db;
     cfg.worker_id = 42u;

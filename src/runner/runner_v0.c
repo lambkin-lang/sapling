@@ -12,6 +12,7 @@
 #include "runner/timer_v0.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -172,36 +173,31 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
                                   uint32_t payload_len, void *ctx)
 {
     TimerDispatchCtx *tctx = (TimerDispatchCtx *)ctx;
-    int64_t step_start;
-    int64_t step_end;
-    int step_rc;
+    int rc;
 
     (void)due_ts;
     if (!tctx || !tctx->worker)
     {
         return SAP_ERROR;
     }
-    step_start = worker_now_ms(tctx->worker);
-    metrics_note_step_attempt(&tctx->worker->runner);
-    emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT, seq, SAP_OK,
-                      payload, payload_len);
-    step_rc = sap_runner_v0_run_step(&tctx->worker->runner, payload, payload_len,
-                                     tctx->worker->handler, tctx->worker->handler_ctx);
-    step_end = worker_now_ms(tctx->worker);
-    metrics_note_latency(&tctx->worker->runner, step_start, step_end);
-    emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, seq,
-                      (int32_t)step_rc, payload, payload_len);
-    if (step_rc != SAP_OK)
+
+    /* 
+     * Fire the timer message into the worker's own inbox.
+     * We use the timer's sequence number as the inbox sequence number.
+     * This is fine because timer sequences are unique within the worker's timer space,
+     * and inbox sequences are traditionally managed by the sender.
+     */
+    rc = sap_runner_v0_inbox_put(tctx->worker->runner.db, tctx->worker->runner.worker_id, seq,
+                                 payload, payload_len);
+    if (rc != SAP_OK)
     {
-        metrics_note_failure(&tctx->worker->runner, step_rc);
-        emit_log_event(&tctx->worker->runner,
-                       is_retryable_step_rc(step_rc)
-                           ? SAP_RUNNER_V0_LOG_EVENT_STEP_RETRYABLE_FAILURE
-                           : SAP_RUNNER_V0_LOG_EVENT_STEP_NON_RETRYABLE_FAILURE,
-                       seq, (int32_t)step_rc, 0u);
-        return step_rc;
+        metrics_note_failure(&tctx->worker->runner, rc);
+        emit_log_event(&tctx->worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u, (int32_t)rc, 0u);
+        return rc;
     }
-    metrics_note_step_success(&tctx->worker->runner);
+
+    emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, seq, SAP_OK,
+                      payload, payload_len);
     tctx->count++;
     return SAP_OK;
 }
@@ -349,7 +345,13 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
         txn_abort(txn);
         return rc;
     }
-    if (key_len != SAP_RUNNER_INBOX_KEY_V0_SIZE || val_len == 0u)
+    if (key_len != SAP_RUNNER_INBOX_KEY_V0_SIZE)
+    {
+        cursor_close(cur);
+        txn_abort(txn);
+        return SAP_ERROR;
+    }
+    if (val_len == 0u)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -1031,6 +1033,10 @@ void sap_runner_v0_set_policy(SapRunnerV0 *runner, const SapRunnerV0Policy *poli
     {
         runner->policy.lease_ttl_ms = RUNNER_DEFAULT_LEASE_TTL_MS;
     }
+    if (runner->policy.ttl_sweep_max_batch == 0)
+    {
+        runner->policy.ttl_sweep_max_batch = 100u; /* default batch size */
+    }
     if (runner->policy.requeue_max_attempts == 0u)
     {
         runner->policy.requeue_max_attempts = RUNNER_DEFAULT_REQUEUE_MAX_ATTEMPTS;
@@ -1466,8 +1472,28 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
     worker->sleep_ms_ctx = NULL;
     worker->db_gate = NULL;
     worker->ticks = 0u;
+    worker->last_ttl_sweep_ms = 0;
+    worker->ttl_pair_count = 0u;
     worker_set_stop_requested(worker, 0);
     worker->last_error = SAP_OK;
+    return SAP_OK;
+}
+
+int sap_runner_v0_worker_register_ttl_pair(SapRunnerV0Worker *worker, uint32_t data_dbi,
+                                           uint32_t ttl_dbi)
+{
+    if (!worker)
+    {
+        return SAP_ERROR;
+    }
+    if (worker->ttl_pair_count >= SAP_RUNNER_V0_MAX_TTL_PAIRS)
+    {
+        return SAP_ERROR;
+    }
+    SapRunnerV0TTLPair *pair = &worker->ttl_pairs[worker->ttl_pair_count++];
+    pair->data_dbi = data_dbi;
+    pair->ttl_dbi = ttl_dbi;
+    memset(&pair->cp, 0, sizeof(pair->cp));
     return SAP_OK;
 }
 
@@ -1579,6 +1605,46 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
             goto out;
         }
         processed += timer_processed;
+    }
+
+    if (worker->runner.policy.ttl_sweep_cadence_ms > 0 && worker->ttl_pair_count > 0)
+    {
+        int64_t now_ms = worker_now_ms(worker);
+        if (worker->last_ttl_sweep_ms == 0)
+        {
+            worker->last_ttl_sweep_ms = now_ms;
+        }
+        else if (now_ms - worker->last_ttl_sweep_ms >= worker->runner.policy.ttl_sweep_cadence_ms)
+        {
+            worker->last_ttl_sweep_ms = now_ms;
+            Txn *txn = txn_begin(worker->runner.db, NULL, 0);
+            if (txn)
+            {
+                uint64_t total_deleted = 0;
+                for (uint32_t i = 0; i < worker->ttl_pair_count; i++)
+                {
+                    SapRunnerV0TTLPair *pair = &worker->ttl_pairs[i];
+                    uint64_t deleted = 0;
+                    int sweep_rc = txn_sweep_ttl_dbi_checkpoint(
+                        txn, pair->data_dbi, pair->ttl_dbi, now_ms,
+                        worker->runner.policy.ttl_sweep_max_batch, &pair->cp, &deleted);
+                    if (sweep_rc == SAP_OK)
+                    {
+                        total_deleted += deleted;
+                    }
+                }
+                if (txn_commit(txn) == SAP_OK)
+                {
+                    worker->runner.metrics.ttl_sweeps_run++;
+                    worker->runner.metrics.ttl_expired_entries_deleted += total_deleted;
+                    if (worker->runner.metrics_sink)
+                    {
+                        worker->runner.metrics_sink(&worker->runner.metrics,
+                                                    worker->runner.metrics_sink_ctx);
+                    }
+                }
+            }
+        }
     }
 
     if (processed_out)

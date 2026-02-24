@@ -16,10 +16,31 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-
-RECORD_RE = re.compile(r"(?m)^\s*record\s+([a-z0-9][a-z0-9-]*)\s*\{")
+RECORD_BLOCK_RE = re.compile(
+    r"(?:^[ \t]*///\s*@refine\(([^)]+)\)\s*\n)?[ \t]*record\s+([a-z0-9][a-z0-9-]*)\s*\{([^}]*)\}",
+    re.MULTILINE
+)
 DBI_REC_RE = re.compile(r"^dbi([0-9]+)-([a-z0-9][a-z0-9-]*)-(key|value)$")
+FIELD_RE = re.compile(r"^\s*([a-z0-9-]+)\s*:\s*([a-z0-9-]+(?:<[^>]+>)?)\s*,", re.MULTILINE)
 
+@dataclass
+class WitField:
+    name: str
+    wit_type: str
+
+    @property
+    def c_name(self) -> str:
+        return self.name.replace("-", "_")
+
+@dataclass
+class WitRecord:
+    name: str
+    refine_rule: str | None
+    fields: list[WitField]
+
+    @property
+    def c_name(self) -> str:
+        return self.name.replace("-", "_")
 
 @dataclass
 class DbiEntry:
@@ -27,6 +48,8 @@ class DbiEntry:
     name: str
     key_record: str
     value_record: str
+    key_ast: WitRecord
+    value_ast: WitRecord
 
     @property
     def c_name(self) -> str:
@@ -34,10 +57,20 @@ class DbiEntry:
 
 
 def parse_dbi_entries(wit_text: str) -> list[DbiEntry]:
-    per_dbi: dict[int, dict[str, str]] = {}
+    per_dbi: dict[int, dict[str, WitRecord]] = {}
     names_by_dbi: dict[int, str] = {}
 
-    for rec_name in RECORD_RE.findall(wit_text):
+    for match in RECORD_BLOCK_RE.finditer(wit_text):
+        refine_rule = match.group(1)
+        rec_name = match.group(2)
+        body = match.group(3)
+
+        fields = []
+        for fmatch in FIELD_RE.finditer(body):
+            fields.append(WitField(name=fmatch.group(1), wit_type=fmatch.group(2)))
+            
+        record = WitRecord(name=rec_name, refine_rule=refine_rule, fields=fields)
+
         m = DBI_REC_RE.match(rec_name)
         if not m:
             continue
@@ -54,7 +87,7 @@ def parse_dbi_entries(wit_text: str) -> list[DbiEntry]:
         slot = per_dbi.setdefault(dbi, {})
         if kind in slot:
             raise ValueError(f"duplicate {kind} record for dbi {dbi}: {rec_name}")
-        slot[kind] = rec_name
+        slot[kind] = record
 
     if not per_dbi:
         raise ValueError("no dbi records found (expected dbiN-*-key/value records)")
@@ -75,8 +108,10 @@ def parse_dbi_entries(wit_text: str) -> list[DbiEntry]:
             DbiEntry(
                 dbi=dbi,
                 name=names_by_dbi[dbi],
-                key_record=slot["key"],
-                value_record=slot["value"],
+                key_record=slot["key"].name,
+                value_record=slot["value"].name,
+                key_ast=slot["key"],
+                value_ast=slot["value"],
             )
         )
     return entries
@@ -125,6 +160,61 @@ def write_manifest(entries: list[DbiEntry], out_path: Path) -> None:
             )
 
 
+def map_wit_type(wit_type: str, c_name: str) -> list[str]:
+    """Map a WIT type to a C struct field declaration (Canonical ABI layout)."""
+    # Simple primitive mapping.
+    if wit_type == "s8" or wit_type == "u8" or wit_type == "bool":
+        return [f"    uint8_t {c_name};"]
+    if wit_type == "s16" or wit_type == "u16":
+        return [f"    uint16_t {c_name};"]
+    if wit_type == "s32" or wit_type == "u32":
+        return [f"    uint32_t {c_name};"]
+    if wit_type == "s64" or wit_type == "u64" or wit_type == "timestamp":
+        return [f"    uint64_t {c_name};"]
+    if wit_type == "f32":
+        return [f"    float {c_name};"]
+    if wit_type == "f64" or wit_type == "score":
+        return [f"    double {c_name};"]
+    if wit_type == "utf8" or wit_type == "bytes" or wit_type == "string":
+        return [
+            f"    uint32_t {c_name}_offset;",
+            f"    uint32_t {c_name}_len;"
+        ]
+    
+    # Fallback to byte blobs if we hit arrays or complex component variants
+    return [f"    uint64_t {c_name}_unknown_layout;"]
+
+def generate_record_struct(record: WitRecord) -> list[str]:
+    lines = [f"typedef struct __attribute__((packed)) {{"]
+    for field in record.fields:
+        lines.extend(map_wit_type(field.wit_type, field.c_name))
+    lines.append(f"}} SapWit_{record.c_name};")
+    lines.append("")
+    return lines
+
+def generate_validator(record: WitRecord) -> list[str]:
+    lines = [
+        f"static inline int sap_wit_validate_{record.c_name}(const void *data, uint32_t len) {{",
+        f"    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */",
+        f"    if (len < sizeof(SapWit_{record.c_name})) return -1; /* SAP_INVALID_DATA */",
+    ]
+    if record.refine_rule:
+        lines.append(f"    const SapWit_{record.c_name} *rec = (const SapWit_{record.c_name} *)data;")
+        # Replace variable accesses with rec->field
+        rule = record.refine_rule
+        for field in record.fields:
+            if field.name in rule:
+                # Naive regex replace for standalone word boundaries
+                rule = re.sub(rf'\b{field.name}\b', f"rec->{field.c_name}", rule)
+        lines.append(f"    if (!({rule})) return -1; /* Refinement violation! */")
+    else:
+        lines.append("    (void)data; /* No refinement constraints */")
+
+    lines.append("    return 0;")
+    lines.append("}")
+    lines.append("")
+    return lines
+
 def write_c_header(entries: list[DbiEntry], out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     guard = "SAPLING_WIT_SCHEMA_DBIS_H"
@@ -134,6 +224,7 @@ def write_c_header(entries: list[DbiEntry], out_path: Path) -> None:
         f"#define {guard}",
         "",
         "#include <stdint.h>",
+        "#include <stddef.h>",
         "",
         "typedef struct {",
         "    uint32_t dbi;",
@@ -143,8 +234,20 @@ def write_c_header(entries: list[DbiEntry], out_path: Path) -> None:
         "} SapWitDbiSchema;",
         "",
     ]
+    seen_records = set()
     for e in entries:
         lines.append(f"#define SAP_WIT_DBI_{e.c_name} {e.dbi}u")
+    lines.append("")
+
+    for e in entries:
+        if e.key_ast.name not in seen_records:
+            lines.extend(generate_record_struct(e.key_ast))
+            lines.extend(generate_validator(e.key_ast))
+            seen_records.add(e.key_ast.name)
+        if e.value_ast.name not in seen_records:
+            lines.extend(generate_record_struct(e.value_ast))
+            lines.extend(generate_validator(e.value_ast))
+            seen_records.add(e.value_ast.name)
     lines.extend(
         [
             "",
