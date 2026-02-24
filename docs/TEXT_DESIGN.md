@@ -23,6 +23,7 @@ Handle layout:
 - Raw handle APIs (`text_*_handle`) allow mixed leaf kinds.
 - Resolved APIs (`*_resolved`) accept a runtime resolver callback for
   expanding non-codepoint handles into code points on demand.
+- `text_clone` provides shell-level copy-on-write sharing; writes detach.
 
 ## Semantics
 

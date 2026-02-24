@@ -59,6 +59,8 @@ typedef int (*TextHandleExpandFn)(TextHandle handle, TextEmitCodepointFn emit_fn
 
 /* Lifecycle */
 Text *text_new(void);
+/* O(1) clone with copy-on-write sharing. */
+Text *text_clone(const Text *text);
 /*
  * text_new_with_allocator — construct text with explicit allocator policy.
  * If allocator is NULL, default malloc/free is used.

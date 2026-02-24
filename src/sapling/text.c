@@ -11,9 +11,18 @@
 
 struct Text
 {
-    Seq         *seq;
+    struct TextShared *shared;
     SeqAllocator allocator;
 };
+
+typedef struct TextShared
+{
+    Seq         *seq;
+    size_t       refs;
+    SeqAllocator allocator;
+} TextShared;
+
+static Seq *text_seq(const Text *text);
 
 static int text_codepoint_is_valid(uint32_t codepoint)
 {
@@ -52,16 +61,17 @@ static int text_visit_resolved_codepoints(const Text *text, TextHandleExpandFn e
                                           void *resolver_ctx, TextVisitCodepointFn visit_fn,
                                           void *visit_ctx)
 {
+    Seq   *seq = text_seq(text);
     size_t n = 0;
 
-    if (!text || !text->seq || !seq_is_valid(text->seq) || !visit_fn)
+    if (!seq || !seq_is_valid(seq) || !visit_fn)
         return SEQ_INVALID;
 
-    n = seq_length(text->seq);
+    n = seq_length(seq);
     for (size_t i = 0; i < n; i++)
     {
         TextHandle handle = 0;
-        int        rc = seq_get(text->seq, i, &handle);
+        int        rc = seq_get(seq, i, &handle);
 
         if (rc != SEQ_OK)
             return rc;
@@ -245,14 +255,114 @@ static Text *text_shell_new(const SeqAllocator *allocator)
     Text *text = (Text *)text_alloc(allocator, sizeof(Text));
     if (!text)
         return NULL;
-    text->seq = NULL;
+    text->shared = NULL;
     text->allocator = *allocator;
     return text;
 }
 
+static TextShared *text_shared_new_with_seq(const SeqAllocator *allocator, Seq *seq)
+{
+    TextShared *shared = (TextShared *)text_alloc(allocator, sizeof(TextShared));
+    if (!shared)
+        return NULL;
+    shared->seq = seq;
+    shared->refs = 1u;
+    shared->allocator = *allocator;
+    return shared;
+}
+
+static TextShared *text_shared_new_empty(const SeqAllocator *allocator)
+{
+    Seq *seq = seq_new_with_allocator(allocator);
+    if (!seq)
+        return NULL;
+
+    TextShared *shared = text_shared_new_with_seq(allocator, seq);
+    if (!shared)
+    {
+        seq_free(seq);
+        return NULL;
+    }
+    return shared;
+}
+
+static void text_shared_destroy(TextShared *shared)
+{
+    if (!shared)
+        return;
+    seq_free(shared->seq);
+    shared->seq = NULL;
+    text_dealloc(&shared->allocator, shared);
+}
+
+static void text_shared_release(TextShared *shared)
+{
+    if (!shared || shared->refs == 0u)
+        return;
+    shared->refs--;
+    if (shared->refs == 0u)
+        text_shared_destroy(shared);
+}
+
+static int text_shared_retain(TextShared *shared)
+{
+    if (!shared || shared->refs == SIZE_MAX)
+        return SEQ_INVALID;
+    shared->refs++;
+    return SEQ_OK;
+}
+
+static Seq *text_seq(const Text *text)
+{
+    if (!text || !text->shared)
+        return NULL;
+    return text->shared->seq;
+}
+
+static int text_detach_for_write(Text *text)
+{
+    TextShared *old = NULL;
+    TextShared *next = NULL;
+    size_t      n = 0;
+
+    if (!text || !text->shared || !text->shared->seq)
+        return SEQ_INVALID;
+    if (!seq_is_valid(text->shared->seq))
+        return SEQ_INVALID;
+    if (text->shared->refs <= 1u)
+        return SEQ_OK;
+
+    old = text->shared;
+    next = text_shared_new_empty(&text->allocator);
+    if (!next)
+        return SEQ_OOM;
+
+    n = seq_length(old->seq);
+    for (size_t i = 0; i < n; i++)
+    {
+        TextHandle handle = 0;
+        int        rc = seq_get(old->seq, i, &handle);
+        if (rc != SEQ_OK)
+        {
+            text_shared_destroy(next);
+            return rc;
+        }
+        rc = seq_push_back(next->seq, handle);
+        if (rc != SEQ_OK)
+        {
+            text_shared_destroy(next);
+            return rc;
+        }
+    }
+
+    old->refs--;
+    text->shared = next;
+    return SEQ_OK;
+}
+
 static int text_rebuild_from_split(Text *text, Seq *left, Seq *right)
 {
-    int rc = seq_concat(text->seq, left);
+    int rc = seq_concat(text_seq(text), left);
     if (rc != SEQ_OK)
     {
         seq_free(left);
@@ -260,7 +370,7 @@ static int text_rebuild_from_split(Text *text, Seq *left, Seq *right)
         return rc;
     }
 
-    rc = seq_concat(text->seq, right);
+    rc = seq_concat(text_seq(text), right);
     seq_free(left);
     seq_free(right);
     return rc;
@@ -276,8 +386,8 @@ Text *text_new_with_allocator(const SeqAllocator *allocator)
     if (!text)
         return NULL;
 
-    text->seq = seq_new_with_allocator(&resolved);
-    if (!text->seq)
+    text->shared = text_shared_new_empty(&resolved);
+    if (!text->shared)
     {
         text_dealloc(&resolved, text);
         return NULL;
@@ -290,32 +400,61 @@ Text *text_new(void)
     return text_new_with_allocator(NULL);
 }
 
+Text *text_clone(const Text *text)
+{
+    Text *clone = NULL;
+
+    if (!text || !text->shared || !text->shared->seq)
+        return NULL;
+
+    clone = text_shell_new(&text->allocator);
+    if (!clone)
+        return NULL;
+
+    if (text_shared_retain(text->shared) != SEQ_OK)
+    {
+        text_dealloc(&text->allocator, clone);
+        return NULL;
+    }
+    clone->shared = text->shared;
+    return clone;
+}
+
 void text_free(Text *text)
 {
     if (!text)
         return;
-    seq_free(text->seq);
-    text->seq = NULL;
+    text_shared_release(text->shared);
+    text->shared = NULL;
     text_dealloc(&text->allocator, text);
 }
 
 int text_is_valid(const Text *text)
 {
-    return (text && text->seq && seq_is_valid(text->seq)) ? 1 : 0;
+    Seq *seq = text_seq(text);
+    return (seq && seq_is_valid(seq)) ? 1 : 0;
 }
 
 int text_reset(Text *text)
 {
-    if (!text || !text->seq)
+    int rc = SEQ_OK;
+    Seq *seq = text_seq(text);
+
+    if (!seq)
         return SEQ_INVALID;
-    return seq_reset(text->seq);
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
+    return seq_reset(text_seq(text));
 }
 
 size_t text_length(const Text *text)
 {
-    if (!text || !text->seq)
+    Seq *seq = text_seq(text);
+
+    if (!seq)
         return 0;
-    return seq_length(text->seq);
+    return seq_length(seq);
 }
 
 TextHandle text_handle_make(TextHandleKind kind, uint32_t payload)
@@ -363,55 +502,78 @@ int text_handle_is_codepoint(TextHandle handle)
 
 int text_push_front_handle(Text *text, TextHandle handle)
 {
-    if (!text || !text->seq || !text_handle_is_storable(handle))
+    Seq *seq = text_seq(text);
+    int  rc = SEQ_OK;
+
+    if (!seq || !text_handle_is_storable(handle))
         return SEQ_INVALID;
-    return seq_push_front(text->seq, handle);
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
+    return seq_push_front(text_seq(text), handle);
 }
 
 int text_push_back_handle(Text *text, TextHandle handle)
 {
-    if (!text || !text->seq || !text_handle_is_storable(handle))
+    Seq *seq = text_seq(text);
+    int  rc = SEQ_OK;
+
+    if (!seq || !text_handle_is_storable(handle))
         return SEQ_INVALID;
-    return seq_push_back(text->seq, handle);
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
+    return seq_push_back(text_seq(text), handle);
 }
 
 int text_pop_front_handle(Text *text, TextHandle *out)
 {
     uint32_t sink = 0;
+    int      rc = SEQ_OK;
 
-    if (!text || !text->seq)
+    if (!text_seq(text))
         return SEQ_INVALID;
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
     if (!out)
         out = &sink;
-    return seq_pop_front(text->seq, out);
+    return seq_pop_front(text_seq(text), out);
 }
 
 int text_pop_back_handle(Text *text, TextHandle *out)
 {
     uint32_t sink = 0;
+    int      rc = SEQ_OK;
 
-    if (!text || !text->seq)
+    if (!text_seq(text))
         return SEQ_INVALID;
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
     if (!out)
         out = &sink;
-    return seq_pop_back(text->seq, out);
+    return seq_pop_back(text_seq(text), out);
 }
 
 int text_get_handle(const Text *text, size_t idx, TextHandle *out)
 {
-    if (!text || !text->seq)
+    Seq *seq = text_seq(text);
+
+    if (!seq)
         return SEQ_INVALID;
-    return seq_get(text->seq, idx, out);
+    return seq_get(seq, idx, out);
 }
 
 static int text_set_handle_impl(Text *text, size_t idx, TextHandle handle)
 {
+    Seq      *seq = text_seq(text);
     Seq      *left = NULL;
     Seq      *right = NULL;
     uint32_t  discarded = 0;
     int       rc;
 
-    rc = seq_split_at(text->seq, idx, &left, &right);
+    rc = seq_split_at(seq, idx, &left, &right);
     if (rc != SEQ_OK)
         return rc;
 
@@ -436,20 +598,27 @@ static int text_set_handle_impl(Text *text, size_t idx, TextHandle handle)
 
 int text_set_handle(Text *text, size_t idx, TextHandle handle)
 {
-    if (!text || !text->seq || !seq_is_valid(text->seq) || !text_handle_is_storable(handle))
+    Seq *seq = text_seq(text);
+    int  rc = SEQ_OK;
+
+    if (!seq || !seq_is_valid(seq) || !text_handle_is_storable(handle))
         return SEQ_INVALID;
-    if (idx >= seq_length(text->seq))
+    if (idx >= seq_length(seq))
         return SEQ_RANGE;
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
     return text_set_handle_impl(text, idx, handle);
 }
 
 static int text_insert_handle_impl(Text *text, size_t idx, TextHandle handle)
 {
+    Seq *seq = text_seq(text);
     Seq *left = NULL;
     Seq *right = NULL;
     int  rc;
 
-    rc = seq_split_at(text->seq, idx, &left, &right);
+    rc = seq_split_at(seq, idx, &left, &right);
     if (rc != SEQ_OK)
         return rc;
 
@@ -466,26 +635,36 @@ static int text_insert_handle_impl(Text *text, size_t idx, TextHandle handle)
 
 int text_insert_handle(Text *text, size_t idx, TextHandle handle)
 {
-    if (!text || !text->seq || !seq_is_valid(text->seq) || !text_handle_is_storable(handle))
+    Seq *seq = text_seq(text);
+    int  rc = SEQ_OK;
+
+    if (!seq || !seq_is_valid(seq) || !text_handle_is_storable(handle))
         return SEQ_INVALID;
-    if (idx > seq_length(text->seq))
+    if (idx > seq_length(seq))
         return SEQ_RANGE;
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
     return text_insert_handle_impl(text, idx, handle);
 }
 
 int text_delete_handle(Text *text, size_t idx, TextHandle *out)
 {
+    Seq      *seq = text_seq(text);
     Seq      *left = NULL;
     Seq      *right = NULL;
     uint32_t  removed = 0;
     int       rc;
 
-    if (!text || !text->seq || !seq_is_valid(text->seq))
+    if (!seq || !seq_is_valid(seq))
         return SEQ_INVALID;
-    if (idx >= seq_length(text->seq))
+    if (idx >= seq_length(seq))
         return SEQ_RANGE;
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
 
-    rc = seq_split_at(text->seq, idx, &left, &right);
+    rc = seq_split_at(text_seq(text), idx, &left, &right);
     if (rc != SEQ_OK)
         return rc;
 
@@ -603,13 +782,14 @@ int text_push_back(Text *text, uint32_t codepoint)
 
 int text_pop_front(Text *text, uint32_t *out)
 {
+    Seq       *seq = text_seq(text);
     TextHandle handle = 0;
     size_t     len = 0;
     int        rc = SEQ_OK;
 
-    if (!out || !text || !text->seq || !seq_is_valid(text->seq))
+    if (!out || !seq || !seq_is_valid(seq))
         return SEQ_INVALID;
-    len = seq_length(text->seq);
+    len = seq_length(seq);
     if (len == 0)
         return SEQ_EMPTY;
     rc = text_get_handle(text, 0, &handle);
@@ -623,13 +803,14 @@ int text_pop_front(Text *text, uint32_t *out)
 
 int text_pop_back(Text *text, uint32_t *out)
 {
+    Seq       *seq = text_seq(text);
     TextHandle handle = 0;
     size_t     len = 0;
     int        rc = SEQ_OK;
 
-    if (!out || !text || !text->seq || !seq_is_valid(text->seq))
+    if (!out || !seq || !seq_is_valid(seq))
         return SEQ_INVALID;
-    len = seq_length(text->seq);
+    len = seq_length(seq);
     if (len == 0)
         return SEQ_EMPTY;
     rc = text_get_handle(text, len - 1u, &handle);
@@ -694,45 +875,60 @@ int text_delete(Text *text, size_t idx, uint32_t *out)
 
 int text_concat(Text *dest, Text *src)
 {
-    if (!dest || !src || !dest->seq || !src->seq || dest == src)
+    int rc = SEQ_OK;
+
+    if (!dest || !src || !text_seq(dest) || !text_seq(src) || dest == src)
         return SEQ_INVALID;
-    return seq_concat(dest->seq, src->seq);
+    rc = text_detach_for_write(dest);
+    if (rc != SEQ_OK)
+        return rc;
+    rc = text_detach_for_write(src);
+    if (rc != SEQ_OK)
+        return rc;
+    return seq_concat(text_seq(dest), text_seq(src));
 }
 
 int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out)
 {
+    Seq  *seq = text_seq(text);
     Seq  *left_seq = NULL;
     Seq  *right_seq = NULL;
     Text *left = NULL;
     Text *right = NULL;
     int   rc;
 
-    if (!text || !text->seq || !left_out || !right_out)
+    if (!seq || !left_out || !right_out)
         return SEQ_INVALID;
+    rc = text_detach_for_write(text);
+    if (rc != SEQ_OK)
+        return rc;
+    seq = text_seq(text);
 
-    rc = seq_split_at(text->seq, idx, &left_seq, &right_seq);
+    rc = seq_split_at(seq, idx, &left_seq, &right_seq);
     if (rc != SEQ_OK)
         return rc;
 
-    left = text_shell_new(&text->allocator);
-    right = text_shell_new(&text->allocator);
+    left = text_new_with_allocator(&text->allocator);
+    right = text_new_with_allocator(&text->allocator);
     if (!left || !right)
     {
-        int rec1 = seq_concat(text->seq, left_seq);
-        int rec2 = seq_concat(text->seq, right_seq);
+        int rec1 = seq_concat(seq, left_seq);
+        int rec2 = seq_concat(seq, right_seq);
         seq_free(left_seq);
         seq_free(right_seq);
         if (left)
-            text_dealloc(&text->allocator, left);
+            text_free(left);
         if (right)
-            text_dealloc(&text->allocator, right);
+            text_free(right);
         if (rec1 == SEQ_OOM || rec2 == SEQ_OOM)
             return SEQ_OOM;
         return SEQ_OOM;
     }
 
-    left->seq = left_seq;
-    right->seq = right_seq;
+    seq_free(text_seq(left));
+    seq_free(text_seq(right));
+    left->shared->seq = left_seq;
+    right->shared->seq = right_seq;
     *left_out = left;
     *right_out = right;
     return SEQ_OK;
@@ -740,11 +936,12 @@ int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out)
 
 int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len)
 {
+    Seq   *seq = text_seq(text);
     Text  *next = NULL;
     size_t off = 0;
     int    rc = SEQ_OK;
 
-    if (!text || !text->seq || !seq_is_valid(text->seq))
+    if (!seq || !seq_is_valid(seq))
         return SEQ_INVALID;
     if (!utf8 && utf8_len > 0)
         return SEQ_INVALID;
@@ -770,7 +967,7 @@ int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len)
             text_free(next);
             return rc;
         }
-        rc = seq_push_back(next->seq, handle);
+        rc = seq_push_back(text_seq(next), handle);
         if (rc != SEQ_OK)
         {
             text_free(next);
@@ -780,9 +977,9 @@ int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len)
     }
 
     {
-        Seq *old = text->seq;
-        text->seq = next->seq;
-        next->seq = old;
+        TextShared *old = text->shared;
+        text->shared = next->shared;
+        next->shared = old;
     }
     text_free(next);
     return SEQ_OK;
@@ -857,10 +1054,11 @@ static int text_utf8_encode_visit(uint32_t codepoint, void *visit_ctx)
 int text_to_utf8_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
                           uint8_t *out, size_t out_cap, size_t *utf8_len_out)
 {
+    Seq   *seq = text_seq(text);
     size_t need = 0;
     int    rc = SEQ_OK;
 
-    if (!text || !text->seq || !utf8_len_out || !seq_is_valid(text->seq))
+    if (!seq || !utf8_len_out || !seq_is_valid(seq))
         return SEQ_INVALID;
     if (!out && out_cap > 0)
         return SEQ_INVALID;

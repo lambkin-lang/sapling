@@ -165,9 +165,11 @@ static void test_empty(void)
 {
     SECTION("empty");
     Text *text = text_new();
+    Text *clone_null = text_clone(NULL);
     uint32_t out = 0;
 
     CHECK(text != NULL);
+    CHECK(clone_null == NULL);
     CHECK(text_is_valid(text) == 1);
     CHECK(text_length(text) == 0);
     CHECK(text_get(text, 0, &out) == SEQ_RANGE);
@@ -265,6 +267,80 @@ static void test_concat_split(void)
     CHECK(text_concat(a, l) == SEQ_OK);
     CHECK(text_concat(a, r) == SEQ_OK);
     CHECK(text_equals_array(a, expect, 5));
+
+    text_free(a);
+    text_free(b);
+    text_free(l);
+    text_free(r);
+}
+
+static void test_clone_copy_on_write(void)
+{
+    SECTION("clone copy-on-write");
+    uint32_t vals[] = {0x41u, 0x42u, 0x43u};
+    Text    *a = text_from_array(vals, 3);
+    Text    *b = text_clone(a);
+
+    CHECK(a != NULL && b != NULL);
+    CHECK(text_equals_array(a, vals, 3));
+    CHECK(text_equals_array(b, vals, 3));
+
+    CHECK(text_push_back(b, 0x44u) == SEQ_OK);
+    {
+        uint32_t expect_a[] = {0x41u, 0x42u, 0x43u};
+        uint32_t expect_b[] = {0x41u, 0x42u, 0x43u, 0x44u};
+        CHECK(text_equals_array(a, expect_a, 3));
+        CHECK(text_equals_array(b, expect_b, 4));
+    }
+
+    CHECK(text_set(a, 0, 0x5Au) == SEQ_OK);
+    {
+        uint32_t expect_a[] = {0x5Au, 0x42u, 0x43u};
+        uint32_t expect_b[] = {0x41u, 0x42u, 0x43u, 0x44u};
+        CHECK(text_equals_array(a, expect_a, 3));
+        CHECK(text_equals_array(b, expect_b, 4));
+    }
+
+    text_free(a);
+    text_free(b);
+}
+
+static void test_clone_structural_detach(void)
+{
+    SECTION("clone structural detach");
+    uint32_t vals[] = {1u, 2u, 3u};
+    Text    *a = text_from_array(vals, 3);
+    Text    *b = text_clone(a);
+    Text    *l = NULL;
+    Text    *r = NULL;
+    const uint8_t utf8[] = {'x', 'y'};
+
+    CHECK(a != NULL && b != NULL);
+    CHECK(text_split_at(b, 1u, &l, &r) == SEQ_OK);
+    CHECK(text_length(b) == 0u);
+    {
+        uint32_t expect_a[] = {1u, 2u, 3u};
+        uint32_t expect_l[] = {1u};
+        uint32_t expect_r[] = {2u, 3u};
+        CHECK(text_equals_array(a, expect_a, 3));
+        CHECK(text_equals_array(l, expect_l, 1));
+        CHECK(text_equals_array(r, expect_r, 2));
+    }
+
+    CHECK(text_concat(b, l) == SEQ_OK);
+    CHECK(text_concat(b, r) == SEQ_OK);
+    {
+        uint32_t expect_b[] = {1u, 2u, 3u};
+        CHECK(text_equals_array(b, expect_b, 3));
+    }
+
+    CHECK(text_from_utf8(b, utf8, sizeof(utf8)) == SEQ_OK);
+    {
+        uint32_t expect_a[] = {1u, 2u, 3u};
+        uint32_t expect_b[] = {0x78u, 0x79u};
+        CHECK(text_equals_array(a, expect_a, 3));
+        CHECK(text_equals_array(b, expect_b, 2));
+    }
 
     text_free(a);
     text_free(b);
@@ -681,6 +757,8 @@ int main(void)
     test_push_pop_get();
     test_insert_set_delete();
     test_concat_split();
+    test_clone_copy_on_write();
+    test_clone_structural_detach();
     test_split_range_contract();
     test_custom_allocator();
     test_invalid_args();
