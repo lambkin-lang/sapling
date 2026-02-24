@@ -85,6 +85,39 @@ static void counting_free(void *ctx, void *ptr)
     free(ptr);
 }
 
+typedef struct
+{
+    uint8_t *buf;
+    size_t   cap;
+    size_t   off;
+} ArenaAllocator;
+
+static size_t align_up(size_t v, size_t a)
+{
+    return (v + (a - 1u)) & ~(a - 1u);
+}
+
+static void *arena_alloc(void *ctx, size_t bytes)
+{
+    ArenaAllocator *arena = (ArenaAllocator *)ctx;
+    size_t          aligned = 0;
+    const size_t    max_align = sizeof(max_align_t);
+
+    if (!arena || bytes == 0)
+        return NULL;
+    aligned = align_up(arena->off, max_align);
+    if (aligned > arena->cap || bytes > arena->cap - aligned)
+        return NULL;
+    arena->off = aligned + bytes;
+    return arena->buf + aligned;
+}
+
+static void arena_free_noop(void *ctx, void *ptr)
+{
+    (void)ctx;
+    (void)ptr;
+}
+
 static void test_empty(void)
 {
     SECTION("empty");
@@ -386,6 +419,33 @@ static void test_codepoint_validation(void)
     text_free(text);
 }
 
+static void test_arena_allocator_exhaustion(void)
+{
+    SECTION("arena allocator exhaustion");
+    uint8_t      storage[512];
+    ArenaAllocator arena = {storage, sizeof(storage), 0};
+    SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
+    Text        *text = text_new_with_allocator(&allocator);
+    int          saw_oom = 0;
+
+    CHECK(text != NULL);
+    for (size_t i = 0; i < 4096; i++)
+    {
+        int rc = text_push_back(text, (uint32_t)(i & 0x7Fu));
+        if (rc == SEQ_OK)
+            continue;
+        CHECK(rc == SEQ_OOM);
+        saw_oom = 1;
+        break;
+    }
+    CHECK(saw_oom == 1);
+    CHECK(text_is_valid(text) == 0);
+    CHECK(text_push_back(text, 0x41u) == SEQ_INVALID);
+    CHECK(text_reset(text) != SEQ_OK);
+
+    text_free(text);
+}
+
 int main(void)
 {
     printf("=== text unit tests ===\n");
@@ -401,6 +461,7 @@ int main(void)
     test_utf8_decode_rejects_invalid();
     test_utf8_buffer_contract();
     test_codepoint_validation();
+    test_arena_allocator_exhaustion();
 
     print_summary();
     return g_fail ? 1 : 0;

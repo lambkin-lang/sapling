@@ -91,3 +91,8 @@ build/
 tests/fuzz/corpus/seq/*
 !tests/fuzz/corpus/seq/.gitignore
 !tests/fuzz/corpus/seq/seed_*.bin
+
+# Keep checked-in text fuzz seed corpus stable; ignore evolved local files
+tests/fuzz/corpus/text/*
+!tests/fuzz/corpus/text/.gitignore
+!tests/fuzz/corpus/text/seed_*.bin

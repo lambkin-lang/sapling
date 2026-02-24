@@ -1,0 +1,4 @@
+# Keep only curated seed corpus files in git.
+*
+!.gitignore
+!seed_*.bin

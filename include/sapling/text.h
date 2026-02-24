@@ -20,6 +20,11 @@ typedef struct Text Text;
 
 /* Lifecycle */
 Text *text_new(void);
+/*
+ * text_new_with_allocator — construct text with explicit allocator policy.
+ * If allocator is NULL, default malloc/free is used.
+ * The allocator is used for both Text shell storage and underlying Seq nodes.
+ */
 Text *text_new_with_allocator(const SeqAllocator *allocator);
 void  text_free(Text *text);
 int   text_is_valid(const Text *text);
@@ -54,6 +59,7 @@ int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out);
  * - Decoding rejects invalid UTF-8 (including overlong forms, surrogates,
  *   and code points > U+10FFFF).
  * - Encoding rejects invalid stored code points.
+ * - text_to_utf8 writes into caller-provided storage; it never allocates.
  */
 int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len);
 int text_utf8_length(const Text *text, size_t *utf8_len_out);
