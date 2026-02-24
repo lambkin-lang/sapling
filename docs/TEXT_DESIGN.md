@@ -2,6 +2,9 @@
 
 `text.h` / `text.c` provide a mutable text container over `Seq`.
 
+Runtime ABI details for literal/tree handle resolution live in
+`docs/TEXT_RUNTIME_HANDLE_CONTRACT.md`.
+
 ## Storage model
 
 `Text` stores `uint32_t` tagged handles:
