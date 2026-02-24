@@ -54,6 +54,59 @@ static uint32_t pattern_multibyte(uint32_t i)
     }
 }
 
+typedef struct
+{
+    uint32_t       id;
+    const uint8_t *utf8;
+    size_t         utf8_len;
+} BenchLiteralEntry;
+
+typedef struct
+{
+    uint32_t    id;
+    const Text *text;
+} BenchTreeEntry;
+
+typedef struct
+{
+    const BenchLiteralEntry *literals;
+    size_t                   literal_count;
+    const BenchTreeEntry    *trees;
+    size_t                   tree_count;
+} BenchResolverCtx;
+
+static int bench_resolve_literal_utf8(uint32_t literal_id, const uint8_t **utf8_out,
+                                      size_t *utf8_len_out, void *ctx)
+{
+    BenchResolverCtx *resolver = (BenchResolverCtx *)ctx;
+    if (!resolver || !utf8_out || !utf8_len_out)
+        return SEQ_INVALID;
+    for (size_t i = 0; i < resolver->literal_count; i++)
+    {
+        if (resolver->literals[i].id != literal_id)
+            continue;
+        *utf8_out = resolver->literals[i].utf8;
+        *utf8_len_out = resolver->literals[i].utf8_len;
+        return SEQ_OK;
+    }
+    return SEQ_INVALID;
+}
+
+static int bench_resolve_tree_text(uint32_t tree_id, const Text **tree_out, void *ctx)
+{
+    BenchResolverCtx *resolver = (BenchResolverCtx *)ctx;
+    if (!resolver || !tree_out)
+        return SEQ_INVALID;
+    for (size_t i = 0; i < resolver->tree_count; i++)
+    {
+        if (resolver->trees[i].id != tree_id)
+            continue;
+        *tree_out = resolver->trees[i].text;
+        return SEQ_OK;
+    }
+    return SEQ_INVALID;
+}
+
 static int run_append_pop(uint32_t count)
 {
     Text *text = text_new();
@@ -155,6 +208,119 @@ fail:
     return 0;
 }
 
+static int run_clone_detach(uint32_t count)
+{
+    const uint32_t seed_len = 256u;
+    Text          *base = NULL;
+
+    base = text_new();
+    if (!base)
+        return 0;
+    for (uint32_t i = 0; i < seed_len; i++)
+    {
+        if (text_push_back(base, pattern_multibyte(i)) != SEQ_OK)
+            goto fail;
+    }
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        Text  *clone = text_clone(base);
+        size_t idx = (size_t)(i % seed_len);
+        if (!clone)
+            goto fail;
+        if (text_set(clone, idx, pattern_multibyte(i + 17u)) != SEQ_OK)
+        {
+            text_free(clone);
+            goto fail;
+        }
+        text_free(clone);
+    }
+
+    if (text_length(base) != seed_len)
+        goto fail;
+    text_free(base);
+    return 1;
+
+fail:
+    text_free(base);
+    return 0;
+}
+
+static int run_utf8_resolved(uint32_t count)
+{
+    Text *root = NULL;
+    Text *tree = NULL;
+    uint8_t *buf = NULL;
+    size_t   need = 0;
+    size_t   wrote = 0;
+    size_t   cp_len = 0;
+    TextHandle cp_handle = 0;
+    const uint8_t literal_word[] = {'h', 'e', 'l', 'l', 'o'};
+    const uint8_t literal_smile[] = {0xF0u, 0x9Fu, 0x99u, 0x82u};
+    const BenchLiteralEntry literals[] = {
+        {1u, literal_word, sizeof(literal_word)},
+        {2u, literal_smile, sizeof(literal_smile)},
+    };
+    BenchTreeEntry trees[] = {
+        {7u, NULL},
+    };
+    BenchResolverCtx resolver_ctx = {literals, 2u, trees, 1u};
+    TextRuntimeResolver resolver = {bench_resolve_literal_utf8, bench_resolve_tree_text,
+                                    &resolver_ctx, 8u, 16384u};
+
+    root = text_new();
+    tree = text_new();
+    if (!root || !tree)
+        goto fail;
+
+    if (text_push_back_handle(tree, text_handle_make(TEXT_HANDLE_LITERAL, 2u)) != SEQ_OK)
+        goto fail;
+    if (text_handle_from_codepoint((uint32_t)'!', &cp_handle) != SEQ_OK)
+        goto fail;
+    if (text_push_back_handle(tree, cp_handle) != SEQ_OK)
+        goto fail;
+    trees[0].text = tree;
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        if (text_handle_from_codepoint(pattern_ascii(i), &cp_handle) != SEQ_OK)
+            goto fail;
+        if (text_push_back_handle(root, cp_handle) != SEQ_OK)
+            goto fail;
+        if (text_push_back_handle(root, text_handle_make(TEXT_HANDLE_LITERAL, 1u)) != SEQ_OK)
+            goto fail;
+        if (text_push_back_handle(root, text_handle_make(TEXT_HANDLE_TREE, 7u)) != SEQ_OK)
+            goto fail;
+    }
+
+    if (text_codepoint_length_resolved(root, text_expand_runtime_handle, &resolver, &cp_len) !=
+        SEQ_OK)
+        goto fail;
+    if (cp_len == 0u)
+        goto fail;
+
+    if (text_utf8_length_resolved(root, text_expand_runtime_handle, &resolver, &need) != SEQ_OK)
+        goto fail;
+    buf = (uint8_t *)malloc(need > 0u ? need : 1u);
+    if (!buf)
+        goto fail;
+    if (text_to_utf8_resolved(root, text_expand_runtime_handle, &resolver, buf, need, &wrote) !=
+            SEQ_OK ||
+        wrote != need)
+        goto fail;
+
+    free(buf);
+    text_free(root);
+    text_free(tree);
+    return 1;
+
+fail:
+    free(buf);
+    text_free(root);
+    text_free(tree);
+    return 0;
+}
+
 static void print_metric(const char *name, double total_secs, uint32_t rounds, double ops_per_round)
 {
     double avg = total_secs / (double)rounds;
@@ -169,6 +335,8 @@ int main(int argc, char **argv)
     double   t_append_pop = 0.0;
     double   t_mid_edits = 0.0;
     double   t_utf8 = 0.0;
+    double   t_clone_detach = 0.0;
+    double   t_utf8_resolved = 0.0;
 
     for (int i = 1; i < argc; i++)
     {
@@ -220,6 +388,22 @@ int main(int argc, char **argv)
             return 1;
         }
         t_utf8 += (now_seconds() - start);
+
+        start = now_seconds();
+        if (!run_clone_detach(count))
+        {
+            fprintf(stderr, "clone/detach benchmark failed on round %u\n", r + 1u);
+            return 1;
+        }
+        t_clone_detach += (now_seconds() - start);
+
+        start = now_seconds();
+        if (!run_utf8_resolved(count))
+        {
+            fprintf(stderr, "resolved utf8 benchmark failed on round %u\n", r + 1u);
+            return 1;
+        }
+        t_utf8_resolved += (now_seconds() - start);
     }
 
     printf("Text benchmark\n");
@@ -227,5 +411,7 @@ int main(int argc, char **argv)
     print_metric("append+pop_front", t_append_pop, rounds, (double)count * 2.0);
     print_metric("mid set/ins/del", t_mid_edits, rounds, (double)count * 4.0);
     print_metric("utf8 roundtrip", t_utf8, rounds, (double)count * 3.0);
+    print_metric("clone+detach(set)", t_clone_detach, rounds, (double)count * 2.0);
+    print_metric("utf8 resolved", t_utf8_resolved, rounds, (double)count * 3.0);
     return 0;
 }
