@@ -99,7 +99,9 @@ Both input trees are **consumed** (one shell is reused for the result, the
 other is freed).
 
 API note: `seq_concat` requires distinct sequence objects (`dest != src`);
-self-concat is rejected with `SEQ_INVALID`.
+self-concat is rejected with `SEQ_INVALID`.  Concat also requires allocator
+compatibility (`alloc_fn`, `free_fn`, and `ctx` must match exactly) so the
+merged tree can be safely freed by the destination sequence.
 
 ## Split
 
@@ -125,12 +127,17 @@ the `[idx, n)` contract.
 
 ## Memory Management
 
-- All `FTree` and `SeqNode` objects are heap-allocated with `malloc`.
+- Each `Seq` carries a `SeqAllocator` (`alloc_fn`, `free_fn`, `ctx`).
+  `seq_new()` uses the default `malloc/free` allocator, while
+  `seq_new_with_allocator()` allows runtime/Wasm-specific allocation policy.
+- All `FTree` and `SeqNode` objects are allocated via the sequence allocator.
 - `seq_free` recursively frees every internal node.  Elements are `uint32_t`
   values, so no per-element payload is freed.
 - Operations that "consume" a tree (concat, split) either reuse the shell
   in place or free it immediately; nodes are transferred, not copied.
 - There is no structural sharing, so `seq_free` never double-frees.
+- `seq_split_at` creates `left`/`right` results with the same allocator as the
+  source sequence, so split/concat round-trips remain allocator-compatible.
 - On allocation failure `seq_push_front` / `seq_push_back` return `SEQ_OOM`.
   `seq_concat` / `seq_split_at` return `SEQ_OOM` instead of aborting; the
   involved sequence object(s) may become invalid and subsequently return

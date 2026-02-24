@@ -118,8 +118,9 @@ struct SeqNode
 /* Public handle */
 struct Seq
 {
-    FTree *root;
-    int    valid;
+    FTree        *root;
+    int           valid;
+    SeqAllocator allocator;
 };
 
 /*
@@ -148,14 +149,18 @@ typedef struct
 /* Forward declarations                                                 */
 /* ================================================================== */
 
-static int    ftree_push_front(FTree *tree, SeqItem item, int item_depth);
-static int    ftree_push_back(FTree *tree, SeqItem item, int item_depth);
-static SeqItem ftree_pop_front(FTree *tree, int item_depth);
-static SeqItem ftree_pop_back(FTree *tree, int item_depth);
+static int    ftree_push_front(FTree *tree, SeqItem item, int item_depth,
+                                const SeqAllocator *allocator);
+static int    ftree_push_back(FTree *tree, SeqItem item, int item_depth,
+                               const SeqAllocator *allocator);
+static SeqItem ftree_pop_front(FTree *tree, int item_depth, const SeqAllocator *allocator);
+static SeqItem ftree_pop_back(FTree *tree, int item_depth, const SeqAllocator *allocator);
 static SeqItem ftree_get(const FTree *t, size_t idx, int item_depth);
-static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth);
-static void   seq_node_free(SeqNode *node, int child_depth);
-static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth);
+static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth,
+                    const SeqAllocator *allocator);
+static void   seq_node_free(SeqNode *node, int child_depth, const SeqAllocator *allocator);
+static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
+                                      const SeqAllocator *allocator);
 
 /* ================================================================== */
 /* Helpers                                                              */
@@ -175,7 +180,36 @@ void seq_test_clear_alloc_fail(void)
 }
 #endif
 
-static void *seq_alloc(size_t bytes)
+static void *seq_allocator_malloc(void *ctx, size_t bytes)
+{
+    (void)ctx;
+    return malloc(bytes);
+}
+
+static void seq_allocator_free(void *ctx, void *ptr)
+{
+    (void)ctx;
+    free(ptr);
+}
+
+static SeqAllocator seq_allocator_default(void)
+{
+    SeqAllocator allocator = {seq_allocator_malloc, seq_allocator_free, NULL};
+    return allocator;
+}
+
+static int seq_allocator_is_valid(const SeqAllocator *allocator)
+{
+    return allocator && allocator->alloc_fn && allocator->free_fn;
+}
+
+static int seq_allocator_equal(const SeqAllocator *lhs, const SeqAllocator *rhs)
+{
+    return lhs->alloc_fn == rhs->alloc_fn && lhs->free_fn == rhs->free_fn &&
+           lhs->ctx == rhs->ctx;
+}
+
+static void *seq_alloc(const SeqAllocator *allocator, size_t bytes)
 {
 #ifdef SAPLING_SEQ_TESTING
     if (g_alloc_fail_after >= 0)
@@ -185,7 +219,12 @@ static void *seq_alloc(size_t bytes)
         g_alloc_fail_after--;
     }
 #endif
-    return malloc(bytes);
+    return allocator->alloc_fn(allocator->ctx, bytes);
+}
+
+static void seq_dealloc(const SeqAllocator *allocator, void *ptr)
+{
+    allocator->free_fn(allocator->ctx, ptr);
 }
 
 /* Return the leaf measure of one item at the given depth. */
@@ -197,9 +236,9 @@ static inline size_t item_measure(SeqItem item, int depth)
 }
 
 /* Allocate an empty FTree shell. */
-static FTree *ftree_new(void)
+static FTree *ftree_new(const SeqAllocator *allocator)
 {
-    FTree *t = seq_alloc(sizeof(FTree));
+    FTree *t = seq_alloc(allocator, sizeof(FTree));
     if (!t)
         return NULL;
     t->tag  = FTREE_EMPTY;
@@ -208,9 +247,9 @@ static FTree *ftree_new(void)
 }
 
 /* Allocate a 2-ary internal node whose children are at child_depth. */
-static SeqNode *node_new2(SeqItem a, SeqItem b, int child_depth)
+static SeqNode *node_new2(SeqItem a, SeqItem b, int child_depth, const SeqAllocator *allocator)
 {
-    SeqNode *n = seq_alloc(sizeof(SeqNode));
+    SeqNode *n = seq_alloc(allocator, sizeof(SeqNode));
     if (!n)
         return NULL;
     n->arity    = 2;
@@ -222,9 +261,10 @@ static SeqNode *node_new2(SeqItem a, SeqItem b, int child_depth)
 }
 
 /* Allocate a 3-ary internal node whose children are at child_depth. */
-static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth)
+static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth,
+                           const SeqAllocator *allocator)
 {
-    SeqNode *n = seq_alloc(sizeof(SeqNode));
+    SeqNode *n = seq_alloc(allocator, sizeof(SeqNode));
     if (!n)
         return NULL;
     n->arity    = 3;
@@ -243,12 +283,13 @@ static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth)
  * Packing strategy: greedily emit Node3 while count > 4, then handle the
  * tail (2, 3, or 4 items) as one or two nodes, ensuring no remainder of 1.
  */
-static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out)
+static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out,
+                       const SeqAllocator *allocator)
 {
     int n = 0;
     while (count > 4)
     {
-        SeqNode *node = node_new3(items[0], items[1], items[2], child_depth);
+        SeqNode *node = node_new3(items[0], items[1], items[2], child_depth, allocator);
         if (!node)
             goto oom;
         out[n++] = seq_item_from_node(node);
@@ -259,7 +300,7 @@ static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out)
     {
     case 2:
     {
-        SeqNode *node = node_new2(items[0], items[1], child_depth);
+        SeqNode *node = node_new2(items[0], items[1], child_depth, allocator);
         if (!node)
             goto oom;
         out[n++] = seq_item_from_node(node);
@@ -267,7 +308,7 @@ static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out)
     }
     case 3:
     {
-        SeqNode *node = node_new3(items[0], items[1], items[2], child_depth);
+        SeqNode *node = node_new3(items[0], items[1], items[2], child_depth, allocator);
         if (!node)
             goto oom;
         out[n++] = seq_item_from_node(node);
@@ -275,14 +316,14 @@ static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out)
     }
     case 4:
     {
-        SeqNode *a = node_new2(items[0], items[1], child_depth);
-        SeqNode *b = node_new2(items[2], items[3], child_depth);
+        SeqNode *a = node_new2(items[0], items[1], child_depth, allocator);
+        SeqNode *b = node_new2(items[2], items[3], child_depth, allocator);
         if (!a || !b)
         {
             if (a)
-                seq_node_free(a, child_depth);
+                seq_node_free(a, child_depth, allocator);
             if (b)
-                seq_node_free(b, child_depth);
+                seq_node_free(b, child_depth, allocator);
             goto oom;
         }
         out[n++] = seq_item_from_node(a);
@@ -296,7 +337,7 @@ static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out)
 
 oom:
     for (int i = 0; i < n; i++)
-        seq_node_free(seq_item_as_node(out[i]), child_depth);
+        seq_node_free(seq_item_as_node(out[i]), child_depth, allocator);
     return -1;
 }
 
@@ -308,21 +349,21 @@ oom:
  * seq_node_free — recursively free a SeqNode and all descendant SeqNodes.
  * child_depth: depth of this node's children (0 = u32 handle, do not free).
  */
-static void seq_node_free(SeqNode *node, int child_depth)
+static void seq_node_free(SeqNode *node, int child_depth, const SeqAllocator *allocator)
 {
     if (child_depth > 0)
     {
         for (int i = 0; i < node->arity; i++)
-            seq_node_free(seq_item_as_node(node->child[i]), child_depth - 1);
+            seq_node_free(seq_item_as_node(node->child[i]), child_depth - 1, allocator);
     }
-    free(node);
+    seq_dealloc(allocator, node);
 }
 
 /*
  * ftree_free — recursively free a FTree and all contained SeqNodes.
  * item_depth: depth of items stored in this tree.
  */
-static void ftree_free(FTree *t, int item_depth)
+static void ftree_free(FTree *t, int item_depth, const SeqAllocator *allocator)
 {
     if (!t)
         return;
@@ -332,20 +373,20 @@ static void ftree_free(FTree *t, int item_depth)
         break;
     case FTREE_SINGLE:
         if (item_depth > 0)
-            seq_node_free(seq_item_as_node(t->single), item_depth - 1);
+            seq_node_free(seq_item_as_node(t->single), item_depth - 1, allocator);
         break;
     case FTREE_DEEP:
         if (item_depth > 0)
         {
             for (int i = 0; i < t->deep.pr_count; i++)
-                seq_node_free(seq_item_as_node(t->deep.pr[i]), item_depth - 1);
+                seq_node_free(seq_item_as_node(t->deep.pr[i]), item_depth - 1, allocator);
             for (int i = 0; i < t->deep.sf_count; i++)
-                seq_node_free(seq_item_as_node(t->deep.sf[i]), item_depth - 1);
+                seq_node_free(seq_item_as_node(t->deep.sf[i]), item_depth - 1, allocator);
         }
-        ftree_free(t->deep.mid, item_depth + 1);
+        ftree_free(t->deep.mid, item_depth + 1, allocator);
         break;
     }
-    free(t);
+    seq_dealloc(allocator, t);
 }
 
 /* ================================================================== */
@@ -357,7 +398,8 @@ static void ftree_free(FTree *t, int item_depth)
  * Returns SEQ_OK or SEQ_OOM.  On SEQ_OOM the tree may be partially
  * modified; callers should treat the Seq as invalid.
  */
-static int ftree_push_front(FTree *tree, SeqItem item, int item_depth)
+static int ftree_push_front(FTree *tree, SeqItem item, int item_depth,
+                             const SeqAllocator *allocator)
 {
     size_t sz = item_measure(item, item_depth);
     switch (tree->tag)
@@ -371,7 +413,7 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth)
     case FTREE_SINGLE:
     {
         SeqItem b   = tree->single;
-        FTree *mid = ftree_new();
+        FTree *mid = ftree_new(allocator);
         if (!mid)
             return SEQ_OOM;
         tree->tag           = FTREE_DEEP;
@@ -405,7 +447,8 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth)
          */
         {
             SeqNode *node =
-                node_new3(tree->deep.pr[1], tree->deep.pr[2], tree->deep.pr[3], item_depth);
+                node_new3(tree->deep.pr[1], tree->deep.pr[2], tree->deep.pr[3], item_depth,
+                           allocator);
             if (!node)
             {
                 tree->size -= sz;
@@ -416,7 +459,8 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth)
             tree->deep.pr[1]    = old_front;
             tree->deep.pr_count = 2;
             tree->deep.pr_size  = sz + item_measure(old_front, item_depth);
-            return ftree_push_front(tree->deep.mid, seq_item_from_node(node), item_depth + 1);
+            return ftree_push_front(tree->deep.mid, seq_item_from_node(node), item_depth + 1,
+                                    allocator);
         }
     }
     return SEQ_OOM; /* unreachable */
@@ -425,7 +469,8 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth)
 /*
  * ftree_push_back — append item (at item_depth) to tree, in place.
  */
-static int ftree_push_back(FTree *tree, SeqItem item, int item_depth)
+static int ftree_push_back(FTree *tree, SeqItem item, int item_depth,
+                            const SeqAllocator *allocator)
 {
     size_t sz = item_measure(item, item_depth);
     switch (tree->tag)
@@ -439,7 +484,7 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth)
     case FTREE_SINGLE:
     {
         SeqItem b   = tree->single;
-        FTree *mid = ftree_new();
+        FTree *mid = ftree_new(allocator);
         if (!mid)
             return SEQ_OOM;
         tree->tag           = FTREE_DEEP;
@@ -469,7 +514,8 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth)
          */
         {
             SeqNode *node =
-                node_new3(tree->deep.sf[0], tree->deep.sf[1], tree->deep.sf[2], item_depth);
+                node_new3(tree->deep.sf[0], tree->deep.sf[1], tree->deep.sf[2], item_depth,
+                           allocator);
             if (!node)
             {
                 tree->size -= sz;
@@ -480,7 +526,8 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth)
             tree->deep.sf[1]    = item;
             tree->deep.sf_count = 2;
             tree->deep.sf_size  = item_measure(old_last, item_depth) + sz;
-            return ftree_push_back(tree->deep.mid, seq_item_from_node(node), item_depth + 1);
+            return ftree_push_back(tree->deep.mid, seq_item_from_node(node), item_depth + 1,
+                                   allocator);
         }
     }
     return SEQ_OOM; /* unreachable */
@@ -494,7 +541,7 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth)
  * ftree_pop_front — remove and return the first item (at item_depth).
  * Pre: tree is non-empty.  Modifies tree in place.
  */
-static SeqItem ftree_pop_front(FTree *tree, int item_depth)
+static SeqItem ftree_pop_front(FTree *tree, int item_depth, const SeqAllocator *allocator)
 {
     assert(tree->tag != FTREE_EMPTY);
 
@@ -528,7 +575,7 @@ static SeqItem ftree_pop_front(FTree *tree, int item_depth)
         if (tree->deep.sf_count == 1)
         {
             SeqItem sf0 = tree->deep.sf[0];
-            free(tree->deep.mid);
+            seq_dealloc(allocator, tree->deep.mid);
             tree->tag    = FTREE_SINGLE;
             tree->single = sf0;
         }
@@ -549,12 +596,13 @@ static SeqItem ftree_pop_front(FTree *tree, int item_depth)
     else
     {
         /* Pop a node from middle; its children become the new prefix */
-        SeqNode *node = seq_item_as_node(ftree_pop_front(tree->deep.mid, item_depth + 1));
+        SeqNode *node =
+            seq_item_as_node(ftree_pop_front(tree->deep.mid, item_depth + 1, allocator));
         tree->deep.pr_count = node->arity;
         tree->deep.pr_size  = node->size;
         for (int i = 0; i < node->arity; i++)
             tree->deep.pr[i] = node->child[i];
-        free(node);
+        seq_dealloc(allocator, node);
     }
 
     return item;
@@ -564,7 +612,7 @@ static SeqItem ftree_pop_front(FTree *tree, int item_depth)
  * ftree_pop_back — remove and return the last item (at item_depth).
  * Pre: tree is non-empty.  Modifies tree in place.
  */
-static SeqItem ftree_pop_back(FTree *tree, int item_depth)
+static SeqItem ftree_pop_back(FTree *tree, int item_depth, const SeqAllocator *allocator)
 {
     assert(tree->tag != FTREE_EMPTY);
 
@@ -594,7 +642,7 @@ static SeqItem ftree_pop_back(FTree *tree, int item_depth)
         if (tree->deep.pr_count == 1)
         {
             SeqItem pr0 = tree->deep.pr[0];
-            free(tree->deep.mid);
+            seq_dealloc(allocator, tree->deep.mid);
             tree->tag    = FTREE_SINGLE;
             tree->single = pr0;
         }
@@ -614,12 +662,13 @@ static SeqItem ftree_pop_back(FTree *tree, int item_depth)
     else
     {
         /* Pop a node from back of middle; its children become the new suffix */
-        SeqNode *node = seq_item_as_node(ftree_pop_back(tree->deep.mid, item_depth + 1));
+        SeqNode *node =
+            seq_item_as_node(ftree_pop_back(tree->deep.mid, item_depth + 1, allocator));
         tree->deep.sf_count = node->arity;
         tree->deep.sf_size  = node->size;
         for (int i = 0; i < node->arity; i++)
             tree->deep.sf[i] = node->child[i];
-        free(node);
+        seq_dealloc(allocator, node);
     }
 
     return item;
@@ -689,17 +738,18 @@ static SeqItem ftree_get(const FTree *t, size_t idx, int item_depth)
  * small_items_to_tree — build a FTree at item_depth from 0–4 items.
  * Ownership of the items transfers to the new tree.
  */
-static FTree *small_items_to_tree(SeqItem *items, int count, int item_depth)
+static FTree *small_items_to_tree(SeqItem *items, int count, int item_depth,
+                                   const SeqAllocator *allocator)
 {
-    FTree *t = ftree_new();
+    FTree *t = ftree_new(allocator);
     if (!t)
         return NULL;
     for (int i = 0; i < count; i++)
     {
-        int rc = ftree_push_back(t, items[i], item_depth);
+        int rc = ftree_push_back(t, items[i], item_depth, allocator);
         if (rc != SEQ_OK)
         {
-            ftree_free(t, item_depth);
+            ftree_free(t, item_depth, allocator);
             return NULL;
         }
     }
@@ -714,11 +764,12 @@ static FTree *small_items_to_tree(SeqItem *items, int count, int item_depth)
  * Ownership of mid, the prefix items, and the suffix items transfers in.
  */
 static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, int sf_count,
-                            size_t sf_size, int item_depth)
+                            size_t sf_size, int item_depth,
+                            const SeqAllocator *allocator)
 {
     if (pr_count > 0)
     {
-        FTree *t = ftree_new();
+        FTree *t = ftree_new(allocator);
         if (!t)
             return NULL;
         t->tag           = FTREE_DEEP;
@@ -741,16 +792,16 @@ static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, i
     /* Empty prefix: borrow from mid or fall back to suffix */
     if (mid->tag == FTREE_EMPTY)
     {
-        free(mid);
-        return small_items_to_tree(sf, sf_count, item_depth);
+        seq_dealloc(allocator, mid);
+        return small_items_to_tree(sf, sf_count, item_depth, allocator);
     }
 
     /* Pop a node from front of mid; expand it into the new prefix */
-    SeqNode *node = seq_item_as_node(ftree_pop_front(mid, item_depth + 1));
-    FTree   *t    = ftree_new();
+    SeqNode *node = seq_item_as_node(ftree_pop_front(mid, item_depth + 1, allocator));
+    FTree   *t    = ftree_new(allocator);
     if (!t)
     {
-        seq_node_free(node, item_depth);
+        seq_node_free(node, item_depth, allocator);
         return NULL;
     }
     t->tag           = FTREE_DEEP;
@@ -764,7 +815,7 @@ static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, i
         t->deep.sf[i] = sf[i];
     t->deep.sf_size = sf_size;
     t->size         = node->size + mid->size + sf_size;
-    free(node);
+    seq_dealloc(allocator, node);
     return t;
 }
 
@@ -773,11 +824,11 @@ static FTree *deep_l_items(SeqItem *pr, int pr_count, FTree *mid, SeqItem *sf, i
  * (possibly empty) suffix.  Borrows from back of mid if suffix is empty.
  */
 static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid, SeqItem *sf,
-                            int sf_count, int item_depth)
+                            int sf_count, int item_depth, const SeqAllocator *allocator)
 {
     if (sf_count > 0)
     {
-        FTree *t = ftree_new();
+        FTree *t = ftree_new(allocator);
         if (!t)
             return NULL;
         t->tag           = FTREE_DEEP;
@@ -800,15 +851,15 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
     /* Empty suffix: borrow from mid or fall back to prefix */
     if (mid->tag == FTREE_EMPTY)
     {
-        free(mid);
-        return small_items_to_tree(pr, pr_count, item_depth);
+        seq_dealloc(allocator, mid);
+        return small_items_to_tree(pr, pr_count, item_depth, allocator);
     }
 
-    SeqNode *node = seq_item_as_node(ftree_pop_back(mid, item_depth + 1));
-    FTree   *t    = ftree_new();
+    SeqNode *node = seq_item_as_node(ftree_pop_back(mid, item_depth + 1, allocator));
+    FTree   *t    = ftree_new(allocator);
     if (!t)
     {
-        seq_node_free(node, item_depth);
+        seq_node_free(node, item_depth, allocator);
         return NULL;
     }
     t->tag           = FTREE_DEEP;
@@ -822,7 +873,7 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
     for (int i = 0; i < node->arity; i++)
         t->deep.sf[i] = node->child[i];
     t->size = pr_size + mid->size + node->size;
-    free(node);
+    seq_dealloc(allocator, node);
     return t;
 }
 
@@ -837,16 +888,17 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
  * Returns the merged tree (either t1's shell reused, or t2's shell),
  * or NULL on OOM.
  */
-static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth)
+static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth,
+                    const SeqAllocator *allocator)
 {
     int rc;
 
     if (t1->tag == FTREE_EMPTY)
     {
-        free(t1);
+        seq_dealloc(allocator, t1);
         for (int i = ts_count - 1; i >= 0; i--)
         {
-            rc = ftree_push_front(t2, ts[i], item_depth);
+            rc = ftree_push_front(t2, ts[i], item_depth, allocator);
             if (rc != SEQ_OK)
                 return NULL;
         }
@@ -855,10 +907,10 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
 
     if (t2->tag == FTREE_EMPTY)
     {
-        free(t2);
+        seq_dealloc(allocator, t2);
         for (int i = 0; i < ts_count; i++)
         {
-            rc = ftree_push_back(t1, ts[i], item_depth);
+            rc = ftree_push_back(t1, ts[i], item_depth, allocator);
             if (rc != SEQ_OK)
                 return NULL;
         }
@@ -868,14 +920,14 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
     if (t1->tag == FTREE_SINGLE)
     {
         SeqItem x = t1->single;
-        free(t1);
+        seq_dealloc(allocator, t1);
         for (int i = ts_count - 1; i >= 0; i--)
         {
-            rc = ftree_push_front(t2, ts[i], item_depth);
+            rc = ftree_push_front(t2, ts[i], item_depth, allocator);
             if (rc != SEQ_OK)
                 return NULL;
         }
-        rc = ftree_push_front(t2, x, item_depth);
+        rc = ftree_push_front(t2, x, item_depth, allocator);
         if (rc != SEQ_OK)
             return NULL;
         return t2;
@@ -884,14 +936,14 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
     if (t2->tag == FTREE_SINGLE)
     {
         SeqItem y = t2->single;
-        free(t2);
+        seq_dealloc(allocator, t2);
         for (int i = 0; i < ts_count; i++)
         {
-            rc = ftree_push_back(t1, ts[i], item_depth);
+            rc = ftree_push_back(t1, ts[i], item_depth, allocator);
             if (rc != SEQ_OK)
                 return NULL;
         }
-        rc = ftree_push_back(t1, y, item_depth);
+        rc = ftree_push_back(t1, y, item_depth, allocator);
         if (rc != SEQ_OK)
             return NULL;
         return t1;
@@ -908,12 +960,12 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
         combined[cc++] = t2->deep.pr[i];
 
     SeqItem nodes[6]; /* 12 items → at most 4 nodes (3+3+3+3), use 6 for safety */
-    int     nc = pack_nodes(combined, cc, item_depth, nodes);
+    int     nc = pack_nodes(combined, cc, item_depth, nodes, allocator);
     if (nc < 0)
         return NULL;
 
     /* Recursively merge the two middle trees with the new node spine */
-    FTree *new_mid = app3(t1->deep.mid, nodes, nc, t2->deep.mid, item_depth + 1);
+    FTree *new_mid = app3(t1->deep.mid, nodes, nc, t2->deep.mid, item_depth + 1, allocator);
     if (!new_mid)
         return NULL;
 
@@ -925,7 +977,7 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
     t1->deep.sf_size = t2->deep.sf_size;
     t1->size         = t1->deep.pr_size + new_mid->size + t1->deep.sf_size;
 
-    free(t2);
+    seq_dealloc(allocator, t2);
     return t1;
 }
 
@@ -981,26 +1033,27 @@ static SeqItem split_digit_at(SeqItem *items, int count, size_t idx, int item_de
  * On SEQ_OOM, the tree may be partially consumed.
  * Pre: tree is non-empty and idx < tree->size.
  */
-static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth)
+static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
+                                      const SeqAllocator *allocator)
 {
     SplitResult res = {SEQ_OOM, NULL, 0, NULL};
     assert(tree->tag != FTREE_EMPTY);
 
     if (tree->tag == FTREE_SINGLE)
     {
-        res.left  = ftree_new();
-        res.right = ftree_new();
+        res.left  = ftree_new(allocator);
+        res.right = ftree_new(allocator);
         if (!res.left || !res.right)
         {
-            ftree_free(res.left, item_depth);
-            ftree_free(res.right, item_depth);
+            ftree_free(res.left, item_depth, allocator);
+            ftree_free(res.right, item_depth, allocator);
             res.left = NULL;
             res.right = NULL;
             return res;
         }
         res.rc   = SEQ_OK;
         res.elem = tree->single;
-        free(tree);
+        seq_dealloc(allocator, tree);
         return res;
     }
 
@@ -1015,20 +1068,20 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth)
             split_digit_at(tree->deep.pr, tree->deep.pr_count, idx, item_depth, &left_si,
                            &right_si);
 
-        res.left  = small_items_to_tree(left_si.elems, left_si.count, item_depth);
+        res.left  = small_items_to_tree(left_si.elems, left_si.count, item_depth, allocator);
         res.right = deep_l_items(right_si.elems, right_si.count, tree->deep.mid, tree->deep.sf,
-                                 tree->deep.sf_count, tree->deep.sf_size, item_depth);
+                                 tree->deep.sf_count, tree->deep.sf_size, item_depth, allocator);
         if (!res.left || !res.right)
         {
-            ftree_free(res.left, item_depth);
-            ftree_free(res.right, item_depth);
+            ftree_free(res.left, item_depth, allocator);
+            ftree_free(res.right, item_depth, allocator);
             res.left = NULL;
             res.right = NULL;
             return res;
         }
         res.rc    = SEQ_OK;
         res.elem  = found;
-        free(tree); /* mid was transferred to res.right */
+        seq_dealloc(allocator, tree); /* mid was transferred to res.right */
         return res;
     }
 
@@ -1040,7 +1093,8 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth)
          * Target is in the middle tree.  Split the middle to find the
          * SeqNode containing our leaf, then split within that node.
          */
-        SplitResult mid_sr = ftree_split_exact(tree->deep.mid, mid_idx, item_depth + 1);
+        SplitResult mid_sr =
+            ftree_split_exact(tree->deep.mid, mid_idx, item_depth + 1, allocator);
         if (mid_sr.rc != SEQ_OK)
             return res;
         SeqNode    *node   = seq_item_as_node(mid_sr.elem);
@@ -1055,23 +1109,24 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth)
                            &node_right);
 
         res.left = deep_r_items(tree->deep.pr, tree->deep.pr_count, tree->deep.pr_size,
-                                mid_sr.left, node_left.elems, node_left.count, item_depth);
+                                mid_sr.left, node_left.elems, node_left.count, item_depth,
+                                allocator);
         res.right =
             deep_l_items(node_right.elems, node_right.count, mid_sr.right, tree->deep.sf,
-                         tree->deep.sf_count, tree->deep.sf_size, item_depth);
+                         tree->deep.sf_count, tree->deep.sf_size, item_depth, allocator);
         if (!res.left || !res.right)
         {
-            ftree_free(res.left, item_depth);
-            ftree_free(res.right, item_depth);
+            ftree_free(res.left, item_depth, allocator);
+            ftree_free(res.right, item_depth, allocator);
             res.left = NULL;
             res.right = NULL;
-            free(node);
+            seq_dealloc(allocator, node);
             return res;
         }
         res.rc   = SEQ_OK;
         res.elem = found;
-        free(node);  /* node was consumed */
-        free(tree);  /* shell consumed; pr/sf moved to left/right */
+        seq_dealloc(allocator, node);  /* node was consumed */
+        seq_dealloc(allocator, tree);  /* shell consumed; pr/sf moved to left/right */
         return res;
     }
 
@@ -1084,19 +1139,20 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth)
                        &right_si);
 
     res.left = deep_r_items(tree->deep.pr, tree->deep.pr_count, tree->deep.pr_size,
-                            tree->deep.mid, left_si.elems, left_si.count, item_depth);
-    res.right = small_items_to_tree(right_si.elems, right_si.count, item_depth);
+                            tree->deep.mid, left_si.elems, left_si.count, item_depth,
+                            allocator);
+    res.right = small_items_to_tree(right_si.elems, right_si.count, item_depth, allocator);
     if (!res.left || !res.right)
     {
-        ftree_free(res.left, item_depth);
-        ftree_free(res.right, item_depth);
+        ftree_free(res.left, item_depth, allocator);
+        ftree_free(res.right, item_depth, allocator);
         res.left = NULL;
         res.right = NULL;
         return res;
     }
     res.rc    = SEQ_OK;
     res.elem  = found;
-    free(tree); /* mid was transferred to res.left */
+    seq_dealloc(allocator, tree); /* mid was transferred to res.left */
     return res;
 }
 
@@ -1104,20 +1160,30 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth)
 /* Public API                                                           */
 /* ================================================================== */
 
-Seq *seq_new(void)
+Seq *seq_new_with_allocator(const SeqAllocator *allocator)
 {
-    Seq *s = seq_alloc(sizeof(Seq));
+    SeqAllocator resolved = allocator ? *allocator : seq_allocator_default();
+    if (!seq_allocator_is_valid(&resolved))
+        return NULL;
+
+    Seq *s = seq_alloc(&resolved, sizeof(Seq));
     if (!s)
         return NULL;
-    s->root = ftree_new();
+    s->allocator = resolved;
+    s->root = ftree_new(&s->allocator);
     s->valid = 1;
     if (!s->root)
     {
         s->valid = 0;
-        free(s);
+        seq_dealloc(&s->allocator, s);
         return NULL;
     }
     return s;
+}
+
+Seq *seq_new(void)
+{
+    return seq_new_with_allocator(NULL);
 }
 
 int seq_is_valid(const Seq *seq)
@@ -1130,10 +1196,10 @@ void seq_free(Seq *seq)
     if (!seq)
         return;
     if (seq->valid)
-        ftree_free(seq->root, 0);
+        ftree_free(seq->root, 0, &seq->allocator);
     seq->root = NULL;
     seq->valid = 0;
-    free(seq);
+    seq_dealloc(&seq->allocator, seq);
 }
 
 int seq_reset(Seq *seq)
@@ -1142,9 +1208,9 @@ int seq_reset(Seq *seq)
         return SEQ_INVALID;
 
     if (seq->valid)
-        ftree_free(seq->root, 0);
+        ftree_free(seq->root, 0, &seq->allocator);
     seq->root = NULL;
-    seq->root = ftree_new();
+    seq->root = ftree_new(&seq->allocator);
     if (!seq->root)
     {
         seq->valid = 0;
@@ -1163,7 +1229,8 @@ int seq_push_front(Seq *seq, uint32_t elem)
 {
     if (!seq || !seq->valid || !seq->root)
         return SEQ_INVALID;
-    int rc = ftree_push_front(seq->root, seq_item_from_handle(elem), 0);
+    int rc =
+        ftree_push_front(seq->root, seq_item_from_handle(elem), 0, &seq->allocator);
     if (rc == SEQ_OOM)
         seq->valid = 0;
     return rc;
@@ -1173,7 +1240,7 @@ int seq_push_back(Seq *seq, uint32_t elem)
 {
     if (!seq || !seq->valid || !seq->root)
         return SEQ_INVALID;
-    int rc = ftree_push_back(seq->root, seq_item_from_handle(elem), 0);
+    int rc = ftree_push_back(seq->root, seq_item_from_handle(elem), 0, &seq->allocator);
     if (rc == SEQ_OOM)
         seq->valid = 0;
     return rc;
@@ -1185,7 +1252,7 @@ int seq_pop_front(Seq *seq, uint32_t *out)
         return SEQ_INVALID;
     if (seq->root->tag == FTREE_EMPTY)
         return SEQ_EMPTY;
-    *out = seq_item_to_handle(ftree_pop_front(seq->root, 0));
+    *out = seq_item_to_handle(ftree_pop_front(seq->root, 0, &seq->allocator));
     return SEQ_OK;
 }
 
@@ -1195,13 +1262,16 @@ int seq_pop_back(Seq *seq, uint32_t *out)
         return SEQ_INVALID;
     if (seq->root->tag == FTREE_EMPTY)
         return SEQ_EMPTY;
-    *out = seq_item_to_handle(ftree_pop_back(seq->root, 0));
+    *out = seq_item_to_handle(ftree_pop_back(seq->root, 0, &seq->allocator));
     return SEQ_OK;
 }
 
 int seq_concat(Seq *dest, Seq *src)
 {
-    if (!dest || !src || !dest->valid || !src->valid || !dest->root || !src->root || dest == src)
+    if (!dest || !src || !dest->valid || !src->valid || !dest->root || !src->root ||
+        dest == src)
+        return SEQ_INVALID;
+    if (!seq_allocator_equal(&dest->allocator, &src->allocator))
         return SEQ_INVALID;
 
     FTree *dest_root = dest->root;
@@ -1209,7 +1279,7 @@ int seq_concat(Seq *dest, Seq *src)
     dest->root       = NULL;
     src->root        = NULL;
 
-    FTree *new_root = app3(dest_root, NULL, 0, src_root, 0);
+    FTree *new_root = app3(dest_root, NULL, 0, src_root, 0, &dest->allocator);
     if (!new_root)
     {
         dest->valid = 0;
@@ -1220,7 +1290,7 @@ int seq_concat(Seq *dest, Seq *src)
     dest->root = new_root;
     dest->valid = 1;
     /* src's tree was consumed; give it a fresh empty root */
-    src->root = ftree_new();
+    src->root = ftree_new(&src->allocator);
     if (!src->root)
     {
         /* src becomes invalid on OOM while reinitializing. */
@@ -1240,10 +1310,10 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
     if (idx > n)
         return SEQ_RANGE;
 
-    Seq *left = seq_new();
+    Seq *left = seq_new_with_allocator(&seq->allocator);
     if (!left)
         return SEQ_OOM;
-    Seq *right = seq_new();
+    Seq *right = seq_new_with_allocator(&seq->allocator);
     if (!right)
     {
         seq_free(left);
@@ -1252,7 +1322,7 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
 
     if (idx == 0)
     {
-        FTree *replacement = ftree_new();
+        FTree *replacement = ftree_new(&seq->allocator);
         if (!replacement)
         {
             seq_free(left);
@@ -1261,7 +1331,7 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
         }
 
         /* Transfer the whole tree to right; left stays empty */
-        ftree_free(right->root, 0);
+        ftree_free(right->root, 0, &right->allocator);
         right->root = seq->root;
         seq->root   = replacement;
         *left_out  = left;
@@ -1271,7 +1341,7 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
 
     if (idx == n)
     {
-        FTree *replacement = ftree_new();
+        FTree *replacement = ftree_new(&seq->allocator);
         if (!replacement)
         {
             seq_free(left);
@@ -1280,7 +1350,7 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
         }
 
         /* Transfer the whole tree to left; right stays empty */
-        ftree_free(left->root, 0);
+        ftree_free(left->root, 0, &left->allocator);
         left->root = seq->root;
         seq->root  = replacement;
         *left_out  = left;
@@ -1295,7 +1365,7 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
      */
     FTree *root = seq->root;
     seq->root   = NULL;
-    SplitResult sr = ftree_split_exact(root, idx, 0);
+    SplitResult sr = ftree_split_exact(root, idx, 0, &seq->allocator);
     if (sr.rc != SEQ_OK)
     {
         seq->valid = 0;
@@ -1304,12 +1374,12 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
         return SEQ_OOM;
     }
 
-    ftree_free(left->root, 0);
-    ftree_free(right->root, 0);
+    ftree_free(left->root, 0, &left->allocator);
+    ftree_free(right->root, 0, &right->allocator);
     left->root  = sr.left;
     right->root = sr.right;
 
-    int rc = ftree_push_front(right->root, sr.elem, 0);
+    int rc = ftree_push_front(right->root, sr.elem, 0, &right->allocator);
     if (rc != SEQ_OK)
     {
         seq->valid = 0;
@@ -1321,7 +1391,7 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
     }
 
     /* seq is now empty */
-    seq->root = ftree_new();
+    seq->root = ftree_new(&seq->allocator);
     if (!seq->root)
     {
         seq->valid = 0;

@@ -38,6 +38,20 @@
 typedef struct Seq Seq;
 
 /* ------------------------------------------------------------------ */
+/* Allocator abstraction                                                */
+/* ------------------------------------------------------------------ */
+
+typedef void *(*SeqAllocFn)(void *ctx, size_t bytes);
+typedef void (*SeqFreeFn)(void *ctx, void *ptr);
+
+typedef struct SeqAllocator
+{
+    SeqAllocFn alloc_fn;
+    SeqFreeFn  free_fn;
+    void      *ctx;
+} SeqAllocator;
+
+/* ------------------------------------------------------------------ */
 /* Lifecycle                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -46,6 +60,13 @@ typedef struct Seq Seq;
  * Returns NULL on allocation failure.
  */
 Seq *seq_new(void);
+
+/*
+ * seq_new_with_allocator — allocate an empty sequence using allocator.
+ * If allocator is NULL, the default malloc/free allocator is used.
+ * Returns NULL on allocation failure or invalid allocator function pointers.
+ */
+Seq *seq_new_with_allocator(const SeqAllocator *allocator);
 
 /*
  * seq_is_valid — returns 1 when seq is usable, 0 otherwise.
@@ -105,6 +126,7 @@ int seq_pop_back(Seq *seq, uint32_t *out);
  * seq_concat — append all elements of *src to *dest.
  * *src is cleared (becomes empty) after this call.
  * dest and src must be distinct objects.
+ * dest and src must use the same allocator (function pointers and ctx).
  * Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID.
  * On SEQ_OOM either sequence may become invalid.
  */
