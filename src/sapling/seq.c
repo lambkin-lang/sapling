@@ -1453,6 +1453,12 @@ int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out)
     SplitResult sr = ftree_split_exact(root, idx, 0, &seq->allocator);
     if (sr.rc != SEQ_OK)
     {
+        /*
+         * Split may consume/free interior structure on OOM. Discard this
+         * detached shell to avoid leaking it; sequence remains invalid.
+         */
+        seq_dealloc(&seq->allocator, root);
+        seq->root = NULL;
         seq->valid = 0;
         seq_free(left);
         seq_free(right);
