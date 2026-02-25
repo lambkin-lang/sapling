@@ -18,7 +18,7 @@
     {                                                                                              \
         if (!(cond))                                                                               \
         {                                                                                          \
-            fprintf(stderr, "CHECK failed at %s:%d\n", __FILE__, __LINE__);                      \
+            fprintf(stderr, "CHECK failed at %s:%d\n", __FILE__, __LINE__);                        \
             return __LINE__;                                                                       \
         }                                                                                          \
     } while (0)
@@ -103,7 +103,7 @@ static int test_shim_dedupe_skips_invoke(void)
     CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
 
     CHECK(encode_message(frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    
+
     // Attempt 1: New message
     CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
     CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);

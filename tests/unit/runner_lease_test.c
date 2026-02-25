@@ -16,7 +16,7 @@
     {                                                                                              \
         if (!(cond))                                                                               \
         {                                                                                          \
-            fprintf(stderr, "CHECK failed at %s:%d\n", __FILE__, __LINE__);                      \
+            fprintf(stderr, "CHECK failed at %s:%d\n", __FILE__, __LINE__);                        \
             return __LINE__;                                                                       \
         }                                                                                          \
     } while (0)

@@ -22,7 +22,7 @@ static double now_seconds(void)
 static int parse_u32(const char *s, uint32_t *out)
 {
     unsigned long v;
-    char         *end = NULL;
+    char *end = NULL;
     if (!s || !*s)
         return 0;
     v = strtoul(s, &end, 10);
@@ -34,10 +34,7 @@ static int parse_u32(const char *s, uint32_t *out)
     return 1;
 }
 
-static uint32_t pattern_ascii(uint32_t i)
-{
-    return 0x41u + (i % 26u);
-}
+static uint32_t pattern_ascii(uint32_t i) { return 0x41u + (i % 26u); }
 
 static uint32_t pattern_multibyte(uint32_t i)
 {
@@ -56,23 +53,23 @@ static uint32_t pattern_multibyte(uint32_t i)
 
 typedef struct
 {
-    uint32_t       id;
+    uint32_t id;
     const uint8_t *utf8;
-    size_t         utf8_len;
+    size_t utf8_len;
 } BenchLiteralEntry;
 
 typedef struct
 {
-    uint32_t    id;
+    uint32_t id;
     const Text *text;
 } BenchTreeEntry;
 
 typedef struct
 {
     const BenchLiteralEntry *literals;
-    size_t                   literal_count;
-    const BenchTreeEntry    *trees;
-    size_t                   tree_count;
+    size_t literal_count;
+    const BenchTreeEntry *trees;
+    size_t tree_count;
 } BenchResolverCtx;
 
 static int bench_resolve_literal_utf8(uint32_t literal_id, const uint8_t **utf8_out,
@@ -167,11 +164,11 @@ fail:
 
 static int run_utf8_roundtrip(uint32_t count)
 {
-    Text    *text = NULL;
-    Text    *roundtrip = NULL;
+    Text *text = NULL;
+    Text *roundtrip = NULL;
     uint8_t *buf = NULL;
-    size_t   need = 0;
-    size_t   wrote = 0;
+    size_t need = 0;
+    size_t wrote = 0;
 
     text = text_new();
     roundtrip = text_new();
@@ -211,7 +208,7 @@ fail:
 static int run_clone_detach(uint32_t count)
 {
     const uint32_t seed_len = 256u;
-    Text          *base = NULL;
+    Text *base = NULL;
 
     base = text_new();
     if (!base)
@@ -224,7 +221,7 @@ static int run_clone_detach(uint32_t count)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        Text  *clone = text_clone(base);
+        Text *clone = text_clone(base);
         size_t idx = (size_t)(i % seed_len);
         if (!clone)
             goto fail;
@@ -251,9 +248,9 @@ static int run_utf8_resolved(uint32_t count)
     Text *root = NULL;
     Text *tree = NULL;
     uint8_t *buf = NULL;
-    size_t   need = 0;
-    size_t   wrote = 0;
-    size_t   cp_len = 0;
+    size_t need = 0;
+    size_t wrote = 0;
+    size_t cp_len = 0;
     TextHandle cp_handle = 0;
     const uint8_t literal_word[] = {'h', 'e', 'l', 'l', 'o'};
     const uint8_t literal_smile[] = {0xF0u, 0x9Fu, 0x99u, 0x82u};
@@ -332,11 +329,11 @@ int main(int argc, char **argv)
 {
     uint32_t count = 100000u;
     uint32_t rounds = 3u;
-    double   t_append_pop = 0.0;
-    double   t_mid_edits = 0.0;
-    double   t_utf8 = 0.0;
-    double   t_clone_detach = 0.0;
-    double   t_utf8_resolved = 0.0;
+    double t_append_pop = 0.0;
+    double t_mid_edits = 0.0;
+    double t_utf8 = 0.0;
+    double t_clone_detach = 0.0;
+    double t_utf8_resolved = 0.0;
 
     for (int i = 1; i < argc; i++)
     {

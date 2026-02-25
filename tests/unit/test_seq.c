@@ -35,10 +35,7 @@ static int g_pass = 0, g_fail = 0;
 
 #define SECTION(name) printf("--- %s ---\n", name)
 
-static void print_summary(void)
-{
-    printf("\nResults: %d passed, %d failed\n", g_pass, g_fail);
-}
+static void print_summary(void) { printf("\nResults: %d passed, %d failed\n", g_pass, g_fail); }
 
 /* ================================================================== */
 /* Helpers                                                              */
@@ -74,10 +71,7 @@ static Seq *seq_from_array(uint32_t *val, size_t n)
 }
 
 /* Convenience: cast int index to uint32_t handle */
-static inline uint32_t ip(size_t i)
-{
-    return (uint32_t)i;
-}
+static inline uint32_t ip(size_t i) { return (uint32_t)i; }
 
 typedef struct
 {
@@ -88,8 +82,8 @@ typedef struct
 typedef struct
 {
     uint32_t *data;
-    size_t    len;
-    size_t    cap;
+    size_t len;
+    size_t cap;
 } ModelVec;
 
 static void *counting_alloc(void *ctx, size_t bytes)
@@ -112,16 +106,16 @@ static void counting_free(void *ctx, void *ptr)
 static void model_init(ModelVec *m)
 {
     m->data = NULL;
-    m->len  = 0;
-    m->cap  = 0;
+    m->len = 0;
+    m->cap = 0;
 }
 
 static void model_free(ModelVec *m)
 {
     free(m->data);
     m->data = NULL;
-    m->len  = 0;
-    m->cap  = 0;
+    m->len = 0;
+    m->cap = 0;
 }
 
 static int model_reserve(ModelVec *m, size_t need)
@@ -144,7 +138,7 @@ static int model_reserve(ModelVec *m, size_t need)
     if (!next)
         return 0;
     m->data = next;
-    m->cap  = new_cap;
+    m->cap = new_cap;
     return 1;
 }
 
@@ -237,19 +231,19 @@ static int seq_matches_model_slice(Seq *seq, const ModelVec *model, size_t off, 
 typedef struct
 {
     unsigned char *buf;
-    size_t         capacity;
-    size_t         used;
-    size_t         alloc_calls;
-    size_t         free_calls;
-    size_t         fail_calls;
+    size_t capacity;
+    size_t used;
+    size_t alloc_calls;
+    size_t free_calls;
+    size_t fail_calls;
 } ArenaAllocator;
 
 static void *arena_alloc(void *ctx, size_t bytes)
 {
     ArenaAllocator *arena = (ArenaAllocator *)ctx;
-    size_t          align = sizeof(max_align_t);
-    size_t          start = arena->used;
-    size_t          rem   = start % align;
+    size_t align = sizeof(max_align_t);
+    size_t start = arena->used;
+    size_t rem = start % align;
     if (rem != 0)
     {
         size_t delta = align - rem;
@@ -299,7 +293,7 @@ static void test_empty(void)
 static void test_single(void)
 {
     SECTION("single element");
-    Seq  *s   = seq_new();
+    Seq *s = seq_new();
     uint32_t ptr = ip(42);
 
     CHECK(seq_push_back(s, ptr) == SEQ_OK);
@@ -453,8 +447,8 @@ static void test_concat_basic(void)
     SECTION("concat basic");
     uint32_t a[] = {ip(0), ip(1), ip(2)};
     uint32_t b[] = {ip(3), ip(4), ip(5)};
-    Seq  *sa  = seq_from_array(a, 3);
-    Seq  *sb  = seq_from_array(b, 3);
+    Seq *sa = seq_from_array(a, 3);
+    Seq *sb = seq_from_array(b, 3);
 
     CHECK(seq_concat(sa, sb) == SEQ_OK);
     CHECK(seq_length(sa) == 6);
@@ -471,16 +465,16 @@ static void test_concat_empty(void)
 {
     SECTION("concat with empty");
     uint32_t a[] = {ip(1), ip(2)};
-    Seq  *sa  = seq_from_array(a, 2);
-    Seq  *empty = seq_new();
+    Seq *sa = seq_from_array(a, 2);
+    Seq *empty = seq_new();
 
     /* concat(non_empty, empty) */
     CHECK(seq_concat(sa, empty) == SEQ_OK);
     CHECK(seq_length(sa) == 2);
 
     /* concat(empty, non_empty) */
-    Seq  *sa2 = seq_from_array(a, 2);
-    Seq  *empty2 = seq_new();
+    Seq *sa2 = seq_from_array(a, 2);
+    Seq *empty2 = seq_new();
     CHECK(seq_concat(empty2, sa2) == SEQ_OK);
     CHECK(seq_length(empty2) == 2);
     uint32_t out = 0;
@@ -497,7 +491,7 @@ static void test_concat_self_invalid(void)
 {
     SECTION("concat self invalid");
     uint32_t a[] = {ip(0), ip(1), ip(2), ip(3)};
-    Seq     *s   = seq_from_array(a, 4);
+    Seq *s = seq_from_array(a, 4);
 
     CHECK(seq_concat(s, s) == SEQ_INVALID);
     CHECK(seq_length(s) == 4);
@@ -513,7 +507,7 @@ static void test_concat_large(void)
     {
         N = 500
     };
-    Seq *left  = seq_new();
+    Seq *left = seq_new();
     Seq *right = seq_new();
     for (size_t i = 0; i < N; i++)
         seq_push_back(left, ip(i));
@@ -537,8 +531,8 @@ static void test_concat_large(void)
 static void test_custom_allocator_lifecycle(void)
 {
     SECTION("custom allocator lifecycle");
-    CountingAllocatorStats stats     = {0};
-    SeqAllocator          allocator = {counting_alloc, counting_free, &stats};
+    CountingAllocatorStats stats = {0};
+    SeqAllocator allocator = {counting_alloc, counting_free, &stats};
 
     Seq *s = seq_new_with_allocator(&allocator);
     CHECK(s != NULL);
@@ -556,10 +550,10 @@ static void test_custom_allocator_lifecycle(void)
 static void test_concat_allocator_mismatch(void)
 {
     SECTION("concat allocator mismatch invalid");
-    CountingAllocatorStats stats_a   = {0};
-    CountingAllocatorStats stats_b   = {0};
-    SeqAllocator          alloc_a   = {counting_alloc, counting_free, &stats_a};
-    SeqAllocator          alloc_b   = {counting_alloc, counting_free, &stats_b};
+    CountingAllocatorStats stats_a = {0};
+    CountingAllocatorStats stats_b = {0};
+    SeqAllocator alloc_a = {counting_alloc, counting_free, &stats_a};
+    SeqAllocator alloc_b = {counting_alloc, counting_free, &stats_b};
 
     Seq *a = seq_new_with_allocator(&alloc_a);
     Seq *b = seq_new_with_allocator(&alloc_b);
@@ -586,9 +580,9 @@ static void test_concat_allocator_mismatch(void)
 static void test_split_preserves_allocator(void)
 {
     SECTION("split preserves allocator");
-    CountingAllocatorStats stats     = {0};
-    SeqAllocator          allocator = {counting_alloc, counting_free, &stats};
-    Seq                  *s         = seq_new_with_allocator(&allocator);
+    CountingAllocatorStats stats = {0};
+    SeqAllocator allocator = {counting_alloc, counting_free, &stats};
+    Seq *s = seq_new_with_allocator(&allocator);
     CHECK(s != NULL);
 
     for (size_t i = 0; i < 8; i++)
@@ -616,10 +610,10 @@ static void test_split_preserves_allocator(void)
 static void test_arena_allocator_noop_free(void)
 {
     SECTION("arena allocator with noop free");
-    unsigned char  storage[8192];
+    unsigned char storage[8192];
     ArenaAllocator arena = {storage, sizeof(storage), 0, 0, 0, 0};
-    SeqAllocator   allocator = {arena_alloc, arena_free_noop, &arena};
-    Seq           *s = seq_new_with_allocator(&allocator);
+    SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
+    Seq *s = seq_new_with_allocator(&allocator);
     CHECK(s != NULL);
 
     for (size_t i = 0; i < 64; i++)
@@ -643,10 +637,10 @@ static void test_arena_allocator_noop_free(void)
 static void test_arena_allocator_exhaustion(void)
 {
     SECTION("arena allocator exhaustion");
-    unsigned char  storage[1024];
+    unsigned char storage[1024];
     ArenaAllocator arena = {storage, sizeof(storage), 0, 0, 0, 0};
-    SeqAllocator   allocator = {arena_alloc, arena_free_noop, &arena};
-    Seq           *s = seq_new_with_allocator(&allocator);
+    SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
+    Seq *s = seq_new_with_allocator(&allocator);
     CHECK(s != NULL);
 
     int rc = SEQ_OK;
@@ -720,7 +714,7 @@ static void test_split_at_large(void)
         seq_push_back(s, ip(i));
 
     size_t split = N / 3;
-    Seq   *l     = NULL, *r = NULL;
+    Seq *l = NULL, *r = NULL;
     CHECK(seq_split_at(s, split, &l, &r) == SEQ_OK);
     CHECK(seq_length(l) == split);
     CHECK(seq_length(r) == N - split);
@@ -747,8 +741,8 @@ static void test_split_at_range(void)
 {
     SECTION("split_at out-of-range");
     uint32_t a[] = {ip(1), ip(2)};
-    Seq  *s   = seq_from_array(a, 2);
-    Seq  *l   = NULL, *r = NULL;
+    Seq *s = seq_from_array(a, 2);
+    Seq *l = NULL, *r = NULL;
 
     /* idx == length is valid (right side is empty) */
     CHECK(seq_split_at(s, 2, &l, &r) == SEQ_OK);
@@ -838,7 +832,7 @@ static void test_concat_split_roundtrip(void)
         A = 37,
         B = 53
     };
-    Seq *left  = seq_new();
+    Seq *left = seq_new();
     Seq *right = seq_new();
     for (size_t i = 0; i < A; i++)
         seq_push_back(left, ip(i));
@@ -939,7 +933,7 @@ static void test_concat_many(void)
     enum
     {
         SEQS = 20,
-        PER  = 10
+        PER = 10
     };
     Seq *acc = seq_new();
     for (int s = 0; s < SEQS; s++)
@@ -977,7 +971,7 @@ static void test_split_concat_identity(void)
 
     /* Pick an arbitrary split point */
     size_t mid = N * 2 / 3;
-    Seq   *l   = NULL, *r = NULL;
+    Seq *l = NULL, *r = NULL;
     CHECK(seq_split_at(s, mid, &l, &r) == SEQ_OK);
 
     /* Re-concat */
@@ -1001,15 +995,15 @@ static void test_model_randomized(void)
     SECTION("model-based randomized operations");
     enum
     {
-        RUNS         = 6,
-        OPS_PER_RUN  = 12000,
+        RUNS = 6,
+        OPS_PER_RUN = 12000,
         MAX_MODEL_LEN = 1024
     };
 
     for (int run = 0; run < RUNS; run++)
     {
         uint64_t seed = 0x9E3779B97F4A7C15ULL ^ ((uint64_t)(run + 1) * 0xD1B54A32D192ED03ULL);
-        Seq     *seq  = seq_new();
+        Seq *seq = seq_new();
         ModelVec model;
 
         model_init(&model);
@@ -1093,8 +1087,8 @@ static void test_model_randomized(void)
             case 5: /* split and re-concat into original seq */
             {
                 size_t idx = (model.len == 0) ? 0 : (size_t)(prng_u32(&seed) % (model.len + 1));
-                Seq   *l   = NULL;
-                Seq   *r   = NULL;
+                Seq *l = NULL;
+                Seq *r = NULL;
                 CHECK(seq_split_at(seq, idx, &l, &r) == SEQ_OK);
                 CHECK(l != NULL && r != NULL);
                 if (l && r)
@@ -1111,9 +1105,9 @@ static void test_model_randomized(void)
             }
             case 6: /* concat with random chunk */
             {
-                Seq     *chunk = seq_new();
+                Seq *chunk = seq_new();
                 ModelVec chunk_model;
-                size_t   n = (size_t)(prng_u32(&seed) % 9u);
+                size_t n = (size_t)(prng_u32(&seed) % 9u);
 
                 model_init(&chunk_model);
                 CHECK(chunk != NULL);
@@ -1178,11 +1172,11 @@ static void test_model_randomized(void)
 static void test_invalid_args(void)
 {
     SECTION("invalid argument handling");
-    Seq      *s   = seq_new();
-    Seq      *s2  = seq_new_with_allocator(NULL);
-    uint32_t  out = 0;
-    Seq      *l   = NULL;
-    Seq      *r   = NULL;
+    Seq *s = seq_new();
+    Seq *s2 = seq_new_with_allocator(NULL);
+    uint32_t out = 0;
+    Seq *l = NULL;
+    Seq *r = NULL;
     SeqAllocator bad_alloc_a = {NULL, counting_free, NULL};
     SeqAllocator bad_alloc_b = {counting_alloc, NULL, NULL};
 
@@ -1294,7 +1288,7 @@ static void test_fault_injection_push_sweep(void)
 {
     SECTION("fault injection: push sweep");
     int saw_oom = 0;
-    int saw_ok  = 0;
+    int saw_ok = 0;
     for (int64_t fail_after = 0; fail_after <= 8; fail_after++)
     {
         Seq *s = seq_new();
@@ -1338,7 +1332,7 @@ static void test_fault_injection_concat_sweep(void)
 {
     SECTION("fault injection: concat sweep");
     int saw_oom = 0;
-    int saw_ok  = 0;
+    int saw_ok = 0;
     for (int64_t fail_after = 0; fail_after <= 64; fail_after++)
     {
         Seq *a = seq_new();
@@ -1389,7 +1383,7 @@ static void test_fault_injection_split_sweep(void)
 {
     SECTION("fault injection: split sweep");
     int saw_oom = 0;
-    int saw_ok  = 0;
+    int saw_ok = 0;
     for (int64_t fail_after = 0; fail_after <= 64; fail_after++)
     {
         Seq *s = seq_new();
@@ -1457,7 +1451,7 @@ static void test_fault_injection_reset_sweep(void)
 {
     SECTION("fault injection: reset sweep");
     int saw_oom = 0;
-    int saw_ok  = 0;
+    int saw_ok = 0;
     for (int64_t fail_after = 0; fail_after <= 4; fail_after++)
     {
         Seq *s = seq_new();

@@ -22,7 +22,7 @@ static double now_seconds(void)
 static int parse_u32(const char *s, uint32_t *out)
 {
     unsigned long v;
-    char         *end = NULL;
+    char *end = NULL;
     if (!s || !*s)
         return 0;
     v = strtoul(s, &end, 10);
@@ -34,10 +34,7 @@ static int parse_u32(const char *s, uint32_t *out)
     return 1;
 }
 
-static uint32_t pattern_u32(uint32_t i)
-{
-    return (i * 2654435761u) ^ 0x9E3779B9u;
-}
+static uint32_t pattern_u32(uint32_t i) { return (i * 2654435761u) ^ 0x9E3779B9u; }
 
 static int run_push_pop(uint32_t count)
 {
@@ -108,10 +105,10 @@ fail:
 
 static int run_concat_split(uint32_t count)
 {
-    Seq     *left = NULL;
-    Seq     *right = NULL;
-    Seq     *a = NULL;
-    Seq     *b = NULL;
+    Seq *left = NULL;
+    Seq *right = NULL;
+    Seq *a = NULL;
+    Seq *b = NULL;
     uint32_t left_count = count / 2u;
     uint32_t right_count = count - left_count;
 
@@ -148,16 +145,14 @@ static int run_concat_split(uint32_t count)
         {
             if (seq_get(a, 0, &out) != SEQ_OK || out != pattern_u32(0))
                 goto fail;
-            if (seq_get(a, left_count - 1u, &out) != SEQ_OK ||
-                out != pattern_u32(left_count - 1u))
+            if (seq_get(a, left_count - 1u, &out) != SEQ_OK || out != pattern_u32(left_count - 1u))
                 goto fail;
         }
         if (right_count > 0)
         {
             if (seq_get(b, 0, &out) != SEQ_OK || out != pattern_u32(left_count))
                 goto fail;
-            if (seq_get(b, right_count - 1u, &out) != SEQ_OK ||
-                out != pattern_u32(count - 1u))
+            if (seq_get(b, right_count - 1u, &out) != SEQ_OK || out != pattern_u32(count - 1u))
                 goto fail;
         }
     }
@@ -187,9 +182,9 @@ int main(int argc, char **argv)
 {
     uint32_t count = 100000u;
     uint32_t rounds = 3u;
-    double   t_push_pop = 0.0;
-    double   t_mixed = 0.0;
-    double   t_concat_split = 0.0;
+    double t_push_pop = 0.0;
+    double t_mixed = 0.0;
+    double t_concat_split = 0.0;
 
     for (int i = 1; i < argc; i++)
     {

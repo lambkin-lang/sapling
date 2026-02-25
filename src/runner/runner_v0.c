@@ -181,7 +181,7 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
         return SAP_ERROR;
     }
 
-    /* 
+    /*
      * Fire the timer message into the worker's own inbox.
      * We use the timer's sequence number as the inbox sequence number.
      * This is fine because timer sequences are unique within the worker's timer space,
@@ -192,7 +192,8 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
     if (rc != SAP_OK)
     {
         metrics_note_failure(&tctx->worker->runner, rc);
-        emit_log_event(&tctx->worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u, (int32_t)rc, 0u);
+        emit_log_event(&tctx->worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u, (int32_t)rc,
+                       0u);
         return rc;
     }
 

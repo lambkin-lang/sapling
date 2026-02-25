@@ -23,7 +23,7 @@ static int g_fail = 0;
         }                                                                                          \
         else                                                                                       \
         {                                                                                          \
-            fprintf(stderr, "FAIL: %s (%s:%d)\n", #expr, __FILE__, __LINE__);                     \
+            fprintf(stderr, "FAIL: %s (%s:%d)\n", #expr, __FILE__, __LINE__);                      \
             g_fail++;                                                                              \
         }                                                                                          \
     } while (0)
@@ -88,20 +88,17 @@ static void counting_free(void *ctx, void *ptr)
 typedef struct
 {
     uint8_t *buf;
-    size_t   cap;
-    size_t   off;
+    size_t cap;
+    size_t off;
 } ArenaAllocator;
 
-static size_t align_up(size_t v, size_t a)
-{
-    return (v + (a - 1u)) & ~(a - 1u);
-}
+static size_t align_up(size_t v, size_t a) { return (v + (a - 1u)) & ~(a - 1u); }
 
 static void *arena_alloc(void *ctx, size_t bytes)
 {
     ArenaAllocator *arena = (ArenaAllocator *)ctx;
-    size_t          aligned = 0;
-    const size_t    max_align = sizeof(max_align_t);
+    size_t aligned = 0;
+    const size_t max_align = sizeof(max_align_t);
 
     if (!arena || bytes == 0)
         return NULL;
@@ -120,42 +117,42 @@ static void arena_free_noop(void *ctx, void *ptr)
 
 typedef struct
 {
-    TextHandle      handle;
+    TextHandle handle;
     const uint32_t *codepoints;
-    size_t          len;
-    int             rc;
+    size_t len;
+    int rc;
 } ResolveEntry;
 
 typedef struct
 {
     const ResolveEntry *entries;
-    size_t              count;
-    size_t              calls;
+    size_t count;
+    size_t calls;
 } ResolveCtx;
 
 typedef struct
 {
-    uint32_t       id;
+    uint32_t id;
     const uint8_t *utf8;
-    size_t         utf8_len;
-    int            rc;
+    size_t utf8_len;
+    int rc;
 } RuntimeLiteralEntry;
 
 typedef struct
 {
-    uint32_t    id;
+    uint32_t id;
     const Text *text;
-    int         rc;
+    int rc;
 } RuntimeTreeEntry;
 
 typedef struct
 {
     const RuntimeLiteralEntry *literals;
-    size_t                     literal_count;
-    const RuntimeTreeEntry    *trees;
-    size_t                     tree_count;
-    size_t                     literal_calls;
-    size_t                     tree_calls;
+    size_t literal_count;
+    const RuntimeTreeEntry *trees;
+    size_t tree_count;
+    size_t literal_calls;
+    size_t tree_calls;
 } RuntimeResolverCtx;
 
 static int test_expand_handle(TextHandle handle, TextEmitCodepointFn emit_fn, void *emit_ctx,
@@ -274,7 +271,7 @@ static void test_insert_set_delete(void)
 {
     SECTION("insert/set/delete");
     uint32_t init[] = {1u, 2u, 3u};
-    Text    *text = text_from_array(init, 3);
+    Text *text = text_from_array(init, 3);
     uint32_t out = 0;
 
     CHECK(text != NULL);
@@ -311,10 +308,10 @@ static void test_concat_split(void)
     SECTION("concat/split");
     uint32_t av[] = {10u, 11u};
     uint32_t bv[] = {12u, 13u, 14u};
-    Text    *a = text_from_array(av, 2);
-    Text    *b = text_from_array(bv, 3);
-    Text    *l = NULL;
-    Text    *r = NULL;
+    Text *a = text_from_array(av, 2);
+    Text *b = text_from_array(bv, 3);
+    Text *l = NULL;
+    Text *r = NULL;
     uint32_t expect[] = {10u, 11u, 12u, 13u, 14u};
 
     CHECK(a != NULL && b != NULL);
@@ -347,8 +344,8 @@ static void test_clone_copy_on_write(void)
 {
     SECTION("clone copy-on-write");
     uint32_t vals[] = {0x41u, 0x42u, 0x43u};
-    Text    *a = text_from_array(vals, 3);
-    Text    *b = text_clone(a);
+    Text *a = text_from_array(vals, 3);
+    Text *b = text_clone(a);
 
     CHECK(a != NULL && b != NULL);
     CHECK(text_equals_array(a, vals, 3));
@@ -378,10 +375,10 @@ static void test_clone_structural_detach(void)
 {
     SECTION("clone structural detach");
     uint32_t vals[] = {1u, 2u, 3u};
-    Text    *a = text_from_array(vals, 3);
-    Text    *b = text_clone(a);
-    Text    *l = NULL;
-    Text    *r = NULL;
+    Text *a = text_from_array(vals, 3);
+    Text *b = text_clone(a);
+    Text *l = NULL;
+    Text *r = NULL;
     const uint8_t utf8[] = {'x', 'y'};
 
     CHECK(a != NULL && b != NULL);
@@ -421,9 +418,9 @@ static void test_split_range_contract(void)
 {
     SECTION("split range contract");
     uint32_t vals[] = {1u};
-    Text    *text = text_from_array(vals, 1);
-    Text    *l = (Text *)(uintptr_t)1;
-    Text    *r = (Text *)(uintptr_t)2;
+    Text *text = text_from_array(vals, 1);
+    Text *l = (Text *)(uintptr_t)1;
+    Text *r = (Text *)(uintptr_t)2;
 
     CHECK(text != NULL);
     CHECK(text_split_at(text, 2, &l, &r) == SEQ_RANGE);
@@ -529,9 +526,9 @@ static void test_utf8_round_trip(void)
     SECTION("utf8 round trip");
     Text *text = text_new();
     const uint8_t utf8[] = {
-        0x41u,                   /* A */
-        0xC3u, 0xA9u,            /* e-acute */
-        0xE2u, 0x82u, 0xACu,     /* euro */
+        0x41u,                     /* A */
+        0xC3u, 0xA9u,              /* e-acute */
+        0xE2u, 0x82u, 0xACu,       /* euro */
         0xF0u, 0x9Fu, 0x99u, 0x82u /* 🙂 */
     };
     uint8_t out[16];
@@ -589,10 +586,10 @@ static void test_utf8_buffer_contract(void)
 {
     SECTION("utf8 output buffer contract");
     uint32_t vals[] = {0x41u, 0x20ACu};
-    Text    *text = text_from_array(vals, 2);
-    uint8_t  out[4];
-    size_t   need = 0;
-    size_t   wrote = 0;
+    Text *text = text_from_array(vals, 2);
+    uint8_t out[4];
+    size_t need = 0;
+    size_t wrote = 0;
 
     CHECK(text != NULL);
     CHECK(text_utf8_length(text, &need) == SEQ_OK);
@@ -616,7 +613,7 @@ static void test_codepoint_validation(void)
 {
     SECTION("codepoint validation");
     uint32_t base[] = {0x61u, 0x62u};
-    Text    *text = text_from_array(base, 2);
+    Text *text = text_from_array(base, 2);
 
     CHECK(text != NULL);
     CHECK(text_push_back(text, 0x110000u) == SEQ_INVALID);
@@ -633,7 +630,7 @@ static void test_handle_codec(void)
     SECTION("handle codec");
     TextHandle cp_handle = 0;
     TextHandle lit_handle = 0;
-    uint32_t   cp = 0;
+    uint32_t cp = 0;
 
     CHECK(text_handle_from_codepoint(0x1F642u, &cp_handle) == SEQ_OK);
     CHECK(text_handle_kind(cp_handle) == TEXT_HANDLE_CODEPOINT);
@@ -656,21 +653,20 @@ static void test_handle_codec(void)
 static void test_handle_apis_and_strict_codepoint_wrappers(void)
 {
     SECTION("handle apis + strict codepoint wrappers");
-    Text      *text = text_new();
+    Text *text = text_new();
     TextHandle cp_handle = 0;
     TextHandle lit_handle = text_handle_make(TEXT_HANDLE_LITERAL, 21u);
     TextHandle tree_handle = text_handle_make(TEXT_HANDLE_TREE, 42u);
     TextHandle out_h = 0;
-    uint32_t   cp = 0;
-    size_t     need = 0;
+    uint32_t cp = 0;
+    size_t need = 0;
 
     CHECK(text != NULL);
     CHECK(text_handle_from_codepoint(0x41u, &cp_handle) == SEQ_OK);
     CHECK(text_push_back_handle(text, cp_handle) == SEQ_OK);
     CHECK(text_push_back_handle(text, lit_handle) == SEQ_OK);
     CHECK(text_push_back_handle(text, tree_handle) == SEQ_OK);
-    CHECK(text_push_back_handle(text, text_handle_make(TEXT_HANDLE_RESERVED, 1u)) ==
-          SEQ_INVALID);
+    CHECK(text_push_back_handle(text, text_handle_make(TEXT_HANDLE_RESERVED, 1u)) == SEQ_INVALID);
     CHECK(text_length(text) == 3);
 
     CHECK(text_get_handle(text, 1, &out_h) == SEQ_OK && out_h == lit_handle);
@@ -697,7 +693,7 @@ static void test_handle_apis_and_strict_codepoint_wrappers(void)
 static void test_resolved_codepoint_view(void)
 {
     SECTION("resolved codepoint view");
-    Text      *text = text_new();
+    Text *text = text_new();
     TextHandle h_a = 0;
     TextHandle h_d = 0;
     TextHandle h_literal = text_handle_make(TEXT_HANDLE_LITERAL, 7u);
@@ -755,7 +751,7 @@ static void test_resolved_codepoint_view(void)
 static void test_resolver_error_paths(void)
 {
     SECTION("resolved error paths");
-    Text      *text = text_new();
+    Text *text = text_new();
     TextHandle h_literal = text_handle_make(TEXT_HANDLE_LITERAL, 99u);
     const uint32_t bad_cps[] = {0xD800u};
     const ResolveEntry bad_entries[] = {
@@ -767,8 +763,8 @@ static void test_resolver_error_paths(void)
     ResolveCtx no_entries = {NULL, 0u, 0u};
     ResolveCtx bad_resolver = {bad_entries, 1u, 0u};
     ResolveCtx oom_resolver = {oom_entries, 1u, 0u};
-    uint32_t   cp = 0;
-    size_t     len = 0;
+    uint32_t cp = 0;
+    size_t len = 0;
 
     CHECK(text != NULL);
     CHECK(text_push_back_handle(text, h_literal) == SEQ_OK);
@@ -777,10 +773,8 @@ static void test_resolver_error_paths(void)
           SEQ_INVALID);
     CHECK(text_codepoint_length_resolved(text, test_expand_handle, &bad_resolver, &len) ==
           SEQ_INVALID);
-    CHECK(text_codepoint_length_resolved(text, test_expand_handle, &oom_resolver, &len) ==
-          SEQ_OOM);
-    CHECK(text_get_codepoint_resolved(text, 0u, test_expand_handle, &oom_resolver, &cp) ==
-          SEQ_OOM);
+    CHECK(text_codepoint_length_resolved(text, test_expand_handle, &oom_resolver, &len) == SEQ_OOM);
+    CHECK(text_get_codepoint_resolved(text, 0u, test_expand_handle, &oom_resolver, &cp) == SEQ_OOM);
     CHECK(text_utf8_length_resolved(text, test_expand_handle, &oom_resolver, &len) == SEQ_OOM);
     CHECK(text_to_utf8_resolved(text, test_expand_handle, &oom_resolver, NULL, 0u, &len) ==
           SEQ_OOM);
@@ -812,12 +806,11 @@ static void test_runtime_resolver_adapter(void)
     TextRuntimeResolver resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
                                     &resolver_ctx, 8u, 32u};
     const uint32_t expect_cps[] = {0x41u, 0x42u, 0x43u, 0x44u, 0x1F642u, 0x45u};
-    const uint8_t expect_utf8[] = {0x41u, 0x42u, 0x43u, 0x44u,
-                                   0xF0u, 0x9Fu, 0x99u, 0x82u, 0x45u};
+    const uint8_t expect_utf8[] = {0x41u, 0x42u, 0x43u, 0x44u, 0xF0u, 0x9Fu, 0x99u, 0x82u, 0x45u};
     uint8_t utf8_out[32];
-    size_t  cp_len = 0;
-    size_t  utf8_len = 0;
-    size_t  utf8_wrote = 0;
+    size_t cp_len = 0;
+    size_t utf8_len = 0;
+    size_t utf8_wrote = 0;
     uint32_t cp = 0;
 
     CHECK(root != NULL && tree_outer != NULL && tree_inner != NULL);
@@ -899,10 +892,10 @@ static void test_runtime_resolver_guards_and_errors(void)
     RuntimeResolverCtx bad_lit_ctx = {literals_bad, 1u, NULL, 0u, 0u, 0u};
     TextRuntimeResolver cycle_resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
                                           &cycle_ctx, 8u, 32u};
-    TextRuntimeResolver depth_resolver_bad = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
-                                              &depth_ctx, 1u, 32u};
-    TextRuntimeResolver depth_resolver_ok = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
-                                             &depth_ctx, 2u, 32u};
+    TextRuntimeResolver depth_resolver_bad = {runtime_resolve_literal_utf8,
+                                              runtime_resolve_tree_text, &depth_ctx, 1u, 32u};
+    TextRuntimeResolver depth_resolver_ok = {runtime_resolve_literal_utf8,
+                                             runtime_resolve_tree_text, &depth_ctx, 2u, 32u};
     TextRuntimeResolver visits_resolver = {runtime_resolve_literal_utf8, runtime_resolve_tree_text,
                                            &visits_ctx, 8u, 2u};
     TextRuntimeResolver visits_resolver_ok = {runtime_resolve_literal_utf8,
@@ -936,15 +929,15 @@ static void test_runtime_resolver_guards_and_errors(void)
     CHECK(text_push_back_handle(tree_e, text_handle_make(TEXT_HANDLE_TREE, 41u)) == SEQ_OK);
     CHECK(text_push_back_handle(tree_e, text_handle_make(TEXT_HANDLE_TREE, 42u)) == SEQ_OK);
     CHECK(text_push_back_handle(root_visits, text_handle_make(TEXT_HANDLE_TREE, 40u)) == SEQ_OK);
-    CHECK(text_codepoint_length_resolved(root_visits, text_expand_runtime_handle,
-                                         &visits_resolver, &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root_visits, text_expand_runtime_handle, &visits_resolver,
+                                         &len) == SEQ_INVALID);
     CHECK(text_codepoint_length_resolved(root_visits, text_expand_runtime_handle,
                                          &visits_resolver_ok, &len) == SEQ_OK);
     CHECK(len == 2u);
 
     CHECK(text_push_back_handle(root_literal, text_handle_make(TEXT_HANDLE_LITERAL, 5u)) == SEQ_OK);
-    CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle, &bad_lit_resolver,
-                                         &len) == SEQ_INVALID);
+    CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle,
+                                         &bad_lit_resolver, &len) == SEQ_INVALID);
     CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle, &missing_lit_cb,
                                          &len) == SEQ_INVALID);
     CHECK(text_codepoint_length_resolved(root_cycle, text_expand_runtime_handle, &missing_tree_cb,
@@ -966,12 +959,12 @@ static void test_runtime_resolver_guards_and_errors(void)
 static void test_arena_allocator_exhaustion(void)
 {
     SECTION("arena allocator exhaustion");
-    uint8_t      storage[512];
+    uint8_t storage[512];
     ArenaAllocator arena = {storage, sizeof(storage), 0};
     SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
-    Text        *text = text_new_with_allocator(&allocator);
-    int          saw_oom = 0;
-    uint32_t     out = 0;
+    Text *text = text_new_with_allocator(&allocator);
+    int saw_oom = 0;
+    uint32_t out = 0;
 
     CHECK(text != NULL);
     for (size_t i = 0; i < 4096; i++)

@@ -17,7 +17,7 @@
     {                                                                                              \
         if (!(cond))                                                                               \
         {                                                                                          \
-            fprintf(stderr, "CHECK failed at %s:%d\n", __FILE__, __LINE__);                      \
+            fprintf(stderr, "CHECK failed at %s:%d\n", __FILE__, __LINE__);                        \
             return __LINE__;                                                                       \
         }                                                                                          \
     } while (0)
@@ -42,8 +42,9 @@ static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL
 /*
  * Mock Guest Logic (C version of wasm_guest_example.c)
  */
-static int mock_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *request, uint32_t request_len,
-                             uint8_t *reply_buf, uint32_t reply_buf_cap, uint32_t *reply_len_out)
+static int mock_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *request,
+                            uint32_t request_len, uint8_t *reply_buf, uint32_t reply_buf_cap,
+                            uint32_t *reply_len_out)
 {
     const char *lease_key = "lock-1";
     const char *counter_key = "counter";
@@ -52,32 +53,42 @@ static int mock_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *request, 
     uint32_t counter = 0;
     int rc;
 
-    (void)ctx; (void)request; (void)request_len; (void)reply_buf; (void)reply_buf_cap;
+    (void)ctx;
+    (void)request;
+    (void)request_len;
+    (void)reply_buf;
+    (void)reply_buf_cap;
 
     /* 1. Acquire lease */
     rc = sap_host_v0_lease_acquire(host, lease_key, (uint32_t)strlen(lease_key), 5000);
-    if (rc != SAP_OK) {
+    if (rc != SAP_OK)
+    {
         return rc;
     }
 
     /* 2. Read counter (DBI 10) */
     rc = sap_host_v0_get(host, 10, counter_key, (uint32_t)strlen(counter_key), &val, &val_len);
-    if (rc == SAP_OK && val_len == 4) {
+    if (rc == SAP_OK && val_len == 4)
+    {
         memcpy(&counter, val, 4);
-    } else if (rc != SAP_OK && rc != SAP_NOTFOUND) {
+    }
+    else if (rc != SAP_OK && rc != SAP_NOTFOUND)
+    {
         return rc;
     }
 
     /* 3. Increment and Put */
     counter++;
     rc = sap_host_v0_put(host, 10, counter_key, (uint32_t)strlen(counter_key), &counter, 4);
-    if (rc != SAP_OK) {
+    if (rc != SAP_OK)
+    {
         return rc;
     }
 
     /* 4. Release lease */
     rc = sap_host_v0_lease_release(host, lease_key, (uint32_t)strlen(lease_key));
-    if (rc != SAP_OK) {
+    if (rc != SAP_OK)
+    {
         return rc;
     }
 
@@ -100,7 +111,8 @@ static int test_wasm_runner_end_to_end(void)
 
     CHECK(db != NULL);
     rc = sap_runner_v0_bootstrap_dbis(db);
-    if (rc != SAP_OK) {
+    if (rc != SAP_OK)
+    {
         fprintf(stderr, "sap_runner_v0_bootstrap_dbis failed with rc=%d\n", rc);
         return 1;
     }
@@ -118,7 +130,8 @@ static int test_wasm_runner_end_to_end(void)
     cfg.worker_id = 1u;
     cfg.bootstrap_schema_if_missing = 1;
     rc = sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 10u);
-    if (rc != SAP_OK) {
+    if (rc != SAP_OK)
+    {
         fprintf(stderr, "sap_wasi_shim_v0_worker_init failed with rc=%d\n", rc);
         return 1;
     }
@@ -130,7 +143,7 @@ static int test_wasm_runner_end_to_end(void)
     msg.payload_len = 5u;
     msg.message_id = (const uint8_t *)"msg-1";
     msg.message_id_len = 5u;
-    
+
     sap_runner_v0_inbox_key_encode(1u, 100u, msg_key);
     uint32_t written = 0;
     rc = sap_runner_message_v0_encode(&msg, msg_frame, sizeof(msg_frame), &written);

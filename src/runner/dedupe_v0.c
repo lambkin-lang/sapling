@@ -23,9 +23,9 @@ static void wr32(uint8_t *p, uint32_t v)
 
 static uint64_t rd64(const uint8_t *p)
 {
-    return (uint64_t)p[0] | ((uint64_t)p[1] << 8) | ((uint64_t)p[2] << 16) | ((uint64_t)p[3] << 24) |
-           ((uint64_t)p[4] << 32) | ((uint64_t)p[5] << 40) | ((uint64_t)p[6] << 48) |
-           ((uint64_t)p[7] << 56);
+    return (uint64_t)p[0] | ((uint64_t)p[1] << 8) | ((uint64_t)p[2] << 16) |
+           ((uint64_t)p[3] << 24) | ((uint64_t)p[4] << 32) | ((uint64_t)p[5] << 40) |
+           ((uint64_t)p[6] << 48) | ((uint64_t)p[7] << 56);
 }
 
 static void wr64(uint8_t *p, uint64_t v)
@@ -50,8 +50,9 @@ void sap_runner_dedupe_v0_encode(const SapRunnerDedupeV0 *dedupe,
     wr32(out + 13, dedupe->checksum_len);
     if (dedupe->checksum_len > 0)
     {
-        uint32_t len =
-            dedupe->checksum_len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE ? SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE : dedupe->checksum_len;
+        uint32_t len = dedupe->checksum_len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE
+                           ? SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE
+                           : dedupe->checksum_len;
         memcpy(out + 17, dedupe->checksum, len);
     }
 }

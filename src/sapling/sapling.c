@@ -2128,7 +2128,6 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
     if (dbi >= db->num_dbs)
         return SAP_NOTFOUND;
 
-
     int is_ttl_meta = (db->dbs[dbi].flags & DBI_TTL_META) != 0;
     if (is_ttl_meta)
     {

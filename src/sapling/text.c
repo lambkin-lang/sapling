@@ -17,8 +17,8 @@ struct Text
 
 typedef struct TextShared
 {
-    Seq         *seq;
-    size_t       refs;
+    Seq *seq;
+    size_t refs;
     SeqAllocator allocator;
 } TextShared;
 
@@ -26,14 +26,13 @@ static Seq *text_seq(const Text *text);
 
 static int text_codepoint_is_valid(uint32_t codepoint)
 {
-    return (codepoint <= 0x10FFFFu) &&
-           !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);
+    return (codepoint <= 0x10FFFFu) && !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);
 }
 
 static int text_handle_is_storable(TextHandle handle)
 {
-    TextHandleKind kind = (TextHandleKind)((handle & TEXT_HANDLE_TAG_MASK) >>
-                                           TEXT_HANDLE_TAG_SHIFT);
+    TextHandleKind kind =
+        (TextHandleKind)((handle & TEXT_HANDLE_TAG_MASK) >> TEXT_HANDLE_TAG_SHIFT);
     if (kind == TEXT_HANDLE_CODEPOINT)
         return text_codepoint_is_valid(handle & TEXT_HANDLE_PAYLOAD_MASK);
     if (kind == TEXT_HANDLE_LITERAL || kind == TEXT_HANDLE_TREE)
@@ -46,7 +45,7 @@ typedef int (*TextVisitCodepointFn)(uint32_t codepoint, void *visit_ctx);
 typedef struct
 {
     TextVisitCodepointFn visit_fn;
-    void                *visit_ctx;
+    void *visit_ctx;
 } TextExpandEmitCtx;
 
 static int text_expand_emit_one(uint32_t codepoint, void *emit_ctx)
@@ -61,7 +60,7 @@ static int text_visit_resolved_codepoints(const Text *text, TextHandleExpandFn e
                                           void *resolver_ctx, TextVisitCodepointFn visit_fn,
                                           void *visit_ctx)
 {
-    Seq   *seq = text_seq(text);
+    Seq *seq = text_seq(text);
     size_t n = 0;
 
     if (!seq || !seq_is_valid(seq) || !visit_fn)
@@ -71,7 +70,7 @@ static int text_visit_resolved_codepoints(const Text *text, TextHandleExpandFn e
     for (size_t i = 0; i < n; i++)
     {
         TextHandle handle = 0;
-        int        rc = seq_get(seq, i, &handle);
+        int rc = seq_get(seq, i, &handle);
 
         if (rc != SEQ_OK)
             return rc;
@@ -186,8 +185,8 @@ static int text_utf8_decode_one(const uint8_t *utf8, size_t utf8_len, size_t *co
         if (b0 == 0xEDu && b1 >= 0xA0u)
             return SEQ_INVALID; /* surrogate */
         *consumed_out = 3u;
-        *codepoint_out = ((uint32_t)(b0 & 0x0Fu) << 12) |
-                         ((uint32_t)(b1 & 0x3Fu) << 6) | (uint32_t)(b2 & 0x3Fu);
+        *codepoint_out =
+            ((uint32_t)(b0 & 0x0Fu) << 12) | ((uint32_t)(b1 & 0x3Fu) << 6) | (uint32_t)(b2 & 0x3Fu);
         return SEQ_OK;
     }
 
@@ -208,8 +207,7 @@ static int text_utf8_decode_one(const uint8_t *utf8, size_t utf8_len, size_t *co
         if (b0 == 0xF4u && b1 > 0x8Fu)
             return SEQ_INVALID; /* > U+10FFFF */
         *consumed_out = 4u;
-        *codepoint_out = ((uint32_t)(b0 & 0x07u) << 18) |
-                         ((uint32_t)(b1 & 0x3Fu) << 12) |
+        *codepoint_out = ((uint32_t)(b0 & 0x07u) << 18) | ((uint32_t)(b1 & 0x3Fu) << 12) |
                          ((uint32_t)(b2 & 0x3Fu) << 6) | (uint32_t)(b3 & 0x3Fu);
         return SEQ_OK;
     }
@@ -226,21 +224,21 @@ enum
 typedef struct
 {
     const TextRuntimeResolver *resolver;
-    TextEmitCodepointFn        emit_fn;
-    void                      *emit_ctx;
-    uint32_t                  *path;
-    size_t                     path_len;
-    size_t                     max_depth;
-    size_t                     max_visits;
-    size_t                     visits;
+    TextEmitCodepointFn emit_fn;
+    void *emit_ctx;
+    uint32_t *path;
+    size_t path_len;
+    size_t max_depth;
+    size_t max_visits;
+    size_t visits;
 } TextRuntimeExpandCtx;
 
 static int text_runtime_expand_handle_inner(TextHandle handle, size_t depth,
                                             TextRuntimeExpandCtx *ctx)
 {
     TextHandleKind kind = text_handle_kind(handle);
-    uint32_t       payload = text_handle_payload(handle);
-    int            rc = SEQ_OK;
+    uint32_t payload = text_handle_payload(handle);
+    int rc = SEQ_OK;
 
     if (!ctx || !ctx->resolver || !ctx->emit_fn)
         return SEQ_INVALID;
@@ -257,13 +255,12 @@ static int text_runtime_expand_handle_inner(TextHandle handle, size_t depth,
     if (kind == TEXT_HANDLE_LITERAL)
     {
         const uint8_t *utf8 = NULL;
-        size_t         utf8_len = 0;
-        size_t         off = 0;
+        size_t utf8_len = 0;
+        size_t off = 0;
 
         if (!ctx->resolver->resolve_literal_utf8_fn)
             return SEQ_INVALID;
-        rc = ctx->resolver->resolve_literal_utf8_fn(payload, &utf8, &utf8_len,
-                                                    ctx->resolver->ctx);
+        rc = ctx->resolver->resolve_literal_utf8_fn(payload, &utf8, &utf8_len, ctx->resolver->ctx);
         if (rc != SEQ_OK)
             return rc;
         if (!utf8 && utf8_len > 0u)
@@ -271,7 +268,7 @@ static int text_runtime_expand_handle_inner(TextHandle handle, size_t depth,
 
         while (off < utf8_len)
         {
-            size_t   consumed = 0;
+            size_t consumed = 0;
             uint32_t codepoint = 0;
 
             rc = text_utf8_decode_one(utf8 + off, utf8_len - off, &consumed, &codepoint);
@@ -288,7 +285,7 @@ static int text_runtime_expand_handle_inner(TextHandle handle, size_t depth,
     if (kind == TEXT_HANDLE_TREE)
     {
         const Text *tree = NULL;
-        size_t      n = 0;
+        size_t n = 0;
 
         if (!ctx->resolver->resolve_tree_text_fn)
             return SEQ_INVALID;
@@ -340,10 +337,10 @@ int text_expand_runtime_handle(TextHandle handle, TextEmitCodepointFn emit_fn, v
                                void *resolver_ctx)
 {
     const TextRuntimeResolver *resolver = (const TextRuntimeResolver *)resolver_ctx;
-    TextRuntimeExpandCtx       ctx;
-    size_t                     max_depth = 0;
-    size_t                     max_visits = 0;
-    int                        rc = SEQ_OK;
+    TextRuntimeExpandCtx ctx;
+    size_t max_depth = 0;
+    size_t max_visits = 0;
+    int rc = SEQ_OK;
 
     if (!resolver || !emit_fn)
         return SEQ_INVALID;
@@ -479,7 +476,7 @@ static int text_detach_for_write(Text *text)
 {
     TextShared *old = NULL;
     TextShared *next = NULL;
-    size_t      n = 0;
+    size_t n = 0;
 
     if (!text || !text->shared || !text->shared->seq)
         return SEQ_INVALID;
@@ -497,7 +494,7 @@ static int text_detach_for_write(Text *text)
     for (size_t i = 0; i < n; i++)
     {
         TextHandle handle = 0;
-        int        rc = seq_get(old->seq, i, &handle);
+        int rc = seq_get(old->seq, i, &handle);
         if (rc != SEQ_OK)
         {
             text_shared_destroy(next);
@@ -551,10 +548,7 @@ Text *text_new_with_allocator(const SeqAllocator *allocator)
     return text;
 }
 
-Text *text_new(void)
-{
-    return text_new_with_allocator(NULL);
-}
+Text *text_new(void) { return text_new_with_allocator(NULL); }
 
 Text *text_clone(const Text *text)
 {
@@ -624,10 +618,7 @@ TextHandleKind text_handle_kind(TextHandle handle)
     return (TextHandleKind)((handle & TEXT_HANDLE_TAG_MASK) >> TEXT_HANDLE_TAG_SHIFT);
 }
 
-uint32_t text_handle_payload(TextHandle handle)
-{
-    return handle & TEXT_HANDLE_PAYLOAD_MASK;
-}
+uint32_t text_handle_payload(TextHandle handle) { return handle & TEXT_HANDLE_PAYLOAD_MASK; }
 
 int text_handle_from_codepoint(uint32_t codepoint, TextHandle *handle_out)
 {
@@ -659,7 +650,7 @@ int text_handle_is_codepoint(TextHandle handle)
 int text_push_front_handle(Text *text, TextHandle handle)
 {
     Seq *seq = text_seq(text);
-    int  rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!seq || !text_handle_is_storable(handle))
         return SEQ_INVALID;
@@ -672,7 +663,7 @@ int text_push_front_handle(Text *text, TextHandle handle)
 int text_push_back_handle(Text *text, TextHandle handle)
 {
     Seq *seq = text_seq(text);
-    int  rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!seq || !text_handle_is_storable(handle))
         return SEQ_INVALID;
@@ -685,7 +676,7 @@ int text_push_back_handle(Text *text, TextHandle handle)
 int text_pop_front_handle(Text *text, TextHandle *out)
 {
     uint32_t sink = 0;
-    int      rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!text_seq(text))
         return SEQ_INVALID;
@@ -700,7 +691,7 @@ int text_pop_front_handle(Text *text, TextHandle *out)
 int text_pop_back_handle(Text *text, TextHandle *out)
 {
     uint32_t sink = 0;
-    int      rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!text_seq(text))
         return SEQ_INVALID;
@@ -723,11 +714,11 @@ int text_get_handle(const Text *text, size_t idx, TextHandle *out)
 
 static int text_set_handle_impl(Text *text, size_t idx, TextHandle handle)
 {
-    Seq      *seq = text_seq(text);
-    Seq      *left = NULL;
-    Seq      *right = NULL;
-    uint32_t  discarded = 0;
-    int       rc;
+    Seq *seq = text_seq(text);
+    Seq *left = NULL;
+    Seq *right = NULL;
+    uint32_t discarded = 0;
+    int rc;
 
     rc = seq_split_at(seq, idx, &left, &right);
     if (rc != SEQ_OK)
@@ -755,7 +746,7 @@ static int text_set_handle_impl(Text *text, size_t idx, TextHandle handle)
 int text_set_handle(Text *text, size_t idx, TextHandle handle)
 {
     Seq *seq = text_seq(text);
-    int  rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!seq || !seq_is_valid(seq) || !text_handle_is_storable(handle))
         return SEQ_INVALID;
@@ -772,7 +763,7 @@ static int text_insert_handle_impl(Text *text, size_t idx, TextHandle handle)
     Seq *seq = text_seq(text);
     Seq *left = NULL;
     Seq *right = NULL;
-    int  rc;
+    int rc;
 
     rc = seq_split_at(seq, idx, &left, &right);
     if (rc != SEQ_OK)
@@ -792,7 +783,7 @@ static int text_insert_handle_impl(Text *text, size_t idx, TextHandle handle)
 int text_insert_handle(Text *text, size_t idx, TextHandle handle)
 {
     Seq *seq = text_seq(text);
-    int  rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!seq || !seq_is_valid(seq) || !text_handle_is_storable(handle))
         return SEQ_INVALID;
@@ -806,11 +797,11 @@ int text_insert_handle(Text *text, size_t idx, TextHandle handle)
 
 int text_delete_handle(Text *text, size_t idx, TextHandle *out)
 {
-    Seq      *seq = text_seq(text);
-    Seq      *left = NULL;
-    Seq      *right = NULL;
-    uint32_t  removed = 0;
-    int       rc;
+    Seq *seq = text_seq(text);
+    Seq *left = NULL;
+    Seq *right = NULL;
+    uint32_t removed = 0;
+    int rc;
 
     if (!seq || !seq_is_valid(seq))
         return SEQ_INVALID;
@@ -863,13 +854,13 @@ int text_codepoint_length_resolved(const Text *text, TextHandleExpandFn expand_f
                                    void *resolver_ctx, size_t *codepoint_len_out)
 {
     TextCodepointCountCtx ctx = {0};
-    int                   rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!codepoint_len_out)
         return SEQ_INVALID;
 
-    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
-                                        text_count_codepoint_visit, &ctx);
+    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx, text_count_codepoint_visit,
+                                        &ctx);
     if (rc != SEQ_OK)
         return rc;
     *codepoint_len_out = ctx.total;
@@ -878,8 +869,8 @@ int text_codepoint_length_resolved(const Text *text, TextHandleExpandFn expand_f
 
 typedef struct
 {
-    size_t   target;
-    size_t   pos;
+    size_t target;
+    size_t pos;
     uint32_t value;
 } TextCodepointGetCtx;
 
@@ -901,13 +892,13 @@ int text_get_codepoint_resolved(const Text *text, size_t codepoint_idx,
                                 TextHandleExpandFn expand_fn, void *resolver_ctx, uint32_t *out)
 {
     TextCodepointGetCtx ctx = {codepoint_idx, 0, 0};
-    int                 rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!out)
         return SEQ_INVALID;
 
-    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
-                                        text_get_codepoint_visit, &ctx);
+    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx, text_get_codepoint_visit,
+                                        &ctx);
     if (rc == TEXT_VISIT_STOP)
     {
         *out = ctx.value;
@@ -921,7 +912,7 @@ int text_get_codepoint_resolved(const Text *text, size_t codepoint_idx,
 int text_push_front(Text *text, uint32_t codepoint)
 {
     TextHandle handle = 0;
-    int        rc = text_handle_from_codepoint(codepoint, &handle);
+    int rc = text_handle_from_codepoint(codepoint, &handle);
     if (rc != SEQ_OK)
         return rc;
     return text_push_front_handle(text, handle);
@@ -930,7 +921,7 @@ int text_push_front(Text *text, uint32_t codepoint)
 int text_push_back(Text *text, uint32_t codepoint)
 {
     TextHandle handle = 0;
-    int        rc = text_handle_from_codepoint(codepoint, &handle);
+    int rc = text_handle_from_codepoint(codepoint, &handle);
     if (rc != SEQ_OK)
         return rc;
     return text_push_back_handle(text, handle);
@@ -938,10 +929,10 @@ int text_push_back(Text *text, uint32_t codepoint)
 
 int text_pop_front(Text *text, uint32_t *out)
 {
-    Seq       *seq = text_seq(text);
+    Seq *seq = text_seq(text);
     TextHandle handle = 0;
-    size_t     len = 0;
-    int        rc = SEQ_OK;
+    size_t len = 0;
+    int rc = SEQ_OK;
 
     if (!out || !seq || !seq_is_valid(seq))
         return SEQ_INVALID;
@@ -959,10 +950,10 @@ int text_pop_front(Text *text, uint32_t *out)
 
 int text_pop_back(Text *text, uint32_t *out)
 {
-    Seq       *seq = text_seq(text);
+    Seq *seq = text_seq(text);
     TextHandle handle = 0;
-    size_t     len = 0;
-    int        rc = SEQ_OK;
+    size_t len = 0;
+    int rc = SEQ_OK;
 
     if (!out || !seq || !seq_is_valid(seq))
         return SEQ_INVALID;
@@ -981,7 +972,7 @@ int text_pop_back(Text *text, uint32_t *out)
 int text_get(const Text *text, size_t idx, uint32_t *out)
 {
     TextHandle handle = 0;
-    int        rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!out)
         return SEQ_INVALID;
@@ -994,7 +985,7 @@ int text_get(const Text *text, size_t idx, uint32_t *out)
 int text_set(Text *text, size_t idx, uint32_t codepoint)
 {
     TextHandle handle = 0;
-    int        rc = text_handle_from_codepoint(codepoint, &handle);
+    int rc = text_handle_from_codepoint(codepoint, &handle);
     if (rc != SEQ_OK)
         return rc;
     return text_set_handle(text, idx, handle);
@@ -1003,7 +994,7 @@ int text_set(Text *text, size_t idx, uint32_t codepoint)
 int text_insert(Text *text, size_t idx, uint32_t codepoint)
 {
     TextHandle handle = 0;
-    int        rc = text_handle_from_codepoint(codepoint, &handle);
+    int rc = text_handle_from_codepoint(codepoint, &handle);
     if (rc != SEQ_OK)
         return rc;
     return text_insert_handle(text, idx, handle);
@@ -1012,7 +1003,7 @@ int text_insert(Text *text, size_t idx, uint32_t codepoint)
 int text_delete(Text *text, size_t idx, uint32_t *out)
 {
     uint32_t codepoint = 0;
-    int      rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (out)
     {
@@ -1046,12 +1037,12 @@ int text_concat(Text *dest, Text *src)
 
 int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out)
 {
-    Seq  *seq = text_seq(text);
-    Seq  *left_seq = NULL;
-    Seq  *right_seq = NULL;
+    Seq *seq = text_seq(text);
+    Seq *left_seq = NULL;
+    Seq *right_seq = NULL;
     Text *left = NULL;
     Text *right = NULL;
-    int   rc;
+    int rc;
 
     if (!seq || !left_out || !right_out)
         return SEQ_INVALID;
@@ -1092,10 +1083,10 @@ int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out)
 
 int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len)
 {
-    Seq   *seq = text_seq(text);
-    Text  *next = NULL;
+    Seq *seq = text_seq(text);
+    Text *next = NULL;
     size_t off = 0;
-    int    rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!seq || !seq_is_valid(seq))
         return SEQ_INVALID;
@@ -1149,7 +1140,7 @@ typedef struct
 static int text_utf8_length_visit(uint32_t codepoint, void *visit_ctx)
 {
     TextUtf8LengthCtx *ctx = (TextUtf8LengthCtx *)visit_ctx;
-    size_t             add = 0;
+    size_t add = 0;
 
     if (!ctx)
         return SEQ_INVALID;
@@ -1165,13 +1156,13 @@ int text_utf8_length_resolved(const Text *text, TextHandleExpandFn expand_fn, vo
                               size_t *utf8_len_out)
 {
     TextUtf8LengthCtx ctx = {0};
-    int               rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!utf8_len_out)
         return SEQ_INVALID;
 
-    rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
-                                        text_utf8_length_visit, &ctx);
+    rc =
+        text_visit_resolved_codepoints(text, expand_fn, resolver_ctx, text_utf8_length_visit, &ctx);
     if (rc != SEQ_OK)
         return rc;
     *utf8_len_out = ctx.total;
@@ -1186,15 +1177,15 @@ int text_utf8_length(const Text *text, size_t *utf8_len_out)
 typedef struct
 {
     uint8_t *out;
-    size_t   out_cap;
-    size_t   pos;
+    size_t out_cap;
+    size_t pos;
 } TextUtf8EncodeCtx;
 
 static int text_utf8_encode_visit(uint32_t codepoint, void *visit_ctx)
 {
     TextUtf8EncodeCtx *ctx = (TextUtf8EncodeCtx *)visit_ctx;
-    uint8_t            enc[4];
-    size_t             enc_n = 0;
+    uint8_t enc[4];
+    size_t enc_n = 0;
 
     if (!ctx || !ctx->out)
         return SEQ_INVALID;
@@ -1210,9 +1201,9 @@ static int text_utf8_encode_visit(uint32_t codepoint, void *visit_ctx)
 int text_to_utf8_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
                           uint8_t *out, size_t out_cap, size_t *utf8_len_out)
 {
-    Seq   *seq = text_seq(text);
+    Seq *seq = text_seq(text);
     size_t need = 0;
-    int    rc = SEQ_OK;
+    int rc = SEQ_OK;
 
     if (!seq || !utf8_len_out || !seq_is_valid(seq))
         return SEQ_INVALID;
@@ -1232,8 +1223,8 @@ int text_to_utf8_resolved(const Text *text, TextHandleExpandFn expand_fn, void *
 
     {
         TextUtf8EncodeCtx encode_ctx = {out, out_cap, 0};
-        rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx,
-                                            text_utf8_encode_visit, &encode_ctx);
+        rc = text_visit_resolved_codepoints(text, expand_fn, resolver_ctx, text_utf8_encode_visit,
+                                            &encode_ctx);
         if (rc != SEQ_OK)
             return rc;
         return (encode_ctx.pos == need) ? SEQ_OK : SEQ_INVALID;

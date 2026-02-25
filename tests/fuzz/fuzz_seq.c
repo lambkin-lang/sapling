@@ -15,8 +15,8 @@
 typedef struct
 {
     uint32_t *data;
-    size_t    len;
-    size_t    cap;
+    size_t len;
+    size_t cap;
 } ModelVec;
 
 static void model_init(ModelVec *m)
@@ -277,8 +277,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         case 5: /* split and re-concat */
         {
             size_t idx = 0;
-            Seq   *l   = NULL;
-            Seq   *r   = NULL;
+            Seq *l = NULL;
+            Seq *r = NULL;
             if (model.len > 0 && i < size)
                 idx = (size_t)data[i++] % (model.len + 1u);
             if (seq_split_at(seq, idx, &l, &r) != SEQ_OK)
@@ -295,9 +295,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         }
         case 6: /* concat random chunk */
         {
-            Seq     *chunk = seq_new();
+            Seq *chunk = seq_new();
             ModelVec chunk_model;
-            size_t   count = 0;
+            size_t count = 0;
 
             model_init(&chunk_model);
             if (!chunk)
@@ -357,7 +357,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             case 0: /* push_back under deterministic alloc fault */
             {
                 uint32_t v = 0;
-                int      rc;
+                int rc;
                 if (i + 4 > size)
                     break;
                 v = read_u32(&data[i]);
@@ -384,10 +384,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             }
             case 1: /* concat under deterministic alloc fault */
             {
-                Seq     *chunk = seq_new();
+                Seq *chunk = seq_new();
                 ModelVec chunk_model;
-                size_t   count = 0;
-                int      rc;
+                size_t count = 0;
+                int rc;
 
                 model_init(&chunk_model);
                 if (!chunk)
@@ -448,9 +448,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             case 2: /* split under deterministic alloc fault */
             {
                 size_t idx = 0;
-                Seq   *l = (Seq *)(uintptr_t)11;
-                Seq   *r = (Seq *)(uintptr_t)22;
-                int    rc;
+                Seq *l = (Seq *)(uintptr_t)11;
+                Seq *r = (Seq *)(uintptr_t)22;
+                int rc;
 
                 if (model.len > 0 && i < size)
                     idx = (size_t)(data[i++] % (model.len + 1u));

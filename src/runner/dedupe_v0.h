@@ -23,9 +23,9 @@ typedef struct
 
 /* --- Storage Operations --- */
 
-/* Check if a message has already been processed. 
- * Returns SAP_OK if found (and populates dedupe_out), 
- * SAP_NOTFOUND if new, or SAP_ERROR. 
+/* Check if a message has already been processed.
+ * Returns SAP_OK if found (and populates dedupe_out),
+ * SAP_NOTFOUND if new, or SAP_ERROR.
  */
 int sap_runner_dedupe_v0_get(Txn *txn, const void *message_id, uint32_t message_id_len,
                              SapRunnerDedupeV0 *dedupe_out);

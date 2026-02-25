@@ -54,7 +54,7 @@ static uint64_t rd64be(const uint8_t in[8])
     return v;
 }
 
-/* 
+/*
  * Simulated guest entry point using the new Host API.
  * This function models the Lambkin 'atomic' block logic.
  */
@@ -124,7 +124,8 @@ static int host_atomic_adapter(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
 int main(void)
 {
-    static const uint8_t payload[] = {'h', 'e', 'l', 'l', 'o', '-', 'h', 'o', 's', 't', '-', 'a', 'p', 'i'};
+    static const uint8_t payload[] = {'h', 'e', 'l', 'l', 'o', '-', 'h',
+                                      'o', 's', 't', '-', 'a', 'p', 'i'};
     static const uint8_t msg_id[] = {'m', 's', 'g', '-', '4', '2'};
     SapRunnerMessageV0 msg = {0};
     SapRunnerV0Config cfg = {0};
@@ -167,7 +168,7 @@ int main(void)
     }
 
     if (sap_runner_v0_worker_init(&worker, &cfg, sap_runner_attempt_handler_v0_runner_handler,
-                                   &handler, 4u) != SAP_OK)
+                                  &handler, 4u) != SAP_OK)
     {
         fprintf(stderr, "runner-host-api-example: worker init failed\n");
         goto done;

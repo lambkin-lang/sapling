@@ -14,13 +14,12 @@
 
 typedef int (*sap_wasi_runtime_v0_write_fn)(const uint8_t *chunk, uint32_t chunk_len, void *ctx);
 
-typedef int (*sap_wasi_runtime_v0_entry_fn)(void *ctx, SapHostV0 *host,
-                                            const uint8_t *request, uint32_t request_len,
-                                            uint8_t *reply_buf, uint32_t reply_buf_cap,
-                                            uint32_t *reply_len_out);
+typedef int (*sap_wasi_runtime_v0_entry_fn)(void *ctx, SapHostV0 *host, const uint8_t *request,
+                                            uint32_t request_len, uint8_t *reply_buf,
+                                            uint32_t reply_buf_cap, uint32_t *reply_len_out);
 
-typedef int (*sap_wasi_runtime_v0_stream_fn)(void *ctx, SapHostV0 *host,
-                                             const uint8_t *request, uint32_t request_len,
+typedef int (*sap_wasi_runtime_v0_stream_fn)(void *ctx, SapHostV0 *host, const uint8_t *request,
+                                             uint32_t request_len,
                                              sap_wasi_runtime_v0_write_fn write, void *write_ctx,
                                              uint32_t *reply_len_out);
 

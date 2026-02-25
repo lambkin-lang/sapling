@@ -15,8 +15,8 @@
 typedef struct
 {
     uint32_t *data;
-    size_t    len;
-    size_t    cap;
+    size_t len;
+    size_t cap;
 } ModelVec;
 
 static void model_init(ModelVec *m)
@@ -212,9 +212,9 @@ static int recover_after_oom(Text *text, ModelVec *model)
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-    Text    *text = text_new();
+    Text *text = text_new();
     ModelVec model;
-    size_t   i = 0;
+    size_t i = 0;
 
     model_init(&model);
     if (!text)
@@ -370,9 +370,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             break;
         case 8: /* split + re-concat identity */
         {
-            size_t idx = (model.len == 0) ? 0u : (size_t)((i < size) ? data[i++] : 0u) % (model.len + 1u);
-            Text  *l = NULL;
-            Text  *r = NULL;
+            size_t idx =
+                (model.len == 0) ? 0u : (size_t)((i < size) ? data[i++] : 0u) % (model.len + 1u);
+            Text *l = NULL;
+            Text *r = NULL;
             int rc = text_split_at(text, idx, &l, &r);
             if (rc == SEQ_OK)
             {
@@ -398,7 +399,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         }
         case 9: /* concat random chunk */
         {
-            Text    *chunk = text_new();
+            Text *chunk = text_new();
             ModelVec chunk_model;
             size_t count = 0;
             int rc = SEQ_OK;
@@ -484,7 +485,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             if (need > 0)
             {
                 uint8_t *buf = (uint8_t *)malloc(need);
-                Text    *tmp = text_new();
+                Text *tmp = text_new();
                 if (!buf || !tmp)
                 {
                     free(buf);
@@ -563,7 +564,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         }
         case 13: /* clone + mutate clone should not affect original */
         {
-            Text    *clone = text_clone(text);
+            Text *clone = text_clone(text);
             ModelVec clone_model;
             uint32_t cp = 0x61u;
 
