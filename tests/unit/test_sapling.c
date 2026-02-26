@@ -625,6 +625,13 @@ static void test_large_dataset(void)
     /* We insert keys "000000".."009999" in shuffled order */
     uint32_t state = 12345;
     int *order = (int *)malloc((size_t)N * sizeof(int));
+    if (!order)
+    {
+        CHECK(0);
+        txn_abort(txn);
+        db_close(db);
+        return;
+    }
     for (int i = 0; i < N; i++)
         order[i] = i;
     for (int i = N - 1; i > 0; i--)
@@ -2370,6 +2377,12 @@ static void test_reserve(void)
     void *reserved = NULL;
     CHECK(txn_put_flags(txn, "rkey", 4, NULL, 8, SAP_RESERVE, &reserved) == SAP_OK);
     CHECK(reserved != NULL);
+    if (!reserved)
+    {
+        txn_abort(txn);
+        db_close(db);
+        return;
+    }
 
     /* Write directly into reserved space */
     memcpy(reserved, "reserved", 8);

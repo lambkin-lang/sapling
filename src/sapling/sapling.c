@@ -814,7 +814,6 @@ static uint32_t raw_alloc(struct Txn *txn)
         {
             /* Harden against free-list head corruption under heavy churn. */
             txn->free_pgno = INVALID_PGNO;
-            pgno = INVALID_PGNO;
         }
         else
         {
@@ -2453,6 +2452,15 @@ static int txn_load_sorted_empty_fast(struct Txn *txn, uint32_t dbi, const void 
     next = (struct BuildNode *)malloc((size_t)count * sizeof(*next));
     if (!cur || !next)
         goto cleanup;
+    for (uint32_t i = 0; i < count; i++)
+    {
+        cur[i].pgno = INVALID_PGNO;
+        cur[i].min_key = NULL;
+        cur[i].min_len = 0;
+        next[i].pgno = INVALID_PGNO;
+        next[i].min_key = NULL;
+        next[i].min_len = 0;
+    }
 
     for (uint32_t i = 0; i < count; i++)
     {
@@ -2650,12 +2658,22 @@ static int txn_load_sorted_empty_fast(struct Txn *txn, uint32_t dbi, const void 
         free(cap);
         free(choice);
         free(feasible);
+        if (next_count == 0)
+        {
+            rc = SAP_ERROR;
+            goto cleanup;
+        }
         tmp = cur;
         cur = next;
         next = tmp;
         cur_count = next_count;
     }
 
+    if (cur_count == 0 || cur[0].pgno == INVALID_PGNO)
+    {
+        rc = SAP_ERROR;
+        goto cleanup;
+    }
     txn->dbs[dbi].root_pgno = cur[0].pgno;
     txn->dbs[dbi].num_entries += count;
     rc = SAP_OK;
@@ -3402,13 +3420,8 @@ int txn_put_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
         rc = txn_del_dbi(child, ttl_dbi, old_index_key, old_index_len);
         if (rc != SAP_OK && rc != SAP_NOTFOUND)
             goto abort_child;
-        rc = SAP_OK;
     }
-    else if (rc == SAP_NOTFOUND)
-    {
-        rc = SAP_OK;
-    }
-    else
+    else if (rc != SAP_NOTFOUND)
     {
         goto abort_child;
     }

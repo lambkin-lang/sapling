@@ -51,16 +51,16 @@ typedef struct
     PipelineCtx *pipeline;
     const char *name;
     const uint8_t *in_prefix;
-    uint32_t in_prefix_len;
     const uint8_t *out_prefix;
-    uint32_t out_prefix_len;
     const uint8_t *counter_key;
-    uint32_t counter_key_len;
     const uint8_t *status_value;
+    uint64_t processed;
+    uint32_t in_prefix_len;
+    uint32_t out_prefix_len;
+    uint32_t counter_key_len;
     uint32_t status_value_len;
     uint32_t compute_delay_ms;
     int adjust_inventory;
-    uint64_t processed;
     int last_rc;
 } StageThreadCtx;
 

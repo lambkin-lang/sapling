@@ -188,6 +188,7 @@ WIT_GEN_OBJ ?= $(WIT_GEN_DIR)/wit_schema_dbis.o
 CLANG_FORMAT ?= /opt/homebrew/opt/llvm@21/bin/clang-format
 CLANG_TIDY ?= /opt/homebrew/opt/llvm@21/bin/clang-tidy
 CPPCHECK ?= cppcheck
+CLANG_TIDY_CHECKS ?= -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 WASM_TOOLS ?= wasm-tools
 WASI_CC   ?= /opt/homebrew/opt/llvm@21/bin/clang
 WASI_AR   ?= ar
@@ -496,7 +497,7 @@ format-check:
 
 tidy:
 	@command -v $(CLANG_TIDY) >/dev/null 2>&1 || { echo "clang-tidy not found: $(CLANG_TIDY)"; exit 2; }
-	$(CLANG_TIDY) $(PHASE0_TIDY_FILES) -- $(CFLAGS) $(INCLUDES)
+	$(CLANG_TIDY) -checks=$(CLANG_TIDY_CHECKS) $(PHASE0_TIDY_FILES) -- $(CFLAGS) $(INCLUDES)
 
 cppcheck:
 	@if command -v $(CPPCHECK) >/dev/null 2>&1; then \

@@ -99,7 +99,8 @@ static int model_concat(ModelVec *dst, const ModelVec *src)
 {
     if (!model_reserve(dst, dst->len + src->len))
         return 0;
-    memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
+    if (src->len > 0)
+        memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
     dst->len += src->len;
     return 1;
 }
@@ -138,6 +139,7 @@ static int seq_matches_model_slice(Seq *seq, const ModelVec *model, size_t off, 
     return 1;
 }
 
+#ifdef SAPLING_SEQ_TESTING
 static int model_sync_from_seq(ModelVec *model, Seq *seq)
 {
     size_t len = 0;
@@ -157,7 +159,6 @@ static int model_sync_from_seq(ModelVec *model, Seq *seq)
     return 1;
 }
 
-#ifdef SAPLING_SEQ_TESTING
 static int recover_after_oom(Seq *seq, ModelVec *model)
 {
     if (seq_is_valid(seq))
@@ -258,13 +259,23 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         case 4: /* get in-range / out-of-range */
         {
             uint32_t got = 0;
-            if (model.len > 0 && i < size && (data[i++] & 1u))
+            if (model.len > 0 && i < size)
             {
-                size_t idx = 0;
-                if (i < size)
-                    idx = (size_t)data[i++] % model.len;
-                if (seq_get(seq, idx, &got) != SEQ_OK || got != model.data[idx])
-                    __builtin_trap();
+                uint8_t in_range = data[i++] & 1u;
+                if (in_range)
+                {
+                    size_t idx = 0;
+                    if (i < size)
+                        idx = (size_t)data[i++] % model.len;
+                    if (seq_get(seq, idx, &got) != SEQ_OK || got != model.data[idx])
+                        __builtin_trap();
+                }
+                else
+                {
+                    size_t idx = model.len + ((i < size) ? (size_t)(data[i++] % 4u) : 1u);
+                    if (seq_get(seq, idx, &got) != SEQ_RANGE)
+                        __builtin_trap();
+                }
             }
             else
             {
