@@ -229,8 +229,15 @@ COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)
 RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
+THREADED_OBJ_DIR := $(BUILD_DIR)/obj_threaded
+THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o
+THREADED_COMMON_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
+THREADED_RUNNER_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
+THREADED_WASI_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
+THREADED_WIT_GEN_OBJ := $(THREADED_OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 
 ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
+THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
 .PHONY: all test text-test seq-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
@@ -359,6 +366,12 @@ $(OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
+# Threaded object compilation in a separate object tree to avoid
+# cross-mode artifact reuse between threaded and non-threaded targets.
+$(THREADED_OBJ_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DSAPLING_THREADED $(INCLUDES) -c $< -o $@
+
 $(TEST_BIN): $(OBJ_DIR)/tests/unit/test_sapling.o $(CORE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_sapling.o $(CORE_OBJS) -o $(TEST_BIN) $(LDFLAGS)
@@ -469,13 +482,13 @@ $(RUNNER_HOST_API_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_host_api_examp
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/examples/native/runner_host_api_example.o $(ALL_LIB_OBJS) -o $(RUNNER_HOST_API_EXAMPLE_BIN) $(LDFLAGS)
 
-$(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_threaded_pipeline_example.o $(ALL_LIB_OBJS)
+$(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN): $(THREADED_OBJ_DIR)/examples/native/runner_threaded_pipeline_example.o $(THREADED_ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/examples/native/runner_threaded_pipeline_example.o $(ALL_LIB_OBJS) -o $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) $(THREADED_OBJ_DIR)/examples/native/runner_threaded_pipeline_example.o $(THREADED_ALL_LIB_OBJS) -o $(RUNNER_THREADED_PIPELINE_EXAMPLE_BIN) $(LDFLAGS)
 
-$(RUNNER_MULTIWRITER_STRESS_BIN): $(OBJ_DIR)/tests/stress/runner_multiwriter_stress.o $(ALL_LIB_OBJS)
+$(RUNNER_MULTIWRITER_STRESS_BIN): $(THREADED_OBJ_DIR)/tests/stress/runner_multiwriter_stress.o $(THREADED_ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/stress/runner_multiwriter_stress.o $(ALL_LIB_OBJS) -o $(RUNNER_MULTIWRITER_STRESS_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) $(THREADED_OBJ_DIR)/tests/stress/runner_multiwriter_stress.o $(THREADED_ALL_LIB_OBJS) -o $(RUNNER_MULTIWRITER_STRESS_BIN) $(LDFLAGS)
 
 $(RUNNER_PHASEE_BENCH_BIN): $(OBJ_DIR)/benchmarks/bench_runner_phasee.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
