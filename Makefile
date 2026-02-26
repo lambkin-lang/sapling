@@ -95,6 +95,8 @@ RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_examp
 CC       := /opt/homebrew/opt/llvm@21/bin/clang
 CXX      := /opt/homebrew/opt/llvm@21/bin/clang++
 CFLAGS   := -Wall -Wextra -Werror -std=c11
+# Expose POSIX declarations (clock_gettime/nanosleep) under strict C11.
+CFLAGS   += -D_POSIX_C_SOURCE=200809L
 INCLUDES := -Iinclude -Isrc -I.
 AR        = ar
 ARFLAGS   = rcs
