@@ -653,9 +653,9 @@ Phase F status:
 
 ---
 
-## Priority 6 — Advanced / future
+## Priority 6 — Advanced / Feature Parity (DONE)
 
-### Overflow pages for large values (initial support done)
+### Overflow pages for large values (done)
 Non-DUPSORT values can now spill to chained overflow pages when a value no
 longer fits in a single leaf cell. The leaf stores an overflow reference and
 logical value length, while read paths reconstruct bytes transparently.
@@ -683,7 +683,7 @@ order and sorted-load validation).
 int dbi_set_dupsort(DB *db, uint32_t dbi, keycmp_fn vcmp, void *vcmp_ctx);
 ```
 
-### TTL / automatic expiry (initial helper support done)
+### TTL / automatic expiry (done)
 Initial helper APIs now support TTL-managed keyspaces using a companion
 metadata DBI:
 
@@ -725,7 +725,7 @@ Next priorities:
 4. [x] Add optional lazy-expiry deletes on read/cursor paths in write txns.
 5. [x] Add host-runner background sweep cadence and observability counters.
 
-### Range delete (done, scan-backed for now)
+### Range delete (done)
 `txn_del_range` is available with half-open semantics `[lo, hi)` and currently
 uses cursor-driven deletion, so results are exact and predictable across DBI
 modes (including DUPSORT duplicates counted as separate entries). A future
