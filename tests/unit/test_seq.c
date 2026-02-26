@@ -1379,6 +1379,50 @@ static void test_fault_injection_concat_sweep(void)
     CHECK(saw_ok == 1);
 }
 
+static void test_fault_injection_push_front_sweep(void)
+{
+    SECTION("fault injection: push_front sweep");
+    int saw_oom = 0;
+    int saw_ok = 0;
+    for (int64_t fail_after = 0; fail_after <= 8; fail_after++)
+    {
+        Seq *s = seq_new();
+        CHECK(s != NULL);
+        CHECK(seq_push_front(s, ip(1)) == SEQ_OK);
+
+        seq_test_fail_alloc_after(fail_after);
+        int rc = seq_push_front(s, ip(2));
+        seq_test_clear_alloc_fail();
+
+        if (rc == SEQ_OOM)
+        {
+            saw_oom = 1;
+            CHECK(seq_is_valid(s) == 0);
+            CHECK(seq_reset(s) == SEQ_OK);
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 0);
+        }
+        else if (rc == SEQ_OK)
+        {
+            uint32_t out = 0;
+            saw_ok = 1;
+            CHECK(seq_is_valid(s) == 1);
+            CHECK(seq_length(s) == 2);
+            CHECK(seq_get(s, 0, &out) == SEQ_OK);
+            CHECK(out == ip(2));
+            CHECK(seq_get(s, 1, &out) == SEQ_OK);
+            CHECK(out == ip(1));
+        }
+        else
+        {
+            CHECK(0);
+        }
+        seq_free(s);
+    }
+    CHECK(saw_oom == 1);
+    CHECK(saw_ok == 1);
+}
+
 static void test_fault_injection_split_sweep(void)
 {
     SECTION("fault injection: split sweep");
@@ -1528,6 +1572,7 @@ int main(void)
     test_fault_injection_concat();
     test_fault_injection_split();
     test_fault_injection_push_sweep();
+    test_fault_injection_push_front_sweep();
     test_fault_injection_concat_sweep();
     test_fault_injection_split_sweep();
     test_fault_injection_reset_sweep();

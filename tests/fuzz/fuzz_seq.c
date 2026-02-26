@@ -366,7 +366,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
              * intentionally invalidate roots, which creates allocator-noise
              * leaks under libFuzzer's leak checker.
              */
-            uint8_t selector = (i < size) ? (uint8_t)(data[i++] % 2u) : 0u;
+            uint8_t selector = (i < size) ? (uint8_t)(data[i++] % 3u) : 0u;
             int64_t fail_after = (i < size) ? (int64_t)(data[i++] % 24u) : 0;
 
             switch (selector)
@@ -386,6 +386,34 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 if (rc == SEQ_OK)
                 {
                     if (!model_push_back(&model, v))
+                        goto out;
+                }
+                else if (rc == SEQ_OOM)
+                {
+                    if (!recover_after_oom(seq, &model))
+                        goto out;
+                }
+                else
+                {
+                    __builtin_trap();
+                }
+                break;
+            }
+            case 1: /* push_front under deterministic alloc fault */
+            {
+                uint32_t v = 0;
+                int rc;
+                if (i + 4 > size)
+                    break;
+                v = read_u32(&data[i]);
+                i += 4;
+
+                seq_test_fail_alloc_after(fail_after);
+                rc = seq_push_front(seq, v);
+                seq_test_clear_alloc_fail();
+                if (rc == SEQ_OK)
+                {
+                    if (!model_push_front(&model, v))
                         goto out;
                 }
                 else if (rc == SEQ_OOM)

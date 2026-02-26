@@ -233,6 +233,16 @@ static inline size_t item_measure(SeqItem item, int depth)
     return seq_item_as_node(item)->size;
 }
 
+/*
+ * Release an item that was never linked into a tree due to OOM.
+ * Leaf handles (depth 0) are value types and require no cleanup.
+ */
+static void item_release_unconsumed(SeqItem item, int item_depth, const SeqAllocator *allocator)
+{
+    if (item_depth > 0)
+        seq_node_free(seq_item_as_node(item), item_depth - 1, allocator);
+}
+
 /* Allocate an empty FTree shell. */
 static FTree *ftree_new(const SeqAllocator *allocator)
 {
@@ -426,10 +436,16 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth,
         size_t bsz = item_measure(b, item_depth);
         size_t total_size = 0;
         if (!size_add_checked(bsz, sz, &total_size))
+        {
+            item_release_unconsumed(item, item_depth, allocator);
             return SEQ_OOM;
+        }
         FTree *mid = ftree_new(allocator);
         if (!mid)
+        {
+            item_release_unconsumed(item, item_depth, allocator);
             return SEQ_OOM;
+        }
         tree->tag = FTREE_DEEP;
         tree->size = total_size;
         tree->deep.pr_count = 1;
@@ -446,12 +462,18 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth,
     {
         size_t new_tree_size = 0;
         if (!size_add_checked(tree->size, sz, &new_tree_size))
+        {
+            item_release_unconsumed(item, item_depth, allocator);
             return SEQ_OOM;
+        }
         if (tree->deep.pr_count < 4)
         {
             size_t new_pr_size = 0;
             if (!size_add_checked(tree->deep.pr_size, sz, &new_pr_size))
+            {
+                item_release_unconsumed(item, item_depth, allocator);
                 return SEQ_OOM;
+            }
             /* Shift prefix right and insert at front */
             int n = tree->deep.pr_count;
             for (int i = n; i > 0; i--)
@@ -470,13 +492,17 @@ static int ftree_push_front(FTree *tree, SeqItem item, int item_depth,
             SeqNode *node = node_new3(tree->deep.pr[1], tree->deep.pr[2], tree->deep.pr[3],
                                       item_depth, allocator);
             if (!node)
+            {
+                item_release_unconsumed(item, item_depth, allocator);
                 return SEQ_OOM;
+            }
             SeqItem old_front = tree->deep.pr[0];
             size_t old_front_sz = item_measure(old_front, item_depth);
             size_t new_pr_size = 0;
             if (!size_add_checked(sz, old_front_sz, &new_pr_size))
             {
                 seq_node_free(node, item_depth, allocator);
+                item_release_unconsumed(item, item_depth, allocator);
                 return SEQ_OOM;
             }
             tree->deep.pr[0] = item;
@@ -512,10 +538,16 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth, const SeqA
         size_t bsz = item_measure(b, item_depth);
         size_t total_size = 0;
         if (!size_add_checked(bsz, sz, &total_size))
+        {
+            item_release_unconsumed(item, item_depth, allocator);
             return SEQ_OOM;
+        }
         FTree *mid = ftree_new(allocator);
         if (!mid)
+        {
+            item_release_unconsumed(item, item_depth, allocator);
             return SEQ_OOM;
+        }
         tree->tag = FTREE_DEEP;
         tree->size = total_size;
         tree->deep.pr_count = 1;
@@ -532,12 +564,18 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth, const SeqA
     {
         size_t new_tree_size = 0;
         if (!size_add_checked(tree->size, sz, &new_tree_size))
+        {
+            item_release_unconsumed(item, item_depth, allocator);
             return SEQ_OOM;
+        }
         if (tree->deep.sf_count < 4)
         {
             size_t new_sf_size = 0;
             if (!size_add_checked(tree->deep.sf_size, sz, &new_sf_size))
+            {
+                item_release_unconsumed(item, item_depth, allocator);
                 return SEQ_OOM;
+            }
             tree->deep.sf[tree->deep.sf_count] = item;
             tree->deep.sf_count++;
             tree->deep.sf_size = new_sf_size;
@@ -552,13 +590,17 @@ static int ftree_push_back(FTree *tree, SeqItem item, int item_depth, const SeqA
             SeqNode *node = node_new3(tree->deep.sf[0], tree->deep.sf[1], tree->deep.sf[2],
                                       item_depth, allocator);
             if (!node)
+            {
+                item_release_unconsumed(item, item_depth, allocator);
                 return SEQ_OOM;
+            }
             SeqItem old_last = tree->deep.sf[3];
             size_t old_last_sz = item_measure(old_last, item_depth);
             size_t new_sf_size = 0;
             if (!size_add_checked(old_last_sz, sz, &new_sf_size))
             {
                 seq_node_free(node, item_depth, allocator);
+                item_release_unconsumed(item, item_depth, allocator);
                 return SEQ_OOM;
             }
             tree->deep.sf[0] = old_last;
