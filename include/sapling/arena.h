@@ -23,11 +23,13 @@ typedef enum {
     SAP_ARENA_BACKING_MALLOC = 0, /* standard native chunking */
     SAP_ARENA_BACKING_MMAP,       /* native file-backed mmap */
     SAP_ARENA_BACKING_WASI_FD,    /* WASI filesystem fd */
-    SAP_ARENA_BACKING_LINEAR      /* simple array expansion (browser/Workers) */
+    SAP_ARENA_BACKING_LINEAR,     /* simple array expansion (browser/Workers) */
+    SAP_ARENA_BACKING_CUSTOM      /* custom callbacks (used for test tracking) */
 } SapArenaBackingType;
 
 typedef struct {
     SapArenaBackingType type;
+    uint32_t page_size;
     union {
         struct {
             int fd;
@@ -37,6 +39,11 @@ typedef struct {
             uint64_t initial_bytes;
             uint64_t max_bytes;
         } linear;
+        struct {
+            void *(*alloc_page)(void *ctx, uint32_t page_size);
+            void (*free_page)(void *ctx, void *page, uint32_t page_size);
+            void *ctx;
+        } custom;
     } cfg;
 } SapArenaOptions;
 
@@ -62,6 +69,11 @@ int sap_arena_alloc_page(SapMemArena *arena, void **page_out, uint32_t *pgno_out
 int sap_arena_free_page(SapMemArena *arena, uint32_t pgno);
 
 /*
+ * Free a page by its process pointer (helper for systems not tracking IDs).
+ */
+int sap_arena_free_page_ptr(SapMemArena *arena, void *page);
+
+/*
  * Node allocation: Retrieves a precise, smaller-than-page byte boundary.
  * Suitable for Finger Tree node/leaf variants or Trie nodes.
  */
@@ -71,6 +83,11 @@ int sap_arena_alloc_node(SapMemArena *arena, uint32_t size, void **node_out, uin
  * Free a sub-page node.
  */
 int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size);
+
+/*
+ * Memory inspection: Returns the number of currently active/held pages not in the free list.
+ */
+uint32_t sap_arena_active_pages(const SapMemArena *arena);
 
 /*
  * Pointer resolution: Map a page/node integer reference back to a process pointer.

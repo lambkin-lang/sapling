@@ -29,7 +29,7 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 struct FailingAllocCtx
 {
@@ -114,7 +114,7 @@ static void print_summary(void) { printf("\nResults: %d passed, %d failed\n", g_
 /* Helpers                                                              */
 /* ================================================================== */
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void) { return db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
 
 static int str_put(Txn *txn, const char *key, const char *val)
 {
@@ -1163,7 +1163,7 @@ static void test_input_validation(void)
 static void test_sap_full(void)
 {
     SECTION("SAP_FULL for oversized entry");
-    DB *db = db_open(&g_alloc, 256, NULL, NULL); /* small pages */
+    DB *db = db_open(g_alloc, 256, NULL, NULL); /* small pages */
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
 
@@ -1189,7 +1189,7 @@ static void test_sap_full(void)
 static void test_overflow_values(void)
 {
     SECTION("overflow values");
-    DB *db = db_open(&g_alloc, 256, NULL, NULL);
+    DB *db = db_open(g_alloc, 256, NULL, NULL);
     CHECK(db != NULL);
 
     uint8_t v1[700];
@@ -1302,7 +1302,7 @@ static void test_overflow_values(void)
     }
 
     {
-        DB *db2 = db_open(&g_alloc, 256, NULL, NULL);
+        DB *db2 = db_open(g_alloc, 256, NULL, NULL);
         CHECK(db2 != NULL);
         Txn *t = txn_begin(db2, NULL, 0);
         CHECK(t != NULL);
@@ -1326,7 +1326,7 @@ static void test_overflow_values(void)
     }
 
     {
-        DB *db3 = db_open(&g_alloc, 256, NULL, NULL);
+        DB *db3 = db_open(g_alloc, 256, NULL, NULL);
         struct MemBuf snap = {0};
         uint32_t page_size = 0;
         uint32_t page_index = 0;
@@ -1356,7 +1356,7 @@ static void test_overflow_values(void)
     }
 
     {
-        DB *db4 = db_open(&g_alloc, 256, NULL, NULL);
+        DB *db4 = db_open(g_alloc, 256, NULL, NULL);
         struct MemBuf snap = {0};
         uint32_t page_size = 0;
         uint32_t page_index = 0;
@@ -1386,7 +1386,7 @@ static void test_overflow_values(void)
     }
 
     {
-        DB *db5 = db_open(&g_alloc, 256, NULL, NULL);
+        DB *db5 = db_open(g_alloc, 256, NULL, NULL);
         struct MemBuf snap = {0};
         uint32_t page_size = 0;
         uint32_t page_index = 0;
@@ -1433,7 +1433,7 @@ static void test_overflow_values(void)
     }
 
     {
-        DB *db6 = db_open(&g_alloc, 256, NULL, NULL);
+        DB *db6 = db_open(g_alloc, 256, NULL, NULL);
         struct MemBuf snap = {0};
         const void *v;
         uint32_t vl;
@@ -1467,8 +1467,15 @@ static void test_overflow_failure_atomicity(void)
 {
     SECTION("overflow failure atomicity");
     struct FailingAllocCtx fa = {0};
-    PageAllocator alloc = {failing_alloc_page, failing_free_page, &fa};
-    DB *db = db_open(&alloc, 256, NULL, NULL);
+    SapMemArena *alloc = NULL;
+    SapArenaOptions alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = failing_alloc_page,
+        .cfg.custom.free_page = failing_free_page,
+        .cfg.custom.ctx = &fa
+    };
+    sap_arena_init(&alloc, &alloc_opts);
+    DB *db = db_open(alloc, 256, NULL, NULL);
     uint8_t oldv[48];
     uint8_t bigv[900];
     uint32_t live_before_abort;
@@ -1508,14 +1515,14 @@ static void test_overflow_failure_atomicity(void)
     CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
     txn_abort(r);
 
-    live_before_abort = fa.live_pages;
+    live_before_abort = sap_arena_active_pages(alloc);
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     failing_alloc_arm(&fa, 2);
     CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == SAP_ERROR);
     failing_alloc_disarm(&fa);
     txn_abort(w);
-    CHECK(fa.live_pages == live_before_abort);
+    CHECK(sap_arena_active_pages(alloc) == live_before_abort);
 
     CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_OK);
     w = txn_begin(db, NULL, 0);
@@ -1523,12 +1530,12 @@ static void test_overflow_failure_atomicity(void)
     CHECK(txn_put(w, "k", 1, "mut", 3) == SAP_OK);
     CHECK(txn_commit(w) == SAP_OK);
 
-    live_before_restore_fail = fa.live_pages;
+    live_before_restore_fail = sap_arena_active_pages(alloc);
     snap.pos = 0;
     failing_alloc_arm(&fa, 2);
     CHECK(db_restore(db, membuf_read, &snap) == SAP_ERROR);
     failing_alloc_disarm(&fa);
-    CHECK(fa.live_pages == live_before_restore_fail);
+    CHECK(sap_arena_active_pages(alloc) == live_before_restore_fail);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
@@ -1552,13 +1559,15 @@ static void test_overflow_failure_atomicity(void)
 
     free(snap.data);
     db_close(db);
+    sap_arena_destroy(alloc);
+    if (fa.live_pages != 0) printf("\n\nLEAK: live_pages = %d\n\n", fa.live_pages);
     CHECK(fa.live_pages == 0);
 }
 
 static void test_overflow_contract_matrix(void)
 {
     SECTION("overflow contract matrix");
-    DB *db = db_open(&g_alloc, 256, NULL, NULL);
+    DB *db = db_open(g_alloc, 256, NULL, NULL);
     uint8_t ov_a[700];
     uint8_t ov_b[900];
     uint8_t dupsort_big[5000];
@@ -1644,9 +1653,19 @@ static void test_runtime_page_size_safety(void)
     SECTION("runtime page-size safety");
 
     /* Offsets are 16-bit; larger pages are invalid. */
-    CHECK(db_open(&g_alloc, 65536u, NULL, NULL) == NULL);
+    CHECK(db_open(g_alloc, 65536u, NULL, NULL) == NULL);
 
-    DB *db = db_open(&g_alloc, 16384u, NULL, NULL);
+    SapMemArena *local_alloc = NULL;
+    SapArenaOptions local_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .page_size = 16384u,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&local_alloc, &local_opts);
+
+    DB *db = db_open(local_alloc, 16384u, NULL, NULL);
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
     CHECK(txn != NULL);
@@ -1687,6 +1706,7 @@ static void test_runtime_page_size_safety(void)
 
     txn_abort(txn);
     db_close(db);
+    sap_arena_destroy(local_alloc);
     for (int i = 0; i < 4; i++)
         free(keys[i]);
 }
@@ -1727,7 +1747,7 @@ static void test_write_contention(void)
 static void test_leaf_capacity(void)
 {
     SECTION("leaf capacity (small pages)");
-    DB *db = db_open(&g_alloc, 256, NULL, NULL); /* small page to make splits visible */
+    DB *db = db_open(g_alloc, 256, NULL, NULL); /* small page to make splits visible */
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
     char kbuf[8], vbuf[8];
@@ -1781,7 +1801,7 @@ static int reverse_cmp(const void *a, uint32_t al, const void *b, uint32_t bl, v
 static void test_custom_comparator(void)
 {
     SECTION("custom key comparator (reverse)");
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, reverse_cmp, NULL);
+    DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, reverse_cmp, NULL);
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
 
@@ -1942,7 +1962,7 @@ static int int_cmp(const void *a, uint32_t al, const void *b, uint32_t bl, void 
 static void test_integer_key_comparator(void)
 {
     SECTION("integer key comparator");
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, int_cmp, NULL);
+    DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, int_cmp, NULL);
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
 
@@ -2443,7 +2463,7 @@ static void test_put_if(void)
         uint8_t v2[900];
         const void *v;
         uint32_t vl;
-        DB *odb = db_open(&g_alloc, 256, NULL, NULL);
+        DB *odb = db_open(g_alloc, 256, NULL, NULL);
         CHECK(odb != NULL);
         fill_pattern(v1, (uint32_t)sizeof(v1), 5);
         fill_pattern(v2, (uint32_t)sizeof(v2), 11);
@@ -3788,7 +3808,7 @@ static void test_cursor_put(void)
         uint8_t big[64];
         const void *v;
         uint32_t vl;
-        DB *sdb = db_open(&g_alloc, 256, NULL, NULL);
+        DB *sdb = db_open(g_alloc, 256, NULL, NULL);
         CHECK(sdb != NULL);
         memset(key, 'k', sizeof(key));
         fill_pattern(big, (uint32_t)sizeof(big), 9);
@@ -4155,6 +4175,14 @@ static void test_writer_reader_concurrent(void)
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     test_empty_tree();
     test_single_element();
     test_basic_crud();

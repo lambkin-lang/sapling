@@ -42,9 +42,9 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void) { return db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
 
 static int encode_message(uint32_t to_worker, uint8_t *buf, uint32_t buf_len, uint32_t *out_len)
 {
@@ -385,6 +385,14 @@ static int test_worker_shim_custom_reply_cap(void)
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     if (test_worker_shim_outbox_path() != 0)
     {
         return 1;

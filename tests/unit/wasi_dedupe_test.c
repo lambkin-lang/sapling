@@ -41,9 +41,9 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static DB *new_db(void) { return db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
 
 static int guest_call(void *ctx, SapHostV0 *host, const uint8_t *request, uint32_t request_len,
                       uint8_t *reply_buf, uint32_t reply_buf_cap, uint32_t *reply_len_out)
@@ -122,6 +122,14 @@ static int test_shim_dedupe_skips_invoke(void)
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     if (test_shim_dedupe_skips_invoke() != 0)
     {
         return 1;

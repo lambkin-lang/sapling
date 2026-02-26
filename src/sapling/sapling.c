@@ -206,7 +206,7 @@ struct WatchRec
 
 struct DB
 {
-    PageAllocator *alloc;
+    SapMemArena *arena;
     uint32_t page_size;
     struct SubDB dbs[SAP_MAX_DBI];
     uint32_t num_dbs;
@@ -857,7 +857,9 @@ static uint32_t raw_alloc(struct Txn *txn)
         db->pages_cap = nc;
         SAP_MUTEX_UNLOCK(db->write_mutex);
     }
-    void *pg = db->alloc->alloc_page(db->alloc->ctx, db->page_size);
+    uint32_t dummy_pgno;
+    void *pg = NULL;
+    if (sap_arena_alloc_page(db->arena, &pg, &dummy_pgno) != 0) pg = NULL;
     if (!pg)
         return INVALID_PGNO;
     memset(pg, 0, db->page_size);
@@ -4013,7 +4015,7 @@ static void txn_abort_free_untracked_new_pages(struct Txn *txn)
                 break;
             pg = db->pages[pgno];
             next = rd32(pg);
-            db->alloc->free_page(db->alloc->ctx, pg, db->page_size);
+            sap_arena_free_page_ptr(db->arena, pg);
             db->pages[pgno] = NULL;
             pgno = next;
         }
@@ -4049,7 +4051,7 @@ void txn_abort(Txn *txn_pub)
         {
             if (db->pages[pgno])
             {
-                db->alloc->free_page(db->alloc->ctx, db->pages[pgno], db->page_size);
+                sap_arena_free_page_ptr(db->arena, db->pages[pgno]);
                 db->pages[pgno] = NULL;
             }
         }
@@ -4086,10 +4088,10 @@ void txn_abort(Txn *txn_pub)
 /* Database lifecycle                                                   */
 /* ================================================================== */
 
-DB *db_open(PageAllocator *alloc, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx)
+DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx)
 {
     uint32_t max_dbs;
-    if (!alloc || !alloc->alloc_page || !alloc->free_page)
+    if (!arena)
         return NULL;
     if (page_size < 256 || page_size > UINT16_MAX)
         return NULL;
@@ -4099,7 +4101,7 @@ DB *db_open(PageAllocator *alloc, uint32_t page_size, keycmp_fn cmp, void *cmp_c
     struct DB *db = (struct DB *)calloc(1, sizeof(*db));
     if (!db)
         return NULL;
-    db->alloc = alloc;
+    db->arena = arena;
     db->page_size = page_size;
     db->num_dbs = 1;
     db->dbs[0].root_pgno = INVALID_PGNO;
@@ -4117,7 +4119,9 @@ DB *db_open(PageAllocator *alloc, uint32_t page_size, keycmp_fn cmp, void *cmp_c
     }
     for (int i = 0; i < 2; i++)
     {
-        void *pg = alloc->alloc_page(alloc->ctx, page_size);
+        uint32_t dummy_pgno;
+        void *pg = NULL;
+        if (sap_arena_alloc_page(arena, &pg, &dummy_pgno) != 0) pg = NULL;
         if (!pg)
         {
             db_close((DB *)db);
@@ -4318,13 +4322,15 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
 
     for (loaded = 0; loaded < snap_npages; loaded++)
     {
-        void *pg = db->alloc->alloc_page(db->alloc->ctx, db->page_size);
+        uint32_t dummy_pgno;
+        void *pg = NULL;
+        if (sap_arena_alloc_page(db->arena, &pg, &dummy_pgno) != 0) pg = NULL;
         if (!pg || reader(pg, db->page_size, ctx) != 0)
         {
             if (pg)
-                db->alloc->free_page(db->alloc->ctx, pg, db->page_size);
+                sap_arena_free_page_ptr(db->arena, pg);
             for (uint32_t i = 0; i < loaded; i++)
-                db->alloc->free_page(db->alloc->ctx, new_pages[i], db->page_size);
+                sap_arena_free_page_ptr(db->arena, new_pages[i]);
             free(new_pages);
             SAP_MUTEX_UNLOCK(db->reader_mutex);
             SAP_MUTEX_UNLOCK(db->write_mutex);
@@ -4367,7 +4373,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
             db->cap_deferred = old_cap_deferred;
 
             for (uint32_t i = 0; i < snap_npages; i++)
-                db->alloc->free_page(db->alloc->ctx, new_pages[i], db->page_size);
+                sap_arena_free_page_ptr(db->arena, new_pages[i]);
             free(new_pages);
             SAP_MUTEX_UNLOCK(db->reader_mutex);
             SAP_MUTEX_UNLOCK(db->write_mutex);
@@ -4379,7 +4385,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
             uint32_t lim = old_num_pages < old_pages_cap ? old_num_pages : old_pages_cap;
             for (uint32_t i = 0; i < lim; i++)
                 if (old_pages[i])
-                    db->alloc->free_page(db->alloc->ctx, old_pages[i], db->page_size);
+                    sap_arena_free_page_ptr(db->arena, old_pages[i]);
             free(old_pages);
         }
         for (uint32_t i = 0; i < old_num_old_arrays; i++)
@@ -4405,7 +4411,7 @@ void db_close(DB *db_pub)
         uint32_t lim = db->num_pages < db->pages_cap ? db->num_pages : db->pages_cap;
         for (uint32_t i = 0; i < lim; i++)
             if (db->pages[i])
-                db->alloc->free_page(db->alloc->ctx, db->pages[i], db->page_size);
+                sap_arena_free_page_ptr(db->arena, db->pages[i]);
         free(db->pages);
     }
     free(db->active_readers);
