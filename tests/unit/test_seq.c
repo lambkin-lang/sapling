@@ -183,7 +183,8 @@ static int model_concat(ModelVec *dst, const ModelVec *src)
 {
     if (!model_reserve(dst, dst->len + src->len))
         return 0;
-    memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
+    if (src->len > 0)
+        memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
     dst->len += src->len;
     return 1;
 }

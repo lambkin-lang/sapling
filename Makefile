@@ -223,8 +223,6 @@ WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o
 SEQ_OBJ := $(OBJ_DIR)/src/sapling/seq.o
 TEXT_OBJ := $(OBJ_DIR)/src/sapling/text.o
-SEQ_TEST_OBJ := $(OBJ_DIR)/src/sapling/seq_test.o
-TEST_SEQ_OBJ := $(OBJ_DIR)/tests/unit/test_seq_seqtest.o
 COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
 RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
@@ -372,47 +370,37 @@ $(THREADED_OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -DSAPLING_THREADED $(INCLUDES) -c $< -o $@
 
-$(TEST_BIN): $(OBJ_DIR)/tests/unit/test_sapling.o $(CORE_OBJS)
+$(TEST_BIN): tests/unit/test_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_sapling.o $(CORE_OBJS) -o $(TEST_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_sapling.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(TEST_TEXT_BIN): $(OBJ_DIR)/tests/unit/test_text.o $(TEXT_OBJ) $(SEQ_OBJ)
+$(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_text.o $(TEXT_OBJ) $(SEQ_OBJ) -o $(TEST_TEXT_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) -o $@ $(LDFLAGS)
 
-$(TEST_SEQ_OBJ): CFLAGS += -DSAPLING_SEQ_TESTING
-$(TEST_SEQ_OBJ): tests/unit/test_seq.c
+$(TEST_SEQ_BIN): tests/unit/test_seq.c $(SEQ_SRC) $(SEQ_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) -c tests/unit/test_seq.c -o $@
-
-$(SEQ_TEST_OBJ): CFLAGS += -DSAPLING_SEQ_TESTING
-$(SEQ_TEST_OBJ): $(SEQ_SRC) $(SEQ_HDR)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $@
-
-$(TEST_SEQ_BIN): $(TEST_SEQ_OBJ) $(SEQ_TEST_OBJ)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(TEST_SEQ_OBJ) $(SEQ_TEST_OBJ) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) -DSAPLING_SEQ_TESTING $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) -o $@ $(LDFLAGS)
 
 seq-test: CFLAGS += -O2 -g
 seq-test: $(TEST_SEQ_BIN)
 	./$(TEST_SEQ_BIN)
 
-$(BENCH_BIN): $(OBJ_DIR)/benchmarks/bench_sapling.o $(CORE_OBJS)
+$(BENCH_BIN): benchmarks/bench_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_sapling.o $(CORE_OBJS) -o $(BENCH_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_sapling.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(BENCH_SEQ_BIN): $(OBJ_DIR)/benchmarks/bench_seq.o $(SEQ_OBJ)
+$(BENCH_SEQ_BIN): benchmarks/bench_seq.c $(SEQ_SRC) $(SEQ_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_seq.o $(SEQ_OBJ) -o $(BENCH_SEQ_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_seq.c $(SEQ_SRC) -o $@ $(LDFLAGS)
 
-$(BENCH_TEXT_BIN): $(OBJ_DIR)/benchmarks/bench_text.o $(TEXT_OBJ) $(SEQ_OBJ)
+$(BENCH_TEXT_BIN): benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/benchmarks/bench_text.o $(TEXT_OBJ) $(SEQ_OBJ) -o $(BENCH_TEXT_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) -o $@ $(LDFLAGS)
 
-$(STRESS_BIN): $(OBJ_DIR)/tests/stress/fault_harness.o $(OBJ_DIR)/src/common/fault_inject.o $(CORE_OBJS)
+$(STRESS_BIN): tests/stress/fault_harness.c src/common/fault_inject.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/stress/fault_harness.o $(OBJ_DIR)/src/common/fault_inject.o $(CORE_OBJS) -o $(STRESS_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/fault_harness.c src/common/fault_inject.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 $(RUNNER_WIRE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_wire_test.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
@@ -552,7 +540,7 @@ runner-lifecycle-test: wit-schema-generate $(RUNNER_LIFECYCLE_TEST_BIN)
 
 $(RUNNER_LIFECYCLE_TSAN_TEST_BIN): tests/unit/runner_lifecycle_test.c $(C_SOURCES) $(WIT_GEN_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) -Wall -Wextra -Werror -std=c11 -DSAPLING_PAGE_SIZE=$(PAGE_SIZE) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(filter src/common/%, $(C_SOURCES)) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
+	$(CC) $(CFLAGS) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(filter src/common/%, $(C_SOURCES)) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
 
 runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
 	./$(RUNNER_LIFECYCLE_TSAN_TEST_BIN)

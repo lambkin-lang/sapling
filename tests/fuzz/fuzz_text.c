@@ -62,7 +62,8 @@ static int model_clone(ModelVec *dst, const ModelVec *src)
 {
     if (!model_reserve(dst, src->len))
         return 0;
-    memcpy(dst->data, src->data, src->len * sizeof(uint32_t));
+    if (src->len > 0)
+        memcpy(dst->data, src->data, src->len * sizeof(uint32_t));
     dst->len = src->len;
     return 1;
 }
@@ -71,6 +72,8 @@ static int model_equal(const ModelVec *a, const ModelVec *b)
 {
     if (a->len != b->len)
         return 0;
+    if (a->len == 0)
+        return 1;
     return memcmp(a->data, b->data, a->len * sizeof(uint32_t)) == 0;
 }
 
@@ -145,7 +148,8 @@ static int model_concat(ModelVec *dst, const ModelVec *src)
 {
     if (!model_reserve(dst, dst->len + src->len))
         return 0;
-    memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
+    if (src->len > 0)
+        memcpy(&dst->data[dst->len], src->data, src->len * sizeof(uint32_t));
     dst->len += src->len;
     return 1;
 }
