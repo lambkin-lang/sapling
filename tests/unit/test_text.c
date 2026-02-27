@@ -24,25 +24,31 @@ static int g_fail = 0;
 static SapMemArena *g_arena = NULL;
 static SapEnv *g_env = NULL;
 
-static void setup_env(void) {
+static void setup_env(void)
+{
     SapArenaOptions opts = {0};
     opts.type = SAP_ARENA_BACKING_MALLOC;
     opts.page_size = 4096;
-    if (sap_arena_init(&g_arena, &opts) != SAP_OK) {
+    if (sap_arena_init(&g_arena, &opts) != SAP_OK)
+    {
         fprintf(stderr, "Failed to init arena\n");
         exit(1);
     }
     g_env = sap_env_create(g_arena, 4096);
-    if (!g_env) {
+    if (!g_env)
+    {
         fprintf(stderr, "Failed to create env\n");
         exit(1);
     }
     sap_seq_subsystem_init(g_env);
 }
 
-static void teardown_env(void) {
-    if (g_env) sap_env_destroy(g_env);
-    if (g_arena) sap_arena_destroy(g_arena);
+static void teardown_env(void)
+{
+    if (g_env)
+        sap_env_destroy(g_env);
+    if (g_arena)
+        sap_arena_destroy(g_arena);
 }
 
 #define CHECK(expr)                                                                                \
@@ -61,8 +67,8 @@ static void teardown_env(void) {
 
 #define SECTION(name) printf("--- %s ---\n", name)
 
-
-static int text_push_back_w(Text *text, uint32_t val) {
+static int text_push_back_w(Text *text, uint32_t val)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_push_back(txn, text, val);
     sap_txn_commit(txn);
@@ -100,106 +106,117 @@ static int text_equals_array(Text *text, const uint32_t *vals, size_t n)
     return 1;
 }
 
-static int text_push_front_w(Text *text, uint32_t val) {
+static int text_push_front_w(Text *text, uint32_t val)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_push_front(txn, text, val);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_pop_back_w(Text *text, uint32_t *val) {
+static int text_pop_back_w(Text *text, uint32_t *val)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_pop_back(txn, text, val);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_pop_front_w(Text *text, uint32_t *val) {
+static int text_pop_front_w(Text *text, uint32_t *val)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_pop_front(txn, text, val);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_set_w(Text *text, size_t idx, uint32_t val) {
+static int text_set_w(Text *text, size_t idx, uint32_t val)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_set(txn, text, idx, val);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_insert_w(Text *text, size_t idx, uint32_t val) {
+static int text_insert_w(Text *text, size_t idx, uint32_t val)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_insert(txn, text, idx, val);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_delete_w(Text *text, size_t idx, uint32_t *out) {
+static int text_delete_w(Text *text, size_t idx, uint32_t *out)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_delete(txn, text, idx, out);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_concat_w(Text *dest, Text *src) {
+static int text_concat_w(Text *dest, Text *src)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_concat(txn, dest, src);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_split_at_w(Text *text, size_t idx, Text **l, Text **r) {
+static int text_split_at_w(Text *text, size_t idx, Text **l, Text **r)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_split_at(txn, text, idx, l, r);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_from_utf8_w(Text *text, const uint8_t *utf8, size_t len) {
+static int text_from_utf8_w(Text *text, const uint8_t *utf8, size_t len)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_from_utf8(txn, text, utf8, len);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_reset_w(Text *text) {
+static int text_reset_w(Text *text)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_reset(txn, text);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_push_back_handle_w(Text *text, TextHandle handle) {
+static int text_push_back_handle_w(Text *text, TextHandle handle)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_push_back_handle(txn, text, handle);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_pop_front_handle_w(Text *text, TextHandle *out) {
+static int text_pop_front_handle_w(Text *text, TextHandle *out)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_pop_front_handle(txn, text, out);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_insert_handle_w(Text *text, size_t idx, TextHandle handle) {
+static int text_insert_handle_w(Text *text, size_t idx, TextHandle handle)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_insert_handle(txn, text, idx, handle);
     sap_txn_commit(txn);
     return rc;
 }
 
-static int text_delete_handle_w(Text *text, size_t idx, TextHandle *out) {
+static int text_delete_handle_w(Text *text, size_t idx, TextHandle *out)
+{
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     int rc = text_delete_handle(txn, text, idx, out);
     sap_txn_commit(txn);
     return rc;
 }
-
-
-
 
 typedef struct
 {
@@ -516,7 +533,6 @@ static void test_split_range_contract(void)
     text_free(g_env, text);
 }
 
-
 static void test_invalid_args(void)
 {
     SECTION("invalid args");
@@ -533,7 +549,7 @@ static void test_invalid_args(void)
     CHECK(text_reset_w(NULL) == SEQ_INVALID);
     CHECK(text_push_front_w(NULL, 1u) == SEQ_INVALID);
     CHECK(text_push_back_w(NULL, 1u) == SEQ_INVALID);
-    
+
     // Raw handle calls need explicit txn arg
     CHECK(text_push_front_handle(txn, NULL, 1u) == SEQ_INVALID);
     CHECK(text_push_back_handle(txn, NULL, 1u) == SEQ_INVALID);
@@ -972,7 +988,8 @@ static void test_runtime_resolver_guards_and_errors(void)
     CHECK(text_codepoint_length_resolved(root_cycle, text_expand_runtime_handle, &cycle_resolver,
                                          &len) == SEQ_INVALID);
 
-    CHECK(text_push_back_handle_w(tree_d, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x51u)) == SEQ_OK);
+    CHECK(text_push_back_handle_w(tree_d, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x51u)) ==
+          SEQ_OK);
     CHECK(text_push_back_handle_w(tree_c, text_handle_make(TEXT_HANDLE_TREE, 31u)) == SEQ_OK);
     CHECK(text_push_back_handle_w(root_depth, text_handle_make(TEXT_HANDLE_TREE, 30u)) == SEQ_OK);
     CHECK(text_codepoint_length_resolved(root_depth, text_expand_runtime_handle,
@@ -981,8 +998,10 @@ static void test_runtime_resolver_guards_and_errors(void)
                                          &len) == SEQ_OK);
     CHECK(len == 1u);
 
-    CHECK(text_push_back_handle_w(tree_f, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x61u)) == SEQ_OK);
-    CHECK(text_push_back_handle_w(tree_g, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x62u)) == SEQ_OK);
+    CHECK(text_push_back_handle_w(tree_f, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x61u)) ==
+          SEQ_OK);
+    CHECK(text_push_back_handle_w(tree_g, text_handle_make(TEXT_HANDLE_CODEPOINT, 0x62u)) ==
+          SEQ_OK);
     CHECK(text_push_back_handle_w(tree_e, text_handle_make(TEXT_HANDLE_TREE, 41u)) == SEQ_OK);
     CHECK(text_push_back_handle_w(tree_e, text_handle_make(TEXT_HANDLE_TREE, 42u)) == SEQ_OK);
     CHECK(text_push_back_handle_w(root_visits, text_handle_make(TEXT_HANDLE_TREE, 40u)) == SEQ_OK);
@@ -992,7 +1011,8 @@ static void test_runtime_resolver_guards_and_errors(void)
                                          &visits_resolver_ok, &len) == SEQ_OK);
     CHECK(len == 2u);
 
-    CHECK(text_push_back_handle_w(root_literal, text_handle_make(TEXT_HANDLE_LITERAL, 5u)) == SEQ_OK);
+    CHECK(text_push_back_handle_w(root_literal, text_handle_make(TEXT_HANDLE_LITERAL, 5u)) ==
+          SEQ_OK);
     CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle,
                                          &bad_lit_resolver, &len) == SEQ_INVALID);
     CHECK(text_codepoint_length_resolved(root_literal, text_expand_runtime_handle, &missing_lit_cb,
@@ -1013,12 +1033,7 @@ static void test_runtime_resolver_guards_and_errors(void)
     text_free(g_env, root_literal);
 }
 
-
-
-static void print_summary(void)
-{
-    printf("Passed: %d, Failed: %d\n", g_pass, g_fail);
-}
+static void print_summary(void) { printf("Passed: %d, Failed: %d\n", g_pass, g_fail); }
 
 int main(void)
 {

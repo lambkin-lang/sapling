@@ -139,29 +139,27 @@ typedef struct
 /* Forward declarations                                                 */
 /* ================================================================== */
 
-static int ftree_push_front(FTree **tree, SeqItem item, int item_depth,
-                            SapTxnCtx *txn);
-static int ftree_push_back(FTree **tree, SeqItem item, int item_depth,
-                           SapTxnCtx *txn);
+static int ftree_push_front(FTree **tree, SeqItem item, int item_depth, SapTxnCtx *txn);
+static int ftree_push_back(FTree **tree, SeqItem item, int item_depth, SapTxnCtx *txn);
 static SeqItem ftree_pop_front(FTree **tree, int item_depth, SapTxnCtx *txn);
 static SeqItem ftree_pop_back(FTree **tree, int item_depth, SapTxnCtx *txn);
 static SeqItem ftree_get(const FTree *t, size_t idx, int item_depth);
-static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth,
-                   SapTxnCtx *txn);
+static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth, SapTxnCtx *txn);
 static void seq_node_free(SeqNode *node, int child_depth, SapTxnCtx *txn);
-static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
-                                     SapTxnCtx *txn);
+static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth, SapTxnCtx *txn);
 
 /* ================================================================== */
 /* Helpers                                                              */
 /* ================================================================== */
 
-typedef struct {
+typedef struct
+{
     Seq *seq;
     FTree *old_root;
 } ShadowedSeq;
 
-struct SeqTxnState {
+struct SeqTxnState
+{
     SapTxnCtx *sap_txn;
     void **new_nodes;
     uint32_t new_cnt;
@@ -178,7 +176,8 @@ static int seq_on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
 {
     (void)parent_state;
     struct SeqTxnState *st = calloc(1, sizeof(struct SeqTxnState));
-    if (!st) return SAP_ERROR;
+    if (!st)
+        return SAP_ERROR;
     st->sap_txn = txn;
     /* Pre-size arrays to reduce allocations */
     st->new_cap = 64;
@@ -187,8 +186,12 @@ static int seq_on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
     st->old_nodes = malloc(st->old_cap * sizeof(void *));
     st->shadow_cap = 16;
     st->shadows = malloc(st->shadow_cap * sizeof(ShadowedSeq));
-    if (!st->new_nodes || !st->old_nodes || !st->shadows) {
-        free(st->new_nodes); free(st->old_nodes); free(st->shadows); free(st);
+    if (!st->new_nodes || !st->old_nodes || !st->shadows)
+    {
+        free(st->new_nodes);
+        free(st->old_nodes);
+        free(st->shadows);
+        free(st);
         return SAP_ERROR;
     }
     *state_out = st;
@@ -198,9 +201,11 @@ static int seq_on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
 static int seq_on_commit(SapTxnCtx *txn, void *state)
 {
     struct SeqTxnState *st = state;
-    if (st) {
+    if (st)
+    {
         SapMemArena *arena = sap_txn_arena(txn);
-        for (uint32_t i = 0; i < st->old_cnt; i++) {
+        for (uint32_t i = 0; i < st->old_cnt; i++)
+        {
             sap_arena_free_node_ptr(arena, st->old_nodes[i], 0);
         }
         free(st->new_nodes);
@@ -214,12 +219,15 @@ static int seq_on_commit(SapTxnCtx *txn, void *state)
 static void seq_on_abort(SapTxnCtx *txn, void *state)
 {
     struct SeqTxnState *st = state;
-    if (st) {
+    if (st)
+    {
         SapMemArena *arena = sap_txn_arena(txn);
-        for (uint32_t i = 0; i < st->new_cnt; i++) {
+        for (uint32_t i = 0; i < st->new_cnt; i++)
+        {
             sap_arena_free_node_ptr(arena, st->new_nodes[i], 0);
         }
-        for (uint32_t i = 0; i < st->shadow_cnt; i++) {
+        for (uint32_t i = 0; i < st->shadow_cnt; i++)
+        {
             st->shadows[i].seq->root = st->shadows[i].old_root;
         }
         free(st->new_nodes);
@@ -230,10 +238,7 @@ static void seq_on_abort(SapTxnCtx *txn, void *state)
 }
 
 static const SapTxnSubsystemCallbacks seq_subsystem_cbs = {
-    .on_begin = seq_on_begin,
-    .on_commit = seq_on_commit,
-    .on_abort = seq_on_abort
-};
+    .on_begin = seq_on_begin, .on_commit = seq_on_commit, .on_abort = seq_on_abort};
 
 int sap_seq_subsystem_init(SapEnv *env)
 {
@@ -250,7 +255,8 @@ void seq_test_clear_alloc_fail(void) { g_alloc_fail_after = -1; }
 
 static void *seq_alloc_node(SapTxnCtx *txn, size_t bytes)
 {
-    if (!txn) return NULL;
+    if (!txn)
+        return NULL;
     SapMemArena *arena = sap_txn_arena(txn);
     void *node_out = NULL;
     uint32_t nodeno = 0;
@@ -264,13 +270,19 @@ static void *seq_alloc_node(SapTxnCtx *txn, size_t bytes)
 #endif
     if (sap_arena_alloc_node(arena, (uint32_t)bytes, &node_out, &nodeno) != SAP_OK)
         return NULL;
-        
+
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
-    if (st) {
-        if (st->new_cnt == st->new_cap) {
+    if (st)
+    {
+        if (st->new_cnt == st->new_cap)
+        {
             uint32_t cap = st->new_cap * 2;
             void **arr = realloc(st->new_nodes, cap * sizeof(void *));
-            if (!arr) { sap_arena_free_node_ptr(arena, node_out, 0); return NULL; }
+            if (!arr)
+            {
+                sap_arena_free_node_ptr(arena, node_out, 0);
+                return NULL;
+            }
             st->new_nodes = arr;
             st->new_cap = cap;
         }
@@ -281,49 +293,66 @@ static void *seq_alloc_node(SapTxnCtx *txn, size_t bytes)
 
 static void seq_dealloc_node(SapTxnCtx *txn, void *ptr)
 {
-    if (!txn || !ptr) return;
+    if (!txn || !ptr)
+        return;
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
-    if (st) {
-        for (uint32_t i = 0; i < st->new_cnt; i++) {
-            if (st->new_nodes[i] == ptr) {
+    if (st)
+    {
+        for (uint32_t i = 0; i < st->new_cnt; i++)
+        {
+            if (st->new_nodes[i] == ptr)
+            {
                 st->new_nodes[i] = st->new_nodes[st->new_cnt - 1];
                 st->new_cnt--;
                 sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
                 return;
             }
         }
-        if (st->old_cnt == st->old_cap) {
+        if (st->old_cnt == st->old_cap)
+        {
             uint32_t cap = st->old_cap * 2;
             void **arr = realloc(st->old_nodes, cap * sizeof(void *));
-            if (arr) {
+            if (arr)
+            {
                 st->old_nodes = arr;
                 st->old_cap = cap;
-            } else {
+            }
+            else
+            {
                 /* Exceeded arrays, warn and drop it inline: not COW safe */
                 sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
                 return;
             }
         }
         st->old_nodes[st->old_cnt++] = ptr;
-    } else {
+    }
+    else
+    {
         sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
     }
 }
 
-static int seq_prepare_root(SapTxnCtx *txn, Seq *s) {
-    if (!txn || !s) return SEQ_INVALID;
+static int seq_prepare_root(SapTxnCtx *txn, Seq *s)
+{
+    if (!txn || !s)
+        return SEQ_INVALID;
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
-    if (!st) return SEQ_INVALID;
+    if (!st)
+        return SEQ_INVALID;
 
     /* Check if already shadowed in this txn */
-    for (uint32_t i = 0; i < st->shadow_cnt; i++) {
-        if (st->shadows[i].seq == s) return SEQ_OK;
+    for (uint32_t i = 0; i < st->shadow_cnt; i++)
+    {
+        if (st->shadows[i].seq == s)
+            return SEQ_OK;
     }
 
-    if (st->shadow_cnt == st->shadow_cap) {
-        uint32_t cap = st->shadow_cap * 2;
+    if (st->shadow_cnt == st->shadow_cap)
+    {
+        uint32_t cap = st->shadow_cap ? st->shadow_cap * 2 : 8;
         ShadowedSeq *arr = realloc(st->shadows, cap * sizeof(ShadowedSeq));
-        if (!arr) return SEQ_OOM;
+        if (!arr)
+            return SEQ_OOM;
         st->shadows = arr;
         st->shadow_cap = cap;
     }
@@ -334,27 +363,35 @@ static int seq_prepare_root(SapTxnCtx *txn, Seq *s) {
     return SEQ_OK;
 }
 
-static int is_node_new(SapTxnCtx *txn, void *ptr) {
-    if (!txn || !ptr) return 0;
+static int is_node_new(SapTxnCtx *txn, void *ptr)
+{
+    if (!txn || !ptr)
+        return 0;
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
-    if (!st) return 0;
-    for (uint32_t i = 0; i < st->new_cnt; i++) {
-        if (st->new_nodes[i] == ptr) return 1;
+    if (!st)
+        return 0;
+    for (uint32_t i = 0; i < st->new_cnt; i++)
+    {
+        if (st->new_nodes[i] == ptr)
+            return 1;
     }
     return 0;
 }
 
-static int ftree_ensure_writable(SapTxnCtx *txn, FTree **tp) {
-    if (!txn || !tp || !*tp) return SEQ_INVALID;
-    if (is_node_new(txn, *tp)) return SEQ_OK;
+static int ftree_ensure_writable(SapTxnCtx *txn, FTree **tp)
+{
+    if (!txn || !tp || !*tp)
+        return SEQ_INVALID;
+    if (is_node_new(txn, *tp))
+        return SEQ_OK;
 
     FTree *new_t = seq_alloc_node(txn, sizeof(FTree));
-    if (!new_t) return SEQ_OOM;
+    if (!new_t)
+        return SEQ_OOM;
     memcpy(new_t, *tp, sizeof(FTree));
     *tp = new_t;
     return SEQ_OK;
 }
-
 
 /* Checked size_t additions for measure accumulation. */
 static int size_add_checked(size_t a, size_t b, size_t *out)
@@ -423,8 +460,7 @@ static SeqNode *node_new2(SeqItem a, SeqItem b, int child_depth, SapTxnCtx *txn)
 }
 
 /* Allocate a 3-ary internal node whose children are at child_depth. */
-static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth,
-                          SapTxnCtx *txn)
+static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth, SapTxnCtx *txn)
 {
     SeqNode *n = seq_alloc_node(txn, sizeof(SeqNode));
     if (!n)
@@ -451,8 +487,7 @@ static SeqNode *node_new3(SeqItem a, SeqItem b, SeqItem c, int child_depth,
  * Packing strategy: greedily emit Node3 while count > 4, then handle the
  * tail (2, 3, or 4 items) as one or two nodes, ensuring no remainder of 1.
  */
-static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out,
-                      SapTxnCtx *txn)
+static int pack_nodes(SeqItem *items, int count, int child_depth, SeqItem *out, SapTxnCtx *txn)
 {
     int n = 0;
     while (count > 4)
@@ -566,11 +601,11 @@ static void ftree_free(FTree *t, int item_depth, SapTxnCtx *txn)
  * Returns SEQ_OK or SEQ_OOM.  On SEQ_OOM the tree may be partially
  * modified; callers should treat the Seq as invalid.
  */
-static int ftree_push_front(FTree **tp, SeqItem item, int item_depth,
-                            SapTxnCtx *txn)
+static int ftree_push_front(FTree **tp, SeqItem item, int item_depth, SapTxnCtx *txn)
 {
     int rc = ftree_ensure_writable(txn, tp);
-    if (rc != SEQ_OK) {
+    if (rc != SEQ_OK)
+    {
         item_release_unconsumed(item, item_depth, txn);
         return rc;
     }
@@ -643,8 +678,8 @@ static int ftree_push_front(FTree **tp, SeqItem item, int item_depth,
          * pr[0] in the prefix alongside the new item.
          */
         {
-            SeqNode *node = node_new3(tree->deep.pr[1], tree->deep.pr[2], tree->deep.pr[3],
-                                      item_depth, txn);
+            SeqNode *node =
+                node_new3(tree->deep.pr[1], tree->deep.pr[2], tree->deep.pr[3], item_depth, txn);
             if (!node)
             {
                 item_release_unconsumed(item, item_depth, txn);
@@ -664,8 +699,7 @@ static int ftree_push_front(FTree **tp, SeqItem item, int item_depth,
             tree->deep.pr_count = 2;
             tree->deep.pr_size = new_pr_size;
             tree->size = new_tree_size;
-            return ftree_push_front(&tree->deep.mid, seq_item_from_node(node), item_depth + 1,
-                                    txn);
+            return ftree_push_front(&tree->deep.mid, seq_item_from_node(node), item_depth + 1, txn);
         }
     }
     }
@@ -678,7 +712,8 @@ static int ftree_push_front(FTree **tp, SeqItem item, int item_depth,
 static int ftree_push_back(FTree **tp, SeqItem item, int item_depth, SapTxnCtx *txn)
 {
     int rc = ftree_ensure_writable(txn, tp);
-    if (rc != SEQ_OK) {
+    if (rc != SEQ_OK)
+    {
         item_release_unconsumed(item, item_depth, txn);
         return rc;
     }
@@ -747,8 +782,8 @@ static int ftree_push_back(FTree **tp, SeqItem item, int item_depth, SapTxnCtx *
          * the suffix alongside the new item.
          */
         {
-            SeqNode *node = node_new3(tree->deep.sf[0], tree->deep.sf[1], tree->deep.sf[2],
-                                      item_depth, txn);
+            SeqNode *node =
+                node_new3(tree->deep.sf[0], tree->deep.sf[1], tree->deep.sf[2], item_depth, txn);
             if (!node)
             {
                 item_release_unconsumed(item, item_depth, txn);
@@ -768,8 +803,7 @@ static int ftree_push_back(FTree **tp, SeqItem item, int item_depth, SapTxnCtx *
             tree->deep.sf_count = 2;
             tree->deep.sf_size = new_sf_size;
             tree->size = new_tree_size;
-            return ftree_push_back(&tree->deep.mid, seq_item_from_node(node), item_depth + 1,
-                                   txn);
+            return ftree_push_back(&tree->deep.mid, seq_item_from_node(node), item_depth + 1, txn);
         }
     }
     }
@@ -786,7 +820,8 @@ static int ftree_push_back(FTree **tp, SeqItem item, int item_depth, SapTxnCtx *
  */
 static SeqItem ftree_pop_front(FTree **tp, int item_depth, SapTxnCtx *txn)
 {
-    if (ftree_ensure_writable(txn, tp) != SEQ_OK) return 0;
+    if (ftree_ensure_writable(txn, tp) != SEQ_OK)
+        return 0;
     FTree *tree = *tp;
     assert(tree->tag != FTREE_EMPTY);
 
@@ -843,9 +878,9 @@ static SeqItem ftree_pop_front(FTree **tp, int item_depth, SapTxnCtx *txn)
     else
     {
         /* Pop a node from middle; its children become the new prefix */
-        SeqNode *node =
-            seq_item_as_node(ftree_pop_front(&tree->deep.mid, item_depth + 1, txn));
-        if (!node) return 0; /* OOM in recursion */
+        SeqNode *node = seq_item_as_node(ftree_pop_front(&tree->deep.mid, item_depth + 1, txn));
+        if (!node)
+            return 0; /* OOM in recursion */
         tree->deep.pr_count = node->arity;
         tree->deep.pr_size = node->size;
         for (int i = 0; i < node->arity; i++)
@@ -862,7 +897,8 @@ static SeqItem ftree_pop_front(FTree **tp, int item_depth, SapTxnCtx *txn)
  */
 static SeqItem ftree_pop_back(FTree **tp, int item_depth, SapTxnCtx *txn)
 {
-    if (ftree_ensure_writable(txn, tp) != SEQ_OK) return 0;
+    if (ftree_ensure_writable(txn, tp) != SEQ_OK)
+        return 0;
     FTree *tree = *tp;
     assert(tree->tag != FTREE_EMPTY);
 
@@ -915,7 +951,8 @@ static SeqItem ftree_pop_back(FTree **tp, int item_depth, SapTxnCtx *txn)
     {
         /* Pop a node from back of middle; its children become the new suffix */
         SeqNode *node = seq_item_as_node(ftree_pop_back(&tree->deep.mid, item_depth + 1, txn));
-        if (!node) return 0; /* OOM in recursion */
+        if (!node)
+            return 0; /* OOM in recursion */
         tree->deep.sf_count = node->arity;
         tree->deep.sf_size = node->size;
         for (int i = 0; i < node->arity; i++)
@@ -996,8 +1033,7 @@ static SeqItem ftree_get(const FTree *t, size_t idx, int item_depth)
  * small_items_to_tree — build a FTree at item_depth from 0–4 items.
  * Ownership of the items transfers to the new tree.
  */
-static FTree *small_items_to_tree(SeqItem *items, int count, int item_depth,
-                                  SapTxnCtx *txn)
+static FTree *small_items_to_tree(SeqItem *items, int count, int item_depth, SapTxnCtx *txn)
 {
     FTree *t = ftree_new(txn);
     if (!t)
@@ -1179,8 +1215,7 @@ static FTree *deep_r_items(SeqItem *pr, int pr_count, size_t pr_size, FTree *mid
  * Returns the merged tree (either t1's shell reused, or t2's shell),
  * or NULL on OOM.
  */
-static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth,
-                   SapTxnCtx *txn)
+static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_depth, SapTxnCtx *txn)
 {
     int rc;
 
@@ -1261,7 +1296,8 @@ static FTree *app3(FTree *t1, SeqItem *ts, int ts_count, FTree *t2, int item_dep
         return NULL;
 
     /* To modify t1, ensure it is writable */
-    if (ftree_ensure_writable(txn, &t1) != SEQ_OK) {
+    if (ftree_ensure_writable(txn, &t1) != SEQ_OK)
+    {
         ftree_free(new_mid, item_depth + 1, txn);
         return NULL;
     }
@@ -1351,8 +1387,7 @@ static SeqItem split_digit_at(const SeqItem *items, int count, int capacity, siz
  * On SEQ_OOM, the tree may be partially consumed.
  * Pre: tree is non-empty and idx < tree->size.
  */
-static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
-                                     SapTxnCtx *txn)
+static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth, SapTxnCtx *txn)
 {
     SplitResult res = {SEQ_OOM, NULL, 0, NULL};
     assert(tree->tag != FTREE_EMPTY);
@@ -1471,19 +1506,27 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth,
 /* Public API                                                           */
 /* ================================================================== */
 
-Seq *seq_new(SapEnv *env) {
+Seq *seq_new(SapEnv *env)
+{
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
-    if (!txn) return NULL;
+    if (!txn)
+        return NULL;
     Seq *s = seq_alloc_node(txn, sizeof(Seq));
-    if (!s) { sap_txn_abort(txn); return NULL; }
+    if (!s)
+    {
+        sap_txn_abort(txn);
+        return NULL;
+    }
     s->valid = 1;
     s->root = ftree_new(txn);
-    if (!s->root) { sap_txn_abort(txn); return NULL; }
+    if (!s->root)
+    {
+        sap_txn_abort(txn);
+        return NULL;
+    }
     sap_txn_commit(txn);
     return s;
 }
-
-
 
 int seq_is_valid(const Seq *seq) { return (seq && seq->valid && seq->root) ? 1 : 0; }
 
@@ -1492,7 +1535,8 @@ void seq_free(SapEnv *env, Seq *seq)
     if (!seq)
         return;
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
-    if (!txn) return;
+    if (!txn)
+        return;
     if (seq->root)
         ftree_free(seq->root, 0, txn);
     seq->root = NULL;
@@ -1506,7 +1550,8 @@ int seq_reset(SapTxnCtx *txn, Seq *seq)
     if (!seq)
         return SEQ_INVALID;
 
-    if (seq_prepare_root(txn, seq) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, seq) != SEQ_OK)
+        return SEQ_OOM;
 
     if (seq->root)
         ftree_free(seq->root, 0, txn);
@@ -1527,7 +1572,8 @@ int seq_push_front(SapTxnCtx *txn, Seq *seq, uint32_t elem)
 {
     if (!seq || !seq->valid || !seq->root)
         return SEQ_INVALID;
-    if (seq_prepare_root(txn, seq) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, seq) != SEQ_OK)
+        return SEQ_OOM;
     int rc = ftree_push_front(&seq->root, seq_item_from_handle(elem), 0, txn);
     if (rc == SEQ_OOM)
         seq->valid = 0;
@@ -1538,7 +1584,8 @@ int seq_push_back(SapTxnCtx *txn, Seq *seq, uint32_t elem)
 {
     if (!seq || !seq->valid || !seq->root)
         return SEQ_INVALID;
-    if (seq_prepare_root(txn, seq) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, seq) != SEQ_OK)
+        return SEQ_OOM;
     int rc = ftree_push_back(&seq->root, seq_item_from_handle(elem), 0, txn);
     if (rc == SEQ_OOM)
         seq->valid = 0;
@@ -1551,7 +1598,8 @@ int seq_pop_front(SapTxnCtx *txn, Seq *seq, uint32_t *out)
         return SEQ_INVALID;
     if (seq->root->tag == FTREE_EMPTY)
         return SEQ_EMPTY;
-    if (seq_prepare_root(txn, seq) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, seq) != SEQ_OK)
+        return SEQ_OOM;
     *out = seq_item_to_handle(ftree_pop_front(&seq->root, 0, txn));
     return SEQ_OK;
 }
@@ -1562,7 +1610,8 @@ int seq_pop_back(SapTxnCtx *txn, Seq *seq, uint32_t *out)
         return SEQ_INVALID;
     if (seq->root->tag == FTREE_EMPTY)
         return SEQ_EMPTY;
-    if (seq_prepare_root(txn, seq) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, seq) != SEQ_OK)
+        return SEQ_OOM;
     *out = seq_item_to_handle(ftree_pop_back(&seq->root, 0, txn));
     return SEQ_OK;
 }
@@ -1572,8 +1621,10 @@ int seq_concat(SapTxnCtx *txn, Seq *dest, Seq *src)
     if (!dest || !src || !dest->valid || !src->valid || !dest->root || !src->root || dest == src)
         return SEQ_INVALID;
 
-    if (seq_prepare_root(txn, dest) != SEQ_OK) return SEQ_OOM;
-    if (seq_prepare_root(txn, src) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, dest) != SEQ_OK)
+        return SEQ_OOM;
+    if (seq_prepare_root(txn, src) != SEQ_OK)
+        return SEQ_OOM;
 
     FTree *dest_root = dest->root;
     FTree *src_root = src->root;
@@ -1611,15 +1662,30 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
     if (idx > n)
         return SEQ_RANGE;
 
-    if (seq_prepare_root(txn, seq) != SEQ_OK) return SEQ_OOM;
+    if (seq_prepare_root(txn, seq) != SEQ_OK)
+        return SEQ_OOM;
 
-    Seq *left = seq_alloc_node(txn, sizeof(Seq)); if (left) { left->root = ftree_new(txn); left->valid = 1; }
+    Seq *left = seq_alloc_node(txn, sizeof(Seq));
+    if (left)
+    {
+        left->root = ftree_new(txn);
+        left->valid = 1;
+    }
     if (!left)
         return SEQ_OOM;
-    Seq *right = seq_alloc_node(txn, sizeof(Seq)); if (right) { right->root = ftree_new(txn); right->valid = 1; }
+    Seq *right = seq_alloc_node(txn, sizeof(Seq));
+    if (right)
+    {
+        right->root = ftree_new(txn);
+        right->valid = 1;
+    }
     if (!right)
     {
-        if (left) { ftree_free(left->root, 0, txn); seq_dealloc_node(txn, left); }
+        if (left)
+        {
+            ftree_free(left->root, 0, txn);
+            seq_dealloc_node(txn, left);
+        }
         return SEQ_OOM;
     }
 
@@ -1628,8 +1694,16 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
         FTree *replacement = ftree_new(txn);
         if (!replacement)
         {
-            if (left) { ftree_free(left->root, 0, txn); seq_dealloc_node(txn, left); }
-            if (right) { ftree_free(right->root, 0, txn); seq_dealloc_node(txn, right); }
+            if (left)
+            {
+                ftree_free(left->root, 0, txn);
+                seq_dealloc_node(txn, left);
+            }
+            if (right)
+            {
+                ftree_free(right->root, 0, txn);
+                seq_dealloc_node(txn, right);
+            }
             return SEQ_OOM;
         }
 
@@ -1647,8 +1721,16 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
         FTree *replacement = ftree_new(txn);
         if (!replacement)
         {
-            if (left) { ftree_free(left->root, 0, txn); seq_dealloc_node(txn, left); }
-            if (right) { ftree_free(right->root, 0, txn); seq_dealloc_node(txn, right); }
+            if (left)
+            {
+                ftree_free(left->root, 0, txn);
+                seq_dealloc_node(txn, left);
+            }
+            if (right)
+            {
+                ftree_free(right->root, 0, txn);
+                seq_dealloc_node(txn, right);
+            }
             return SEQ_OOM;
         }
 
@@ -1678,8 +1760,16 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
         seq_dealloc_node(txn, root);
         seq->root = NULL;
         seq->valid = 0;
-        if (left) { ftree_free(left->root, 0, txn); seq_dealloc_node(txn, left); }
-        if (right) { ftree_free(right->root, 0, txn); seq_dealloc_node(txn, right); }
+        if (left)
+        {
+            ftree_free(left->root, 0, txn);
+            seq_dealloc_node(txn, left);
+        }
+        if (right)
+        {
+            ftree_free(right->root, 0, txn);
+            seq_dealloc_node(txn, right);
+        }
         return SEQ_OOM;
     }
 
@@ -1694,8 +1784,16 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
         seq->valid = 0;
         if (rc == SEQ_OOM)
             right->valid = 0;
-        if (left) { ftree_free(left->root, 0, txn); seq_dealloc_node(txn, left); }
-        if (right) { ftree_free(right->root, 0, txn); seq_dealloc_node(txn, right); }
+        if (left)
+        {
+            ftree_free(left->root, 0, txn);
+            seq_dealloc_node(txn, left);
+        }
+        if (right)
+        {
+            ftree_free(right->root, 0, txn);
+            seq_dealloc_node(txn, right);
+        }
         return SEQ_OOM;
     }
 
@@ -1704,8 +1802,16 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
     if (!seq->root)
     {
         seq->valid = 0;
-        if (left) { ftree_free(left->root, 0, txn); seq_dealloc_node(txn, left); }
-        if (right) { ftree_free(right->root, 0, txn); seq_dealloc_node(txn, right); }
+        if (left)
+        {
+            ftree_free(left->root, 0, txn);
+            seq_dealloc_node(txn, left);
+        }
+        if (right)
+        {
+            ftree_free(right->root, 0, txn);
+            seq_dealloc_node(txn, right);
+        }
         return SEQ_OOM;
     }
     seq->valid = 1;
