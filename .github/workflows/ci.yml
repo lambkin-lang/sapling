@@ -36,15 +36,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cppcheck clang clang-format clang-tidy
-          # Install wasm-tools
+          # Use retry for apt-get
+          for i in {1..5}; do sudo apt-get update && break || sleep 5; done
+          sudo apt-get install -y cppcheck clang clang-format clang-tidy curl
+          
+          # Install wasm-tools from binary release (much faster than building from source)
           set -euo pipefail
-          if command -v wasm-tools >/dev/null 2>&1 && wasm-tools --version | grep -q "wasm-tools ${WASM_TOOLS_VERSION}"; then
-            echo "wasm-tools ${WASM_TOOLS_VERSION} already available"
-          else
-            cargo install --locked wasm-tools --version "${WASM_TOOLS_VERSION}"
-          fi
+          URL="https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux.tar.gz"
+          curl -L "$URL" | tar xz
+          sudo mv wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux/wasm-tools /usr/local/bin/
           wasm-tools --version
 
       - name: Build and test
@@ -60,7 +60,21 @@ jobs:
         run: make phasec-check CC=clang CLANG_FORMAT=clang-format CLANG_TIDY=clang-tidy WASM_TOOLS=wasm-tools
 
       - name: Benchmark regression guardrail
-        run: make bench-ci BENCH_COUNT=100000 BENCH_ROUNDS=3 CC=clang
+        run: |
+          echo "CPU Info:"
+          grep "model name" /proc/cpuinfo | head -n 1 || true
+          uptime
+          make bench-ci BENCH_COUNT=100000 BENCH_ROUNDS=3 CC=clang
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-failure-logs
+          path: |
+            build/
+            *.log
+            benchmarks/
 
   seq-fuzz-smoke:
     if: github.event_name == 'pull_request'

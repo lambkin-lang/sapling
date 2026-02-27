@@ -8,6 +8,10 @@
 #include "sapling/text.h"
 #include "sapling/txn.h"
 #include "sapling/arena.h"
+#include <sapling/sapling.h>
+
+/* Forward declare subsystem init */
+int sap_seq_subsystem_init(SapEnv *env);
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +37,7 @@ static void setup_env(void) {
         fprintf(stderr, "Failed to create env\n");
         exit(1);
     }
+    sap_seq_subsystem_init(g_env);
 }
 
 static void teardown_env(void) {

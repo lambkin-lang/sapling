@@ -24,16 +24,32 @@ count="${BENCH_COUNT:-${BASELINE_COUNT:-100000}}"
 rounds="${BENCH_ROUNDS:-${BASELINE_ROUNDS:-3}}"
 allowed_reg_pct="${BENCH_ALLOWED_REGRESSION_PCT:-${ALLOWED_REGRESSION_PCT:-45}}"
 
-echo "bench-ci: running benchmark (count=$count rounds=$rounds)"
-output="$(make -s bench-run BENCH_COUNT="$count" BENCH_ROUNDS="$rounds")"
-printf "%s\n" "$output"
+echo "bench-ci: system diagnostics"
+if [[ -f /proc/loadavg ]]; then
+    echo "  loadavg: $(cat /proc/loadavg)"
+fi
+uptime
 
-put_avg="$(printf "%s\n" "$output" | awk '/^txn_put_dbi\(sorted\):/ {print $2; exit}')"
-load_avg="$(printf "%s\n" "$output" | awk '/^txn_load_sorted:/ {print $2; exit}')"
-speedup="$(printf "%s\n" "$output" | awk '/^speedup\(load\/put\):/ {gsub(/x/, "", $2); print $2; exit}')"
+echo "bench-ci: running warm-up (10k items)..."
+make -s bench-run BENCH_COUNT=10000 BENCH_ROUNDS=1 > /dev/null
+
+echo "bench-ci: running benchmark (count=$count rounds=$rounds)..."
+# Use temporary file for more robust parsing
+output_log=$(mktemp)
+make -s bench-run BENCH_COUNT="$count" BENCH_ROUNDS="$rounds" | tee "$output_log"
+output=$(cat "$output_log")
+rm -f "$output_log"
+
+# More robust parsing using 'last' match if multiple exist
+put_avg="$(printf "%s\n" "$output" | awk '/^txn_put_dbi\(sorted\):/ {val=$2} END {print val}')"
+load_avg="$(printf "%s\n" "$output" | awk '/^txn_load_sorted:/ {val=$2} END {print val}')"
+speedup="$(printf "%s\n" "$output" | awk '/^speedup\(load\/put\):/ {gsub(/x/, "", $2); val=$2} END {print val}')"
 
 if [[ -z "$put_avg" || -z "$load_avg" || -z "$speedup" ]]; then
-    echo "bench-ci: failed to parse benchmark output" >&2
+    echo "bench-ci: error: failed to parse benchmark output" >&2
+    echo "--- output start ---" >&2
+    printf "%s\n" "$output" >&2
+    echo "--- output end ---" >&2
     exit 2
 fi
 
