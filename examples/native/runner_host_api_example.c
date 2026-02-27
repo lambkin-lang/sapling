@@ -30,7 +30,7 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static void wr64be(uint8_t out[8], uint64_t v)
 {
@@ -124,6 +124,14 @@ static int host_atomic_adapter(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     static const uint8_t payload[] = {'h', 'e', 'l', 'l', 'o', '-', 'h',
                                       'o', 's', 't', '-', 'a', 'p', 'i'};
     static const uint8_t msg_id[] = {'m', 's', 'g', '-', '4', '2'};
@@ -138,7 +146,7 @@ int main(void)
     int rc = 1;
     DB *db = NULL;
 
-    db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!db)
     {
         fprintf(stderr, "runner-host-api-example: db_open failed\n");

@@ -1,67 +1,5 @@
 # Makefile for the Sapling B+ tree library
-#
-# Targets:
-#   make              — build the static library (libsapling.a)
-#   make test         — compile and run the test suite
-#   make text-test    — run text-on-seq unit tests
-#   make debug        — build with debug symbols, no optimisation
-#   make asan         — build and test with AddressSanitizer (core + seq)
-#   make asan-seq     — build and test seq with AddressSanitizer
-#   make tsan         — build and test with ThreadSanitizer (implies THREADED=1)
-#   make bench        — build benchmark harness
-#   make bench-run    — run sorted-load benchmark harness
-#   make seq-bench    — build seq benchmark harness
-#   make seq-bench-run — run seq benchmark harness
-#   make text-bench   — build text benchmark harness
-#   make text-bench-run — run text benchmark harness
-#   make bench-ci     — benchmark regression guardrail against baseline
-#   make seq-fuzz     — build and run seq libFuzzer model harness
-#   make text-fuzz    — build and run text libFuzzer model harness
-#   make wasm-lib     — build wasm32-wasi static library (requires WASI_SYSROOT)
-#   make wasm-check   — build wasm32-wasi smoke module (requires WASI_SYSROOT)
-#   make format       — apply clang-format to C sources
-#   make format-check — verify formatting
-#   make tidy         — run clang-tidy checks
-#   make cppcheck     — run cppcheck checks (skips if unavailable)
-#   make lint         — run format-check + tidy + cppcheck
-#   make wit-schema-check — validate WIT schema package
-#   make wit-schema-generate — generate DBI manifest + C metadata from WIT
-#   make wit-schema-cc-check — compile generated C metadata
-#   make runner-wire-test — run v0 runner wire-format tests
-#   make runner-lifecycle-test — run runner lifecycle/schema-guard tests
-#   make runner-lifecycle-threaded-tsan-test — run threaded lifecycle test under TSan
-#   make runner-txctx-test — run phase-B host tx context tests
-#   make runner-txstack-test — run phase-B nested tx stack tests
-#   make runner-attempt-test — run phase-B retry attempt tests
-#   make runner-attempt-handler-test — run generic attempt-backed handler adapter tests
-#   make runner-integration-test — run phase-B retry+nested integration test
-#   make runner-recovery-test — run runner checkpoint/restore recovery integration test
-#   make runner-mailbox-test — run phase-C mailbox lease tests
-#   make runner-dead-letter-test — run phase-C dead-letter move/replay/drain tests
-#   make runner-outbox-test — run phase-C outbox append/drain tests
-#   make runner-timer-test — run phase-C timer ingestion/drain tests
-#   make runner-scheduler-test — run phase-C timer scheduling helper tests
-RUNNER_INTENT_SINK_TEST_BIN = $(BIN_DIR)/runner_intent_sink_test
-RUNNER_NATIVE_EXAMPLE_BIN = $(BIN_DIR)/runner_native_example
-RUNNER_HOST_API_EXAMPLE_BIN = $(BIN_DIR)/runner_host_api_example
-RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_example
-#   make runner-multiwriter-stress-build — build threaded runner-style multi-writer stress harness
-#   make runner-multiwriter-stress — run threaded runner-style multi-writer stress harness (investigative repro)
-#   make runner-phasee-bench — build phase-E runner coupling study benchmark
-#   make runner-phasee-bench-run — run phase-E runner coupling study benchmark
-#   make runner-release-checklist — run phase-F runner release checklist automation
-#   make wasi-runtime-test — run concrete wasi runtime wrapper tests
-#   make wasi-shim-test — run runner<->wasi shim integration tests
-#   make schema-check — validate schemas/dbi_manifest.csv
-#   make runner-dbi-status-check — validate runner DBI status drift
-#   make fault-harness — run deterministic fault harness scaffold
-#   make stress-harness — run multiwriter stress harness
-#   make phase0-check — run phase-0 foundation checks
-#   make phasea-check — run phase-0 checks + phase-A runner tests
-#   make phaseb-check — run phase-A checks + phase-B tx/attempt tests
-#   make phasec-check — run phase-B checks + phase-C mailbox/dead-letter/outbox/timer tests
-#   make clean        — remove build artifacts
-#
+
 # Variables:
 #   PAGE_SIZE=N       — override SAPLING_PAGE_SIZE (default 4096)
 #   THREADED=1        — enable thread-safe build (-DSAPLING_THREADED -lpthread)
@@ -119,36 +57,22 @@ LIB      = $(LIB_DIR)/libsapling.a
 TEST_BIN := $(BIN_DIR)/test_sapling
 TEST_SEQ_BIN := $(BIN_DIR)/test_seq
 TEST_TEXT_BIN := $(BIN_DIR)/test_text
+TEST_BEPT_BIN := $(BIN_DIR)/test_bept
 TEST_ARENA_BIN := $(BIN_DIR)/test_arena
 BENCH_BIN = $(BIN_DIR)/bench_sapling
 BENCH_SEQ_BIN = $(BIN_DIR)/bench_seq
 BENCH_TEXT_BIN = $(BIN_DIR)/bench_text
+BENCH_BEPT_BIN = $(BIN_DIR)/bench_bept
 STRESS_BIN = $(BIN_DIR)/fault_harness
 SEQ_FUZZ_BIN = $(BIN_DIR)/fuzz_seq
 TEXT_FUZZ_BIN = $(BIN_DIR)/fuzz_text
-RUNNER_WIRE_TEST_BIN = $(BIN_DIR)/runner_wire_test
-RUNNER_LIFECYCLE_TEST_BIN = $(BIN_DIR)/runner_lifecycle_test
+
 RUNNER_LIFECYCLE_TSAN_TEST_BIN = $(BIN_DIR)/runner_lifecycle_test_tsan
-RUNNER_TXCTX_TEST_BIN = $(BIN_DIR)/runner_txctx_test
-RUNNER_TXSTACK_TEST_BIN = $(BIN_DIR)/runner_txstack_test
-RUNNER_ATTEMPT_TEST_BIN = $(BIN_DIR)/runner_attempt_test
-RUNNER_ATTEMPT_HANDLER_TEST_BIN = $(BIN_DIR)/runner_attempt_handler_test
-RUNNER_INTEGRATION_TEST_BIN = $(BIN_DIR)/runner_atomic_integration_test
-RUNNER_RECOVERY_TEST_BIN = $(BIN_DIR)/runner_recovery_integration_test
-RUNNER_MAILBOX_TEST_BIN = $(BIN_DIR)/runner_mailbox_test
-RUNNER_DEAD_LETTER_TEST_BIN = $(BIN_DIR)/runner_dead_letter_test
-RUNNER_OUTBOX_TEST_BIN = $(BIN_DIR)/runner_outbox_test
-RUNNER_TIMER_TEST_BIN = $(BIN_DIR)/runner_timer_test
-RUNNER_SCHEDULER_TEST_BIN = $(BIN_DIR)/runner_scheduler_test
-RUNNER_INTENT_SINK_TEST_BIN = $(BIN_DIR)/runner_intent_sink_test
-RUNNER_NATIVE_EXAMPLE_BIN = $(BIN_DIR)/runner_native_example
-RUNNER_HOST_API_EXAMPLE_BIN = $(BIN_DIR)/runner_host_api_example
-RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_example
-RUNNER_DEDUPE_TEST_BIN = $(BIN_DIR)/runner_dedupe_test
-RUNNER_LEASE_TEST_BIN = $(BIN_DIR)/runner_lease_test
-RUNNER_MULTIWRITER_STRESS_BIN = $(BIN_DIR)/runner_multiwriter_stress
-RUNNER_PHASEE_BENCH_BIN = $(BIN_DIR)/bench_runner_phasee
-RUNNER_TTL_SWEEP_TEST_BIN = $(BIN_DIR)/runner_ttl_sweep_test
+
+
+
+# ... existing definitions ...
+
 WASM_RUNNER_TEST_BIN = $(BIN_DIR)/wasm_runner_test
 WASI_DEDUPE_TEST_BIN = $(BIN_DIR)/wasi_dedupe_test
 WASI_RUNTIME_TEST_BIN = $(BIN_DIR)/wasi_runtime_test
@@ -203,6 +127,26 @@ WASM_LIB  = $(LIB_DIR)/libsapling_wasm.a
 WASM_OBJ  = $(OBJ_DIR)/sapling_wasm.o
 WASM_SMOKE = $(BIN_DIR)/wasm_smoke.wasm
 WASM_GUEST_EXAMPLE = $(BIN_DIR)/wasm_guest_example.wasm
+# Runner tests
+RUNNER_TEST_NAMES := \
+	attempt_handler \
+	attempt \
+	dead_letter \
+	dedupe \
+	intent_sink \
+	lease \
+	lifecycle \
+	mailbox \
+	outbox \
+	scheduler \
+	timer \
+	txctx \
+	txstack \
+	wire
+
+RUNNER_TEST_BINS := $(patsubst %,$(BIN_DIR)/runner_%_test,$(RUNNER_TEST_NAMES))
+RUNNER_TEST_TARGETS := $(patsubst %,runner-%-test,$(RUNNER_TEST_NAMES))
+
 # Dynamic Source Discovery
 C_SOURCES := $(shell find src tests benchmarks examples -type f -name '*.c')
 C_HEADERS := $(shell find src tests benchmarks examples -type f -name '*.h')
@@ -211,8 +155,8 @@ FORMAT_FILES := $(C_SOURCES) $(C_HEADERS)
 PHASE0_TIDY_FILES := $(filter-out generated/%, $(C_SOURCES))
 PHASE0_CPPCHECK_FILES := src tests examples benchmarks
 
-SAPLING_SRC := src/sapling/sapling.c
-SAPLING_HDR := include/sapling/sapling.h
+SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c
+SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h
 SEQ_SRC := src/sapling/seq.c
 SEQ_HDR := include/sapling/seq.h
 TEXT_SRC := src/sapling/text.c
@@ -221,7 +165,7 @@ TEXT_HDR := include/sapling/text.h
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 
-CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o
+CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o $(OBJ_DIR)/src/sapling/arena.o $(OBJ_DIR)/src/sapling/txn.o $(OBJ_DIR)/src/sapling/bept.o
 SEQ_OBJ := $(OBJ_DIR)/src/sapling/seq.o
 TEXT_OBJ := $(OBJ_DIR)/src/sapling/text.o
 COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
@@ -229,7 +173,7 @@ RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 THREADED_OBJ_DIR := $(BUILD_DIR)/obj_threaded
-THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o
+THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/bept.o
 THREADED_COMMON_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
 THREADED_RUNNER_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 THREADED_WASI_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
@@ -239,7 +183,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test seq-test test-arena debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-dedupe-test runner-lease-test runner-integration-test runner-recovery-test test-integration runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test seq-test test-arena debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -248,35 +192,21 @@ debug: CFLAGS += -O0 -g -DDEBUG
 debug: $(LIB)
 
 $(LIB): $(OBJ)
+	@mkdir -p $(dir $@)
 	$(AR) $(ARFLAGS) $@ $^
 
 
 test: CFLAGS += -O2 -g
-test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_ARENA_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_LEASE_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(RUNNER_DEDUPE_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_TTL_SWEEP_TEST_BIN)
-test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_ARENA_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_LIFECYCLE_TEST_BIN) $(RUNNER_MAILBOX_TEST_BIN) $(RUNNER_TIMER_TEST_BIN) $(RUNNER_LEASE_TEST_BIN) $(RUNNER_SCHEDULER_TEST_BIN) $(RUNNER_WIRE_TEST_BIN) $(RUNNER_INTENT_SINK_TEST_BIN) $(RUNNER_DEDUPE_TEST_BIN) $(RUNNER_DEAD_LETTER_TEST_BIN) $(RUNNER_OUTBOX_TEST_BIN) $(RUNNER_TXCTX_TEST_BIN) $(RUNNER_TXSTACK_TEST_BIN) $(RUNNER_ATTEMPT_TEST_BIN) $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(RUNNER_TTL_SWEEP_TEST_BIN)
+test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_BEPT_BIN) $(TEST_ARENA_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
 	./$(TEST_BIN)
 	./$(TEST_SEQ_BIN)
 	./$(TEST_TEXT_BIN)
+	./$(TEST_BEPT_BIN)
 	./$(TEST_ARENA_BIN)
 	./$(WASI_SHIM_TEST_BIN)
 	./$(WASI_RUNTIME_TEST_BIN)
 	./$(WASI_DEDUPE_TEST_BIN)
-	./$(RUNNER_LIFECYCLE_TEST_BIN)
-	./$(RUNNER_MAILBOX_TEST_BIN)
-	./$(RUNNER_TIMER_TEST_BIN)
-	./$(RUNNER_LEASE_TEST_BIN)
-	./$(RUNNER_SCHEDULER_TEST_BIN)
-	./$(RUNNER_WIRE_TEST_BIN)
-	./$(RUNNER_INTENT_SINK_TEST_BIN)
-	./$(RUNNER_DEDUPE_TEST_BIN)
-	./$(RUNNER_DEAD_LETTER_TEST_BIN)
-	./$(RUNNER_OUTBOX_TEST_BIN)
-	./$(RUNNER_TIMER_TEST_BIN)
-	./$(RUNNER_TXCTX_TEST_BIN)
-	./$(RUNNER_TXSTACK_TEST_BIN)
-	./$(RUNNER_ATTEMPT_TEST_BIN)
-	./$(RUNNER_ATTEMPT_HANDLER_TEST_BIN)
-	./$(RUNNER_TTL_SWEEP_TEST_BIN)
+	@for bin in $(RUNNER_TEST_BINS); do echo "Running $$bin"; ./$$bin || exit 1; done
 
 text-test: CFLAGS += -O2 -g
 text-test: $(TEST_TEXT_BIN)
@@ -288,14 +218,14 @@ asan: clean
 	@mkdir -p $(dir $(TEST_BIN)) $(dir $(TEST_SEQ_BIN))
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_sapling.c $(SAPLING_SRC) -o $(TEST_BIN) $(LDFLAGS)
 	./$(TEST_BIN)
-	$(CC) $(CFLAGS) -DSAPLING_SEQ_TESTING $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) -DSAPLING_SEQ_TESTING $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) $(SAPLING_SRC) -o $(TEST_SEQ_BIN) $(LDFLAGS)
 	./$(TEST_SEQ_BIN)
 
 asan-seq: CFLAGS += -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
 asan-seq: LDFLAGS += -fsanitize=address,undefined
 asan-seq: clean
 	@mkdir -p $(dir $(TEST_SEQ_BIN))
-	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) -o $(TEST_SEQ_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) $(SAPLING_SRC) -o $(TEST_SEQ_BIN) $(LDFLAGS)
 	./$(TEST_SEQ_BIN)
 
 tsan: CFLAGS += -O1 -g -fsanitize=thread -DSAPLING_THREADED
@@ -325,23 +255,38 @@ text-bench-run: CFLAGS += -O3 -g
 text-bench-run: $(BENCH_TEXT_BIN)
 	./$(BENCH_TEXT_BIN) --count $(BENCH_COUNT) --rounds $(BENCH_ROUNDS)
 
+bept-bench: CFLAGS += -O3 -g
+bept-bench: $(BENCH_BEPT_BIN)
+
+bept-bench-run: CFLAGS += -O3 -g
+bept-bench-run: $(BENCH_BEPT_BIN)
+	./$(BENCH_BEPT_BIN) --count $(BENCH_COUNT) --rounds $(BENCH_ROUNDS)
+
 seq-fuzz: CFLAGS += -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
 seq-fuzz: LDFLAGS += -fsanitize=fuzzer,address,undefined
 seq-fuzz:
 	@mkdir -p $(dir $(SEQ_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(SEQ_FUZZ_CORPUS)
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/sapling.c -o $(OBJ_DIR)/src/sapling/sapling_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/txn.c -o $(OBJ_DIR)/src/sapling/txn_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/arena.c -o $(OBJ_DIR)/src/sapling/arena_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/bept.c -o $(OBJ_DIR)/src/sapling/bept_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c tests/fuzz/fuzz_seq.c -o $(OBJ_DIR)/tests/fuzz/fuzz_seq.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $(OBJ_DIR)/src/sapling/seq_fuzz.o
-	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_seq.o $(OBJ_DIR)/src/sapling/seq_fuzz.o -o $(SEQ_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
+	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_seq.o $(OBJ_DIR)/src/sapling/seq_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o -o $(SEQ_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
 	$(SEQ_FUZZ_SYMBOLIZER_ENV) ./$(SEQ_FUZZ_BIN) -runs=$(SEQ_FUZZ_RUNS) -max_len=$(SEQ_FUZZ_MAX_LEN) $(SEQ_FUZZ_CORPUS) $(SEQ_FUZZ_INPUT_CORPUS)
 
 text-fuzz: CFLAGS += -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
 text-fuzz: LDFLAGS += -fsanitize=fuzzer,address,undefined
 text-fuzz:
 	@mkdir -p $(dir $(TEXT_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(TEXT_FUZZ_CORPUS)
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/sapling.c -o $(OBJ_DIR)/src/sapling/sapling_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/txn.c -o $(OBJ_DIR)/src/sapling/txn_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/arena.c -o $(OBJ_DIR)/src/sapling/arena_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/bept.c -o $(OBJ_DIR)/src/sapling/bept_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c tests/fuzz/fuzz_text.c -o $(OBJ_DIR)/tests/fuzz/fuzz_text.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_SRC) -o $(OBJ_DIR)/src/sapling/text_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o
-	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_text.o $(OBJ_DIR)/src/sapling/text_fuzz.o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o -o $(TEXT_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
+	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_text.o $(OBJ_DIR)/src/sapling/text_fuzz.o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o -o $(TEXT_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
 	$(SEQ_FUZZ_SYMBOLIZER_ENV) ./$(TEXT_FUZZ_BIN) -runs=$(TEXT_FUZZ_RUNS) -max_len=$(TEXT_FUZZ_MAX_LEN) $(TEXT_FUZZ_CORPUS) $(TEXT_FUZZ_INPUT_CORPUS)
 
 bench-ci:
@@ -405,13 +350,17 @@ $(TEST_ARENA_BIN): tests/unit/test_arena.c src/sapling/arena.c include/sapling/a
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_arena.c src/sapling/arena.c -o $@ $(LDFLAGS)
 
-$(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR)
+$(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(TEST_SEQ_BIN): tests/unit/test_seq.c $(SEQ_SRC) $(SEQ_HDR)
+$(TEST_SEQ_BIN): tests/unit/test_seq.c $(SEQ_SRC) $(SEQ_HDR) $(SAPLING_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DSAPLING_SEQ_TESTING $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) -DSAPLING_SEQ_TESTING $(INCLUDES) tests/unit/test_seq.c $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+$(TEST_BEPT_BIN): tests/unit/test_bept.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_bept.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 seq-test: CFLAGS += -O2 -g
 seq-test: $(TEST_SEQ_BIN)
@@ -421,77 +370,71 @@ $(BENCH_BIN): benchmarks/bench_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_sapling.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(BENCH_SEQ_BIN): benchmarks/bench_seq.c $(SEQ_SRC) $(SEQ_HDR)
+$(BENCH_SEQ_BIN): benchmarks/bench_seq.c $(SEQ_SRC) $(SAPLING_SRC) $(SEQ_HDR) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_seq.c $(SEQ_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_seq.c $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(BENCH_TEXT_BIN): benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR)
+$(BENCH_TEXT_BIN): benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+$(BENCH_BEPT_BIN): benchmarks/bench_bept.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_bept.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 $(STRESS_BIN): tests/stress/fault_harness.c src/common/fault_inject.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/fault_harness.c src/common/fault_inject.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(RUNNER_WIRE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_wire_test.o $(ALL_LIB_OBJS)
+# Consolidated Runner Test Build Rules
+# 1. Build the unit test binaries (pattern rule)
+$(RUNNER_TEST_BINS): $(BIN_DIR)/runner_%_test: $(OBJ_DIR)/tests/unit/runner_%_test.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_wire_test.o $(ALL_LIB_OBJS) -o $(RUNNER_WIRE_TEST_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
-$(RUNNER_LIFECYCLE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_lifecycle_test.o $(ALL_LIB_OBJS)
+# 2. Build the integration test binaries (pattern rule)
+$(BIN_DIR)/runner_%_integration_test: $(OBJ_DIR)/tests/integration/runner_%_integration_test.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_lifecycle_test.o $(ALL_LIB_OBJS) -o $(RUNNER_LIFECYCLE_TEST_BIN) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
-$(RUNNER_TXCTX_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_txctx_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_txctx_test.o $(ALL_LIB_OBJS) -o $(RUNNER_TXCTX_TEST_BIN) $(LDFLAGS)
+# 3. Phony targets to run tests
+#    (Note: CFLAGS += -O2 -g was common, but we can't easily set target-specific vars in a
+#     static pattern unless we do it explicitly. However, if 'make test' is run, CFLAGS is set globally.
+#     If running individual tests, we might miss the -O2 -g if not set elsewhere, but that's usually fine for dev.)
 
-$(RUNNER_TXSTACK_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_txstack_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_txstack_test.o $(ALL_LIB_OBJS) -o $(RUNNER_TXSTACK_TEST_BIN) $(LDFLAGS)
+RUNNER_TEST_TARGETS := $(patsubst %,runner-%-test,$(RUNNER_TEST_NAMES))
 
-$(RUNNER_ATTEMPT_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_attempt_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_attempt_test.o $(ALL_LIB_OBJS) -o $(RUNNER_ATTEMPT_TEST_BIN) $(LDFLAGS)
+# Most tests need the schema generated. We can just make them all depend on it for simplicity.
+$(RUNNER_TEST_TARGETS): CFLAGS += -O2 -g
+$(RUNNER_TEST_TARGETS): runner-%-test: wit-schema-generate $(BIN_DIR)/runner_%_test
+	./$(BIN_DIR)/runner_$*_test
 
-$(RUNNER_ATTEMPT_HANDLER_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_attempt_handler_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_attempt_handler_test.o $(ALL_LIB_OBJS) -o $(RUNNER_ATTEMPT_HANDLER_TEST_BIN) $(LDFLAGS)
-
-$(RUNNER_INTEGRATION_TEST_BIN): $(OBJ_DIR)/tests/integration/runner_atomic_integration_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/integration/runner_atomic_integration_test.o $(ALL_LIB_OBJS) -o $(RUNNER_INTEGRATION_TEST_BIN) $(LDFLAGS)
+# Special case for recovery which is an integration test
+RUNNER_RECOVERY_TEST_BIN = $(BIN_DIR)/runner_recovery_integration_test
+runner-recovery-test: CFLAGS += -O2 -g
+runner-recovery-test: wit-schema-generate $(RUNNER_RECOVERY_TEST_BIN)
+	./$(RUNNER_RECOVERY_TEST_BIN)
 
 $(RUNNER_RECOVERY_TEST_BIN): $(OBJ_DIR)/tests/integration/runner_recovery_integration_test.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/integration/runner_recovery_integration_test.o $(ALL_LIB_OBJS) -o $(RUNNER_RECOVERY_TEST_BIN) $(LDFLAGS)
 
-$(RUNNER_MAILBOX_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_mailbox_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_mailbox_test.o $(ALL_LIB_OBJS) -o $(RUNNER_MAILBOX_TEST_BIN) $(LDFLAGS)
-
-$(RUNNER_DEAD_LETTER_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_dead_letter_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_dead_letter_test.o $(ALL_LIB_OBJS) -o $(RUNNER_DEAD_LETTER_TEST_BIN) $(LDFLAGS)
-
-$(RUNNER_OUTBOX_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_outbox_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_outbox_test.o $(ALL_LIB_OBJS) -o $(RUNNER_OUTBOX_TEST_BIN) $(LDFLAGS)
-
-$(RUNNER_TIMER_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_timer_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_timer_test.o $(ALL_LIB_OBJS) -o $(RUNNER_TIMER_TEST_BIN) $(LDFLAGS)
-
-$(RUNNER_SCHEDULER_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_scheduler_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_scheduler_test.o $(ALL_LIB_OBJS) -o $(RUNNER_SCHEDULER_TEST_BIN) $(LDFLAGS)
-
-$(RUNNER_INTENT_SINK_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_intent_sink_test.o $(ALL_LIB_OBJS)
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/runner_intent_sink_test.o $(ALL_LIB_OBJS) -o $(RUNNER_INTENT_SINK_TEST_BIN) $(LDFLAGS)
+# Special case for ttl-sweep which has different naming
+RUNNER_TTL_SWEEP_TEST_BIN = $(BIN_DIR)/runner_ttl_sweep_test
+runner-ttl-sweep-test: CFLAGS += -O2 -g
+runner-ttl-sweep-test: wit-schema-generate $(RUNNER_TTL_SWEEP_TEST_BIN)
+	./$(RUNNER_TTL_SWEEP_TEST_BIN)
 
 $(RUNNER_TTL_SWEEP_TEST_BIN): $(OBJ_DIR)/tests/unit/test_runner_ttl_sweep.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $(OBJ_DIR)/tests/unit/test_runner_ttl_sweep.o $(ALL_LIB_OBJS) -o $(RUNNER_TTL_SWEEP_TEST_BIN) $(LDFLAGS)
+
+RUNNER_NATIVE_EXAMPLE_BIN = $(BIN_DIR)/runner_native_example
+RUNNER_HOST_API_EXAMPLE_BIN = $(BIN_DIR)/runner_host_api_example
+RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_example
+RUNNER_MULTIWRITER_STRESS_BIN = $(BIN_DIR)/runner_multiwriter_stress
+RUNNER_PHASEE_BENCH_BIN = $(BIN_DIR)/bench_runner_phasee
+RUNNER_INTEGRATION_TEST_BIN = $(BIN_DIR)/runner_atomic_integration_test
 
 $(RUNNER_NATIVE_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_native_example.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
@@ -561,101 +504,24 @@ schema-check: wit-schema-check wit-schema-cc-check
 runner-dbi-status-check: wit-schema-generate
 	python3 tools/check_runner_dbi_status.py $(DBI_MANIFEST) $(WIT_GEN_HDR) .
 
-runner-wire-test: CFLAGS += -O2 -g
-runner-wire-test: $(RUNNER_WIRE_TEST_BIN)
-	./$(RUNNER_WIRE_TEST_BIN)
-
-runner-lifecycle-test: CFLAGS += -O2 -g
-runner-lifecycle-test: wit-schema-generate $(RUNNER_LIFECYCLE_TEST_BIN)
-	./$(RUNNER_LIFECYCLE_TEST_BIN)
+runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
+	./$(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
+	rm -f $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
 
 $(RUNNER_LIFECYCLE_TSAN_TEST_BIN): tests/unit/runner_lifecycle_test.c $(C_SOURCES) $(WIT_GEN_SRC)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(filter src/common/%, $(C_SOURCES)) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
 
-runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
-	./$(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
-	rm -f $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
+test-integration: runner-integration-test
 
-runner-txctx-test: CFLAGS += -O2 -g
-runner-txctx-test: $(RUNNER_TXCTX_TEST_BIN)
-	./$(RUNNER_TXCTX_TEST_BIN)
-
-runner-txstack-test: CFLAGS += -O2 -g
-runner-txstack-test: $(RUNNER_TXSTACK_TEST_BIN)
-	./$(RUNNER_TXSTACK_TEST_BIN)
-
-runner-attempt-test: CFLAGS += -O2 -g
-runner-attempt-test: $(RUNNER_ATTEMPT_TEST_BIN)
-	./$(RUNNER_ATTEMPT_TEST_BIN)
-
-runner-attempt-handler-test: CFLAGS += -O2 -g
-runner-attempt-handler-test: wit-schema-generate $(RUNNER_ATTEMPT_HANDLER_TEST_BIN)
-	./$(RUNNER_ATTEMPT_HANDLER_TEST_BIN)
-
-runner-integration-test: CFLAGS += -O2 -g
-runner-dedupe-test: $(RUNNER_DEDUPE_TEST_BIN)
-	./$(RUNNER_DEDUPE_TEST_BIN)
-
-$(RUNNER_DEDUPE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_dedupe_test.o $(ALL_LIB_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
-
-runner-lease-test: $(RUNNER_LEASE_TEST_BIN)
-	./$(RUNNER_LEASE_TEST_BIN)
-
-$(RUNNER_LEASE_TEST_BIN): $(OBJ_DIR)/tests/unit/runner_lease_test.o $(ALL_LIB_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
+runner-integration-test: $(BIN_DIR)/runner_atomic_integration_test
+	./$(BIN_DIR)/runner_atomic_integration_test
 
 wasm-runner-test: $(WASM_RUNNER_TEST_BIN)
 	./$(WASM_RUNNER_TEST_BIN)
 
 $(WASM_RUNNER_TEST_BIN): $(OBJ_DIR)/tests/unit/wasm_runner_test.o $(ALL_LIB_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
-
-runner-integration-test: $(RUNNER_INTEGRATION_TEST_BIN)
-	./$(RUNNER_INTEGRATION_TEST_BIN)
-
-runner-recovery-test: CFLAGS += -O2 -g
-runner-recovery-test: wit-schema-generate $(RUNNER_RECOVERY_TEST_BIN)
-	./$(RUNNER_RECOVERY_TEST_BIN)
-
-test-integration: runner-integration-test
-
-runner-mailbox-test: CFLAGS += -O2 -g
-runner-mailbox-test: wit-schema-generate $(RUNNER_MAILBOX_TEST_BIN)
-	./$(RUNNER_MAILBOX_TEST_BIN)
-
-runner-dead-letter-test: CFLAGS += -O2 -g
-runner-dead-letter-test: wit-schema-generate $(RUNNER_DEAD_LETTER_TEST_BIN)
-	./$(RUNNER_DEAD_LETTER_TEST_BIN)
-
-runner-outbox-test: CFLAGS += -O2 -g
-runner-outbox-test: wit-schema-generate $(RUNNER_OUTBOX_TEST_BIN)
-	./$(RUNNER_OUTBOX_TEST_BIN)
-
-runner-timer-test: CFLAGS += -O2 -g
-runner-timer-test: wit-schema-generate $(RUNNER_TIMER_TEST_BIN)
-	./$(RUNNER_TIMER_TEST_BIN)
-
-runner-scheduler-test: CFLAGS += -O2 -g
-runner-scheduler-test: wit-schema-generate $(RUNNER_SCHEDULER_TEST_BIN)
-	./$(RUNNER_SCHEDULER_TEST_BIN)
-
-runner-intent-sink-test: CFLAGS += -O2 -g
-runner-intent-sink-test: wit-schema-generate $(RUNNER_INTENT_SINK_TEST_BIN)
-	./$(RUNNER_INTENT_SINK_TEST_BIN)
-
-runner-ttl-sweep-test: CFLAGS += -O2 -g
-runner-ttl-sweep-test: wit-schema-generate $(RUNNER_TTL_SWEEP_TEST_BIN)
-	./$(RUNNER_TTL_SWEEP_TEST_BIN)
-
-runner-native-example: CFLAGS += -O2 -g
-runner-native-example: wit-schema-generate $(RUNNER_NATIVE_EXAMPLE_BIN)
-	./$(RUNNER_NATIVE_EXAMPLE_BIN)
-
-runner-host-api-example: CFLAGS += -O2 -g
-runner-host-api-example: wit-schema-generate $(RUNNER_HOST_API_EXAMPLE_BIN)
-	./$(RUNNER_HOST_API_EXAMPLE_BIN)
 
 runner-threaded-pipeline-example: CFLAGS += -O2 -g -DSAPLING_THREADED
 runner-threaded-pipeline-example: LDFLAGS += -lpthread

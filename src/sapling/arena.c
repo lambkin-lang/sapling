@@ -243,6 +243,7 @@ int sap_arena_alloc_node(SapMemArena *arena, uint32_t size, void **node_out, uin
 
 int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size)
 {
+    (void)size;
     /* 
      * In MALLOC backend, nodes occupy a chunk slot but we don't immediately
      * drop the ID into the free_pgnos list since we aren't pooling non-page
@@ -261,6 +262,25 @@ int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size)
         }
     }
 
+    return SAP_ERROR;
+}
+
+int sap_arena_free_node_ptr(SapMemArena *arena, void *node, uint32_t size)
+{
+    if (!arena || !node) return SAP_ERROR;
+
+    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) {
+        /* Brute force scan; for production we'd use hash map or `nodeno` inside the item */
+        for (uint32_t i = 0; i < arena->chunk_count; i++) {
+            if (arena->malloc_chunks[i] == node) {
+                free(node);
+                arena->malloc_chunks[i] = NULL;
+                return SAP_OK;
+            }
+        }
+        return SAP_ERROR;
+    }
+    
     (void)size;
     return SAP_ERROR;
 }

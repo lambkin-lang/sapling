@@ -797,7 +797,7 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
 - **Benefit:** Allows the Finger Tree, B+ Tree, and all future Tries to effortlessly participate in the same `txnid` snapshoting, rollback, and uncommitted write visibility rules. They share the same mutation history, allowing arbitrary composite interactions in atomic blocks.
 
 ### Wasm-Optimized Map/Set Implementations
-- **Big-Endian Patricia Trie (BEPT):** A highly compact radix tree ideal for integer-keyed maps or fast memory indexing. It branches cleanly using bitwise checks and natively lowers to zero-overhead Wasm instructions like `i32/64.clz` (count leading zeros).
+- **Big-Endian Patricia Trie (BEPT) (done):** A highly compact radix tree ideal for integer-keyed maps or fast memory indexing. It branches cleanly using bitwise checks and natively lowers to zero-overhead Wasm instructions like `i32/64.clz` (count leading zeros).
 - **Hash Array Mapped Trie (HAMT):** Excellent for general hash maps/sets. It relies heavily on bitmap querying, which cleanly compiles down to Wasm's native `popcnt` instruction, offering very high memory density and "almost hash table-like" speed without array-resize overheads.
 
 ### Strong Mutable `text` Implementation

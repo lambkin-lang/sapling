@@ -11,6 +11,7 @@
 #define SAPLING_TEXT_H
 
 #include "sapling/seq.h"
+#include "sapling/txn.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -86,31 +87,26 @@ int text_expand_runtime_handle(TextHandle handle, TextEmitCodepointFn emit_fn, v
                                void *resolver_ctx);
 
 /* Lifecycle */
-Text *text_new(void);
+Text *text_new(SapEnv *env);
 /* O(1) clone with copy-on-write sharing. */
-Text *text_clone(const Text *text);
-/*
- * text_new_with_allocator — construct text with explicit allocator policy.
- * If allocator is NULL, default malloc/free is used.
- * The allocator is used for both Text shell storage and underlying Seq nodes.
- */
-Text *text_new_with_allocator(const SeqAllocator *allocator);
-void  text_free(Text *text);
+Text *text_clone(SapEnv *env, const Text *text);
+
+void  text_free(SapEnv *env, Text *text);
+int   text_reset(SapTxnCtx *txn, Text *text);
 int   text_is_valid(const Text *text);
-int   text_reset(Text *text);
 
 /* Length in stored leaves (code points when only CODEPOINT handles are present). */
 size_t text_length(const Text *text);
 
 /* Raw tagged-handle operations (element-count semantics). */
-int text_push_front_handle(Text *text, TextHandle handle);
-int text_push_back_handle(Text *text, TextHandle handle);
-int text_pop_front_handle(Text *text, TextHandle *out);
-int text_pop_back_handle(Text *text, TextHandle *out);
+int text_push_front_handle(SapTxnCtx *txn, Text *text, TextHandle handle);
+int text_push_back_handle(SapTxnCtx *txn, Text *text, TextHandle handle);
+int text_pop_front_handle(SapTxnCtx *txn, Text *text, TextHandle *out);
+int text_pop_back_handle(SapTxnCtx *txn, Text *text, TextHandle *out);
 int text_get_handle(const Text *text, size_t idx, TextHandle *out);
-int text_set_handle(Text *text, size_t idx, TextHandle handle);
-int text_insert_handle(Text *text, size_t idx, TextHandle handle);
-int text_delete_handle(Text *text, size_t idx, TextHandle *out);
+int text_set_handle(SapTxnCtx *txn, Text *text, size_t idx, TextHandle handle);
+int text_insert_handle(SapTxnCtx *txn, Text *text, size_t idx, TextHandle handle);
+int text_delete_handle(SapTxnCtx *txn, Text *text, size_t idx, TextHandle *out);
 
 /*
  * Resolved code-point view:
@@ -124,25 +120,25 @@ int text_get_codepoint_resolved(const Text *text, size_t codepoint_idx,
                                 TextHandleExpandFn expand_fn, void *resolver_ctx, uint32_t *out);
 
 /* End operations */
-int text_push_front(Text *text, uint32_t codepoint);
-int text_push_back(Text *text, uint32_t codepoint);
-int text_pop_front(Text *text, uint32_t *out);
-int text_pop_back(Text *text, uint32_t *out);
+int text_push_front(SapTxnCtx *txn, Text *text, uint32_t codepoint);
+int text_push_back(SapTxnCtx *txn, Text *text, uint32_t codepoint);
+int text_pop_front(SapTxnCtx *txn, Text *text, uint32_t *out);
+int text_pop_back(SapTxnCtx *txn, Text *text, uint32_t *out);
 
 /* Indexed access/update */
 int text_get(const Text *text, size_t idx, uint32_t *out);
-int text_set(Text *text, size_t idx, uint32_t codepoint);
-int text_insert(Text *text, size_t idx, uint32_t codepoint);
+int text_set(SapTxnCtx *txn, Text *text, size_t idx, uint32_t codepoint);
+int text_insert(SapTxnCtx *txn, Text *text, size_t idx, uint32_t codepoint);
 
 /*
  * text_delete — remove one code point at idx.
  * If out is non-NULL, the removed code point is stored in *out.
  */
-int text_delete(Text *text, size_t idx, uint32_t *out);
+int text_delete(SapTxnCtx *txn, Text *text, size_t idx, uint32_t *out);
 
 /* Structural operations */
-int text_concat(Text *dest, Text *src);
-int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out);
+int text_concat(SapTxnCtx *txn, Text *dest, Text *src);
+int text_split_at(SapTxnCtx *txn, Text *text, size_t idx, Text **left_out, Text **right_out);
 
 /*
  * UTF-8 bridge (strict):
@@ -151,7 +147,7 @@ int text_split_at(Text *text, size_t idx, Text **left_out, Text **right_out);
  * - Encoding rejects non-codepoint handles and invalid code-point payloads.
  * - text_to_utf8 writes into caller-provided storage; it never allocates.
  */
-int text_from_utf8(Text *text, const uint8_t *utf8, size_t utf8_len);
+int text_from_utf8(SapTxnCtx *txn, Text *text, const uint8_t *utf8, size_t utf8_len);
 int text_utf8_length(const Text *text, size_t *utf8_len_out);
 int text_to_utf8(const Text *text, uint8_t *out, size_t out_cap, size_t *utf8_len_out);
 int text_utf8_length_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,

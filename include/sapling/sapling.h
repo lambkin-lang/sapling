@@ -65,8 +65,10 @@ typedef int (*keycmp_fn)(const void *a, uint32_t a_len, const void *b, uint32_t 
 /* ------------------------------------------------------------------ */
 /* Opaque types                                                         */
 /* ------------------------------------------------------------------ */
-typedef struct DB DB;
-typedef struct Txn Txn;
+struct SapEnv;
+struct SapTxnCtx;
+typedef struct SapEnv DB;
+typedef struct SapTxnCtx Txn;
 typedef struct Cursor Cursor;
 typedef uint32_t DBI;
 
@@ -83,6 +85,16 @@ typedef void (*sap_merge_fn)(const void *old_val, uint32_t old_len, const void *
 /* db_open page_size must be in [256, 65535].                           */
 /* ------------------------------------------------------------------ */
 DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx);
+
+/*
+ * Initialize the B+ Tree subsystem on an existing environment.
+ * Users constructing SapEnv manually (e.g. for multi-subsystem use)
+ * should call this instead of db_open.
+ *
+ * Returns SAP_OK or error.
+ */
+int sap_btree_subsystem_init(struct SapEnv *env, keycmp_fn cmp, void *cmp_ctx);
+
 void db_close(DB *db);
 uint32_t db_num_pages(DB *db); /* total allocated pages (for diagnostics) */
 int db_checkpoint(DB *db, sap_write_fn writer, void *ctx);

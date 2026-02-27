@@ -7,6 +7,20 @@
 
 #include "sapling/seq.h"
 
+#include "sapling/txn.h"
+SapEnv *g_env = NULL;
+SapTxnCtx *g_txn = NULL;
+
+#define seq_new() seq_new(g_env)
+#define seq_free(s) seq_free(g_env, s)
+#define seq_push_back(s, v) seq_push_back(g_txn, s, v)
+#define seq_push_front(s, v) seq_push_front(g_txn, s, v)
+#define seq_pop_back(s, val) seq_pop_back(g_txn, s, val)
+#define seq_pop_front(s, val) seq_pop_front(g_txn, s, val)
+#define seq_concat(d, src) seq_concat(g_txn, d, src)
+#define seq_split_at(s, i, l, r) seq_split_at(g_txn, s, i, l, r)
+#define seq_reset(s) seq_reset(g_txn, s)
+
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -75,33 +89,10 @@ static inline uint32_t ip(size_t i) { return (uint32_t)i; }
 
 typedef struct
 {
-    size_t alloc_calls;
-    size_t free_calls;
-} CountingAllocatorStats;
-
-typedef struct
-{
     uint32_t *data;
     size_t len;
     size_t cap;
 } ModelVec;
-
-static void *counting_alloc(void *ctx, size_t bytes)
-{
-    CountingAllocatorStats *stats = (CountingAllocatorStats *)ctx;
-    stats->alloc_calls++;
-    return malloc(bytes);
-}
-
-static void counting_free(void *ctx, void *ptr)
-{
-    CountingAllocatorStats *stats = (CountingAllocatorStats *)ctx;
-    if (ptr)
-    {
-        stats->free_calls++;
-        free(ptr);
-    }
-}
 
 static void model_init(ModelVec *m)
 {
@@ -227,49 +218,6 @@ static int seq_matches_model_slice(Seq *seq, const ModelVec *model, size_t off, 
             return 0;
     }
     return 1;
-}
-
-typedef struct
-{
-    unsigned char *buf;
-    size_t capacity;
-    size_t used;
-    size_t alloc_calls;
-    size_t free_calls;
-    size_t fail_calls;
-} ArenaAllocator;
-
-static void *arena_alloc(void *ctx, size_t bytes)
-{
-    ArenaAllocator *arena = (ArenaAllocator *)ctx;
-    size_t align = sizeof(max_align_t);
-    size_t start = arena->used;
-    size_t rem = start % align;
-    if (rem != 0)
-    {
-        size_t delta = align - rem;
-        if (SIZE_MAX - start < delta)
-        {
-            arena->fail_calls++;
-            return NULL;
-        }
-        start += delta;
-    }
-    if (bytes > arena->capacity || start > arena->capacity - bytes)
-    {
-        arena->fail_calls++;
-        return NULL;
-    }
-    arena->alloc_calls++;
-    arena->used = start + bytes;
-    return arena->buf + start;
-}
-
-static void arena_free_noop(void *ctx, void *ptr)
-{
-    ArenaAllocator *arena = (ArenaAllocator *)ctx;
-    if (ptr)
-        arena->free_calls++;
 }
 
 /* ================================================================== */
@@ -529,136 +477,7 @@ static void test_concat_large(void)
     seq_free(right);
 }
 
-static void test_custom_allocator_lifecycle(void)
-{
-    SECTION("custom allocator lifecycle");
-    CountingAllocatorStats stats = {0};
-    SeqAllocator allocator = {counting_alloc, counting_free, &stats};
 
-    Seq *s = seq_new_with_allocator(&allocator);
-    CHECK(s != NULL);
-    CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
-    CHECK(seq_push_front(s, ip(0)) == SEQ_OK);
-    CHECK(seq_push_back(s, ip(2)) == SEQ_OK);
-    CHECK(seq_reset(s) == SEQ_OK);
-    CHECK(seq_push_back(s, ip(9)) == SEQ_OK);
-    seq_free(s);
-
-    CHECK(stats.alloc_calls > 0);
-    CHECK(stats.free_calls == stats.alloc_calls);
-}
-
-static void test_concat_allocator_mismatch(void)
-{
-    SECTION("concat allocator mismatch invalid");
-    CountingAllocatorStats stats_a = {0};
-    CountingAllocatorStats stats_b = {0};
-    SeqAllocator alloc_a = {counting_alloc, counting_free, &stats_a};
-    SeqAllocator alloc_b = {counting_alloc, counting_free, &stats_b};
-
-    Seq *a = seq_new_with_allocator(&alloc_a);
-    Seq *b = seq_new_with_allocator(&alloc_b);
-    CHECK(a != NULL && b != NULL);
-    CHECK(seq_push_back(a, ip(10)) == SEQ_OK);
-    CHECK(seq_push_back(b, ip(20)) == SEQ_OK);
-
-    CHECK(seq_concat(a, b) == SEQ_INVALID);
-    CHECK(seq_length(a) == 1);
-    CHECK(seq_length(b) == 1);
-
-    uint32_t out = 0;
-    CHECK(seq_get(a, 0, &out) == SEQ_OK);
-    CHECK(out == ip(10));
-    CHECK(seq_get(b, 0, &out) == SEQ_OK);
-    CHECK(out == ip(20));
-
-    seq_free(a);
-    seq_free(b);
-    CHECK(stats_a.free_calls == stats_a.alloc_calls);
-    CHECK(stats_b.free_calls == stats_b.alloc_calls);
-}
-
-static void test_split_preserves_allocator(void)
-{
-    SECTION("split preserves allocator");
-    CountingAllocatorStats stats = {0};
-    SeqAllocator allocator = {counting_alloc, counting_free, &stats};
-    Seq *s = seq_new_with_allocator(&allocator);
-    CHECK(s != NULL);
-
-    for (size_t i = 0; i < 8; i++)
-        CHECK(seq_push_back(s, ip(i)) == SEQ_OK);
-
-    Seq *l = NULL;
-    Seq *r = NULL;
-    CHECK(seq_split_at(s, 3, &l, &r) == SEQ_OK);
-    CHECK(seq_concat(l, r) == SEQ_OK);
-    CHECK(seq_length(l) == 8);
-
-    for (size_t i = 0; i < 8; i++)
-    {
-        uint32_t out = 0;
-        CHECK(seq_get(l, i, &out) == SEQ_OK);
-        CHECK(out == ip(i));
-    }
-
-    seq_free(s);
-    seq_free(l);
-    seq_free(r);
-    CHECK(stats.free_calls == stats.alloc_calls);
-}
-
-static void test_arena_allocator_noop_free(void)
-{
-    SECTION("arena allocator with noop free");
-    unsigned char storage[8192];
-    ArenaAllocator arena = {storage, sizeof(storage), 0, 0, 0, 0};
-    SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
-    Seq *s = seq_new_with_allocator(&allocator);
-    CHECK(s != NULL);
-
-    for (size_t i = 0; i < 64; i++)
-        CHECK(seq_push_back(s, ip(i)) == SEQ_OK);
-
-    Seq *l = NULL;
-    Seq *r = NULL;
-    CHECK(seq_split_at(s, 17, &l, &r) == SEQ_OK);
-    CHECK(seq_concat(l, r) == SEQ_OK);
-    CHECK(seq_length(l) == 64);
-
-    seq_free(s);
-    seq_free(l);
-    seq_free(r);
-
-    CHECK(arena.alloc_calls > 0);
-    CHECK(arena.fail_calls == 0);
-    CHECK(arena.free_calls > 0);
-}
-
-static void test_arena_allocator_exhaustion(void)
-{
-    SECTION("arena allocator exhaustion");
-    unsigned char storage[1024];
-    ArenaAllocator arena = {storage, sizeof(storage), 0, 0, 0, 0};
-    SeqAllocator allocator = {arena_alloc, arena_free_noop, &arena};
-    Seq *s = seq_new_with_allocator(&allocator);
-    CHECK(s != NULL);
-
-    int rc = SEQ_OK;
-    for (size_t i = 0; i < 1000; i++)
-    {
-        rc = seq_push_back(s, ip(i));
-        if (rc != SEQ_OK)
-            break;
-    }
-
-    CHECK(rc == SEQ_OOM);
-    CHECK(seq_is_valid(s) == 0);
-    CHECK(seq_push_back(s, ip(1234)) == SEQ_INVALID);
-    CHECK(arena.fail_calls > 0);
-
-    seq_free(s);
-}
 
 /* ================================================================== */
 /* Tests: split_at                                                      */
@@ -1174,15 +993,11 @@ static void test_invalid_args(void)
 {
     SECTION("invalid argument handling");
     Seq *s = seq_new();
-    Seq *s2 = seq_new_with_allocator(NULL);
     uint32_t out = 0;
     Seq *l = NULL;
     Seq *r = NULL;
-    SeqAllocator bad_alloc_a = {NULL, counting_free, NULL};
-    SeqAllocator bad_alloc_b = {counting_alloc, NULL, NULL};
 
     CHECK(s != NULL);
-    CHECK(s2 != NULL);
     CHECK(seq_push_front(NULL, ip(1)) == SEQ_INVALID);
     CHECK(seq_push_back(NULL, ip(1)) == SEQ_INVALID);
     CHECK(seq_pop_front(NULL, &out) == SEQ_INVALID);
@@ -1199,11 +1014,8 @@ static void test_invalid_args(void)
     CHECK(seq_reset(NULL) == SEQ_INVALID);
     CHECK(seq_is_valid(NULL) == 0);
     CHECK(seq_is_valid(s) == 1);
-    CHECK(seq_new_with_allocator(&bad_alloc_a) == NULL);
-    CHECK(seq_new_with_allocator(&bad_alloc_b) == NULL);
 
     seq_free(s);
-    seq_free(s2);
 }
 
 #ifdef SAPLING_SEQ_TESTING
@@ -1539,6 +1351,13 @@ static void test_fault_injection_reset_sweep(void)
 
 int main(void)
 {
+    SapMemArena *arena = NULL;
+    SapArenaOptions arena_opts = { .type = SAP_ARENA_BACKING_MALLOC, .page_size = 4096 };
+    sap_arena_init(&arena, &arena_opts);
+    g_env = sap_env_create(arena, 4096);
+    sap_seq_subsystem_init(g_env);
+    g_txn = sap_txn_begin(g_env, NULL, 0);
+
     printf("=== seq unit tests ===\n");
 
     test_empty();
@@ -1551,11 +1370,11 @@ int main(void)
     test_concat_empty();
     test_concat_self_invalid();
     test_concat_large();
-    test_custom_allocator_lifecycle();
-    test_concat_allocator_mismatch();
-    test_split_preserves_allocator();
-    test_arena_allocator_noop_free();
-    test_arena_allocator_exhaustion();
+
+
+
+
+
     test_split_at_basic();
     test_split_at_large();
     test_split_at_range();

@@ -33,7 +33,7 @@ static void bench_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {bench_alloc, bench_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static double now_seconds(void)
 {
@@ -101,7 +101,7 @@ static int encode_message_frame(uint32_t worker_id, uint64_t seq, uint8_t *out, 
 
 static DB *open_bench_db(void)
 {
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!db)
     {
         return NULL;
@@ -427,6 +427,14 @@ static int run_candidate_round(uint32_t count, double *seconds_out)
 
 int main(int argc, char **argv)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     uint32_t count = 5000u;
     uint32_t rounds = 5u;
     uint32_t batch = 64u;

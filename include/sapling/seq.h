@@ -37,46 +37,22 @@
 /* ------------------------------------------------------------------ */
 typedef struct Seq Seq;
 
-/* ------------------------------------------------------------------ */
-/* Allocator abstraction                                                */
-/* ------------------------------------------------------------------ */
-
-typedef void *(*SeqAllocFn)(void *ctx, size_t bytes);
-typedef void (*SeqFreeFn)(void *ctx, void *ptr);
-
-/*
- * Allocator contract:
- * - alloc_fn must return storage suitably aligned for any object type.
- * - alloc_fn returns NULL on allocation failure.
- * - free_fn must accept pointers previously returned by alloc_fn.
- * - ctx and allocator function pointers must remain valid for the lifetime
- *   of the sequence (including outputs produced by seq_split_at).
- */
-typedef struct SeqAllocator
-{
-    SeqAllocFn alloc_fn;
-    SeqFreeFn  free_fn;
-    void      *ctx;
-} SeqAllocator;
+#include "sapling/txn.h"
 
 /* ------------------------------------------------------------------ */
 /* Lifecycle                                                            */
 /* ------------------------------------------------------------------ */
 
 /*
- * seq_new — allocate an empty sequence.
- * Returns NULL on allocation failure.
+ * subsystem initialization
  */
-Seq *seq_new(void);
+int sap_seq_subsystem_init(SapEnv *env);
 
 /*
- * seq_new_with_allocator — allocate an empty sequence using allocator.
- * If allocator is NULL, the default malloc/free allocator is used.
- * Sequences can only be concatenated when their allocator triples
- * (alloc_fn, free_fn, ctx) are identical.
- * Returns NULL on allocation failure or invalid allocator function pointers.
+ * seq_new — allocate an empty sequence on the environment.
+ * Returns NULL on allocation failure.
  */
-Seq *seq_new_with_allocator(const SeqAllocator *allocator);
+Seq *seq_new(SapEnv *env);
 
 /*
  * seq_is_valid — returns 1 when seq is usable, 0 otherwise.
@@ -88,16 +64,14 @@ int seq_is_valid(const Seq *seq);
  * seq_free — release all internal nodes of seq and seq itself.
  * Element handles are value types; no per-element payload is freed.
  * Safe to call with NULL.
- * If seq is invalid, internal node reclamation is best-effort.
  */
-void seq_free(Seq *seq);
+void seq_free(SapEnv *env, Seq *seq);
 
 /*
- * seq_reset — reinitialize seq to an empty valid state.
+ * seq_reset — reinitialize seq to an empty valid state natively.
  * Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID.
- * If seq is invalid, prior internal storage may not be reclaimable.
  */
-int seq_reset(Seq *seq);
+int seq_reset(SapTxnCtx *txn, Seq *seq);
 
 /* ------------------------------------------------------------------ */
 /* Size                                                                 */
@@ -111,22 +85,22 @@ size_t seq_length(const Seq *seq);
 /* ------------------------------------------------------------------ */
 
 /* seq_push_front — prepend elem to seq. Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID. */
-int seq_push_front(Seq *seq, uint32_t elem);
+int seq_push_front(SapTxnCtx *txn, Seq *seq, uint32_t elem);
 
 /* seq_push_back — append elem to seq. Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID. */
-int seq_push_back(Seq *seq, uint32_t elem);
+int seq_push_back(SapTxnCtx *txn, Seq *seq, uint32_t elem);
 
 /*
  * seq_pop_front — remove and return the first element via *out.
  * Returns SEQ_OK, SEQ_EMPTY, or SEQ_INVALID.
  */
-int seq_pop_front(Seq *seq, uint32_t *out);
+int seq_pop_front(SapTxnCtx *txn, Seq *seq, uint32_t *out);
 
 /*
  * seq_pop_back — remove and return the last element via *out.
  * Returns SEQ_OK, SEQ_EMPTY, or SEQ_INVALID.
  */
-int seq_pop_back(Seq *seq, uint32_t *out);
+int seq_pop_back(SapTxnCtx *txn, Seq *seq, uint32_t *out);
 
 /* ------------------------------------------------------------------ */
 /* Concatenation — O(log n)                                             */
@@ -140,7 +114,7 @@ int seq_pop_back(Seq *seq, uint32_t *out);
  * Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID.
  * On SEQ_OOM either sequence may become invalid.
  */
-int seq_concat(Seq *dest, Seq *src);
+int seq_concat(SapTxnCtx *txn, Seq *dest, Seq *src);
 
 /* ------------------------------------------------------------------ */
 /* Split — O(log n)                                                     */
@@ -158,7 +132,7 @@ int seq_concat(Seq *dest, Seq *src);
  * On error neither *left_out nor *right_out is modified.
  * On SEQ_OOM, seq may become invalid.
  */
-int seq_split_at(Seq *seq, size_t idx, Seq **left_out, Seq **right_out);
+int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **right_out);
 
 /* ------------------------------------------------------------------ */
 /* Indexing — O(log n)                                                  */

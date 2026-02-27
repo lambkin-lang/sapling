@@ -85,6 +85,11 @@ int sap_arena_alloc_node(SapMemArena *arena, uint32_t size, void **node_out, uin
 int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size);
 
 /*
+ * Free a sub-page node by pointer.
+ */
+int sap_arena_free_node_ptr(SapMemArena *arena, void *node, uint32_t size);
+
+/*
  * Memory inspection: Returns the number of currently active/held pages not in the free list.
  */
 uint32_t sap_arena_active_pages(const SapMemArena *arena);
