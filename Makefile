@@ -28,10 +28,12 @@
 #   CLANG_FORMAT=BIN  — clang-format binary override
 #   CLANG_TIDY=BIN    — clang-tidy binary override
 #   CPPCHECK=BIN      — cppcheck binary override
+#   CPPCHECK_FILES="..." — source roots/files analyzed by cppcheck (default src)
+#   LINT_WARNING_FLAGS="..." — extra warning flags for lint warning pass
 #   WASM_TOOLS=BIN    — wasm-tools binary override
 
-CC       := /opt/homebrew/opt/llvm@21/bin/clang
-CXX      := /opt/homebrew/opt/llvm@21/bin/clang++
+CC       ?= clang
+CXX      ?= clang++
 CFLAGS   := -Wall -Wextra -Werror -std=c11
 # Expose POSIX declarations (clock_gettime/nanosleep) under strict C11.
 CFLAGS   += -D_POSIX_C_SOURCE=200809L
@@ -90,7 +92,7 @@ TEXT_FUZZ_CORPUS ?= .fuzz-corpus/text
 TEXT_FUZZ_SEED_CORPUS ?= tests/fuzz/corpus/text
 TEXT_FUZZ_INPUT_CORPUS := $(if $(and $(wildcard $(TEXT_FUZZ_SEED_CORPUS)),$(filter-out $(TEXT_FUZZ_CORPUS),$(TEXT_FUZZ_SEED_CORPUS))),$(TEXT_FUZZ_SEED_CORPUS),)
 LLVM_SYMBOLIZER ?= $(shell command -v llvm-symbolizer 2>/dev/null || true)
-SEQ_FUZZ_CXXLIB_DIR ?= /opt/homebrew/opt/llvm@21/lib/c++
+SEQ_FUZZ_CXXLIB_DIR ?= $(if $(wildcard /opt/homebrew/opt/llvm@21/lib/c++),/opt/homebrew/opt/llvm@21/lib/c++,)
 comma := ,
 SEQ_FUZZ_CXXLIB_FLAGS := $(if $(wildcard $(SEQ_FUZZ_CXXLIB_DIR)),-L$(SEQ_FUZZ_CXXLIB_DIR) -Wl$(comma)-rpath$(comma)$(SEQ_FUZZ_CXXLIB_DIR) -lc++abi,)
 SEQ_FUZZ_SYMBOLIZER_ENV := $(if $(LLVM_SYMBOLIZER),ASAN_SYMBOLIZER_PATH=$(LLVM_SYMBOLIZER),)
@@ -112,12 +114,16 @@ WIT_GEN_DIR ?= generated
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
 WIT_GEN_OBJ ?= $(WIT_GEN_DIR)/wit_schema_dbis.o
-CLANG_FORMAT ?= /opt/homebrew/opt/llvm@21/bin/clang-format
-CLANG_TIDY ?= /opt/homebrew/opt/llvm@21/bin/clang-tidy
+CLANG_FORMAT ?= clang-format
+CLANG_TIDY ?= clang-tidy
 CPPCHECK ?= cppcheck
-CLANG_TIDY_CHECKS ?= -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+CPPCHECK_FILES ?= src
+CLANG_TIDY_CHECKS ?= clang-analyzer-*,portability-*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+CLANG_TIDY_HEADER_FILTER ?= ^(src|include)/
+LINT_WARNING_FLAGS ?= -Wformat=2 -Wmissing-prototypes -Wold-style-definition -Wpointer-arith -Wstrict-prototypes -Wundef -Wvla
+LINT_CFLAGS ?= $(CFLAGS) $(LINT_WARNING_FLAGS)
 WASM_TOOLS ?= wasm-tools
-WASI_CC   ?= /opt/homebrew/opt/llvm@21/bin/clang
+WASI_CC   ?= clang
 WASI_AR   ?= ar
 WASI_TARGET ?= wasm32-wasi
 WASI_SYSROOT ?=
@@ -145,7 +151,7 @@ RUNNER_TEST_NAMES := \
 	wire
 
 RUNNER_TEST_BINS := $(patsubst %,$(BIN_DIR)/runner_%_test,$(RUNNER_TEST_NAMES))
-RUNNER_TEST_TARGETS := $(patsubst %,runner-%-test,$(RUNNER_TEST_NAMES))
+RUNNER_TEST_TARGETS := $(foreach test,$(RUNNER_TEST_NAMES),runner-$(subst _,-,$(test))-test)
 
 # Dynamic Source Discovery
 C_SOURCES := $(shell find src tests benchmarks examples -type f -name '*.c')
@@ -153,7 +159,8 @@ C_HEADERS := $(shell find src tests benchmarks examples -type f -name '*.h')
 
 FORMAT_FILES := $(C_SOURCES) $(C_HEADERS)
 PHASE0_TIDY_FILES := $(filter-out generated/%, $(C_SOURCES))
-PHASE0_CPPCHECK_FILES := src tests examples benchmarks
+LINT_WARNING_SOURCES := $(filter src/%, $(C_SOURCES))
+LINT_TIDY_SOURCES := $(filter src/%, $(PHASE0_TIDY_FILES))
 
 SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c
 SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h
@@ -183,7 +190,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test seq-test test-arena debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check tidy cppcheck lint wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test seq-test test-arena debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -397,17 +404,15 @@ $(BIN_DIR)/runner_%_integration_test: $(OBJ_DIR)/tests/integration/runner_%_inte
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) $^ -o $@ $(LDFLAGS)
 
-# 3. Phony targets to run tests
-#    (Note: CFLAGS += -O2 -g was common, but we can't easily set target-specific vars in a
-#     static pattern unless we do it explicitly. However, if 'make test' is run, CFLAGS is set globally.
-#     If running individual tests, we might miss the -O2 -g if not set elsewhere, but that's usually fine for dev.)
-
-RUNNER_TEST_TARGETS := $(patsubst %,runner-%-test,$(RUNNER_TEST_NAMES))
-
-# Most tests need the schema generated. We can just make them all depend on it for simplicity.
-$(RUNNER_TEST_TARGETS): CFLAGS += -O2 -g
-$(RUNNER_TEST_TARGETS): runner-%-test: wit-schema-generate $(BIN_DIR)/runner_%_test
-	./$(BIN_DIR)/runner_$*_test
+# 3. Phony targets to run tests.
+# Convert underscores in source test names to hyphenated target names
+# so phase checks can use natural "runner-foo-bar-test" targets.
+define RUNNER_TEST_RULE
+runner-$(subst _,-,$(1))-test: CFLAGS += -O2 -g
+runner-$(subst _,-,$(1))-test: wit-schema-generate $(BIN_DIR)/runner_$(1)_test
+	./$(BIN_DIR)/runner_$(1)_test
+endef
+$(foreach test,$(RUNNER_TEST_NAMES),$(eval $(call RUNNER_TEST_RULE,$(test))))
 
 # Special case for recovery which is an integration test
 RUNNER_RECOVERY_TEST_BIN = $(BIN_DIR)/runner_recovery_integration_test
@@ -472,19 +477,34 @@ format-check:
 	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { echo "clang-format not found: $(CLANG_FORMAT)"; exit 2; }
 	$(CLANG_FORMAT) --dry-run --Werror $(FORMAT_FILES)
 
+style-check: format-check
+
+lint-warnings:
+	$(CC) $(LINT_CFLAGS) $(INCLUDES) -fsyntax-only $(LINT_WARNING_SOURCES)
+
 tidy:
 	@command -v $(CLANG_TIDY) >/dev/null 2>&1 || { echo "clang-tidy not found: $(CLANG_TIDY)"; exit 2; }
-	$(CLANG_TIDY) -checks=$(CLANG_TIDY_CHECKS) $(PHASE0_TIDY_FILES) -- $(CFLAGS) $(INCLUDES)
+	$(CLANG_TIDY) -quiet -checks=$(CLANG_TIDY_CHECKS) -header-filter='$(CLANG_TIDY_HEADER_FILTER)' $(LINT_TIDY_SOURCES) -- $(CFLAGS) $(INCLUDES)
 
 cppcheck:
 	@if command -v $(CPPCHECK) >/dev/null 2>&1; then \
-		$(CPPCHECK) --enable=warning,performance,portability --error-exitcode=1 --std=c11 \
-			-Iinclude $(PHASE0_CPPCHECK_FILES); \
+		$(CPPCHECK) --enable=warning,performance,portability --std=c11 \
+			-Iinclude $(CPPCHECK_FILES); \
 	else \
 		echo "cppcheck not found ($(CPPCHECK)); skipping"; \
 	fi
 
-lint: format-check tidy cppcheck
+cppcheck-strict:
+	@if command -v $(CPPCHECK) >/dev/null 2>&1; then \
+		$(CPPCHECK) --enable=warning,performance,portability --error-exitcode=1 --std=c11 \
+			-Iinclude $(CPPCHECK_FILES); \
+	else \
+		echo "cppcheck not found ($(CPPCHECK)); skipping"; \
+	fi
+
+lint: lint-warnings tidy cppcheck
+
+lint-strict: lint-warnings tidy cppcheck-strict
 
 wit-schema-check:
 	@command -v $(WASM_TOOLS) >/dev/null 2>&1 || { echo "wasm-tools not found: $(WASM_TOOLS)"; exit 2; }

@@ -92,7 +92,7 @@ static int ensure_cap(SapRunnerTxStackV0 *stack)
         new_cap = stack->cap * 2u;
     }
 
-    if (((size_t)new_cap) > (SIZE_MAX / sizeof(SapRunnerTxCtxV0)))
+    if (new_cap > (UINT32_MAX / (uint32_t)sizeof(SapRunnerTxCtxV0)))
     {
         return SAP_ERROR;
     }

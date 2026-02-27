@@ -2449,7 +2449,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
 
     if (count == 0)
         return SAP_OK;
-    if ((size_t)count > SIZE_MAX / sizeof(*cur))
+    if (count > (UINT32_MAX / (uint32_t)sizeof(*cur)))
         return SAP_ERROR;
 
     cur = (struct BuildNode *)malloc((size_t)count * sizeof(*cur));
@@ -2564,7 +2564,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
         uint32_t next_count = 0;
         uint32_t idx = 0;
 
-        if ((size_t)cur_count > SIZE_MAX / sizeof(*cap))
+        if (cur_count > (UINT32_MAX / (uint32_t)sizeof(*cap)))
         {
             rc = SAP_ERROR;
             goto cleanup;
@@ -2714,7 +2714,7 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
 
     if (max_total == 0)
         return SAP_OK;
-    if ((size_t)max_total > SIZE_MAX / sizeof(*mkeys))
+    if (max_total > (UINT32_MAX / (uint32_t)sizeof(*mkeys)))
         return SAP_ERROR;
 
     mkeys = (const void **)malloc((size_t)max_total * sizeof(*mkeys));
