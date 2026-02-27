@@ -15,6 +15,8 @@
 #   TEXT_FUZZ_SEED_CORPUS=DIR — optional read-only seed corpus (default tests/fuzz/corpus/text)
 #   BENCH_BASELINE=F  — baseline file for bench-ci (default benchmarks/baseline.env)
 #   BENCH_ALLOWED_REGRESSION_PCT=N — override baseline regression budget
+#   BENCH_BASELINE_PROFILE=NAME — force baseline profile (default auto-detect)
+#   BENCH_EMIT_BASELINE_UPDATE=1 — print baseline update lines instead of enforcing
 #   RUNNER_PHASEE_BENCH_COUNT=N — message count for Phase E study benchmark
 #   RUNNER_PHASEE_BENCH_ROUNDS=N — rounds for Phase E study benchmark
 #   RUNNER_PHASEE_BENCH_BATCH=N — batch size for baseline poll scenario

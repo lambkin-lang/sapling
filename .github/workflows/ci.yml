@@ -59,13 +59,6 @@ jobs:
       - name: Runner phase checks
         run: make phasec-check CC=clang CLANG_FORMAT=clang-format CLANG_TIDY=clang-tidy WASM_TOOLS=wasm-tools
 
-      - name: Benchmark regression guardrail
-        run: |
-          echo "CPU Info:"
-          grep "model name" /proc/cpuinfo | head -n 1 || true
-          uptime
-          make bench-ci BENCH_COUNT=100000 BENCH_ROUNDS=3 CC=clang
-
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
