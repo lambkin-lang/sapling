@@ -5,8 +5,10 @@
  */
 #include "runner/intent_sink_v0.h"
 #include "runner/runner_v0.h"
+#include "sapling/bept.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,6 +36,16 @@ static void test_free(void *ctx, void *p, uint32_t sz)
 
 static SapMemArena *g_alloc = NULL;
 
+static void timer_to_bept_key(int64_t due_ts, uint64_t seq, uint32_t out_key[4]) {
+    /* Flip sign bit of signed int64 to sort correctly as unsigned */
+    uint64_t ts_encoded = (uint64_t)due_ts ^ 0x8000000000000000ULL;
+    
+    out_key[0] = (uint32_t)(ts_encoded >> 32);
+    out_key[1] = (uint32_t)(ts_encoded & 0xFFFFFFFF);
+    out_key[2] = (uint32_t)(seq >> 32);
+    out_key[3] = (uint32_t)(seq & 0xFFFFFFFF);
+}
+
 static DB *new_db(void)
 {
     DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
@@ -42,6 +54,11 @@ static DB *new_db(void)
         return NULL;
     }
     if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    {
+        db_close(db);
+        return NULL;
+    }
+    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
     {
         db_close(db);
         return NULL;
@@ -77,7 +94,7 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
                      uint32_t *val_len_out)
 {
     Txn *txn;
-    uint8_t key[SAP_RUNNER_TIMER_KEY_V0_SIZE];
+    uint32_t bept_key[4];
     int rc;
 
     if (!db || !val_out || !val_len_out)
@@ -92,8 +109,8 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
     {
         return SAP_ERROR;
     }
-    sap_runner_timer_v0_key_encode(due_ts, seq, key);
-    rc = txn_get_dbi(txn, 4u, key, sizeof(key), val_out, val_len_out);
+    timer_to_bept_key(due_ts, seq, bept_key);
+    rc = sap_bept_get((SapTxnCtx *)txn, bept_key, 4, val_out, val_len_out);
     txn_abort(txn);
     return rc;
 }

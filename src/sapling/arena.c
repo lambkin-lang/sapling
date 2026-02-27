@@ -194,22 +194,27 @@ int sap_arena_alloc_node(SapMemArena *arena, uint32_t size, void **node_out, uin
 {
     if (!arena || !node_out || !nodeno_out) return SAP_ERROR;
 
-    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) {
-        /*
-         * For the native MALLOC backend, we just allocate the requested node
-         * using calloc, matching `SeqAllocator`'s behavior, but mapping it
-         * into our tracked chunks list (or resolving it as a direct ptr index).
-         */
-        void *node = calloc(1, size);
+    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC || arena->opts.type == SAP_ARENA_BACKING_CUSTOM) {
+        void *node;
+        if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) {
+            node = calloc(1, size);
+        } else {
+            if (!arena->opts.cfg.custom.alloc_page) return SAP_ERROR;
+            node = arena->opts.cfg.custom.alloc_page(arena->opts.cfg.custom.ctx, size);
+            if (node) memset(node, 0, size);
+        }
         if (!node) return SAP_FULL;
 
         if (arena->chunk_count == arena->chunk_capacity) {
-            uint32_t new_cap = arena->chunk_capacity == 0 ? 16 : arena->chunk_capacity * 2;
+            uint32_t old_cap = arena->chunk_capacity;
+            uint32_t new_cap = old_cap == 0 ? 16 : old_cap * 2;
             void **new_chunks = realloc(arena->malloc_chunks, new_cap * sizeof(void*));
             if (!new_chunks) {
-                free(node);
+                if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) free(node);
+                else if (arena->opts.cfg.custom.free_page) arena->opts.cfg.custom.free_page(arena->opts.cfg.custom.ctx, node, size);
                 return SAP_FULL;
             }
+            memset((uint8_t *)new_chunks + old_cap * sizeof(void*), 0, (new_cap - old_cap) * sizeof(void*));
             arena->malloc_chunks = new_chunks;
             arena->chunk_capacity = new_cap;
         }
@@ -220,7 +225,9 @@ int sap_arena_alloc_node(SapMemArena *arena, uint32_t size, void **node_out, uin
             uint32_t new_cap = nodeno + 16;
             void **new_chunks = realloc(arena->malloc_chunks, new_cap * sizeof(void*));
             if (!new_chunks) {
-                free(node);
+                if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) free(node);
+                else if (arena->opts.cfg.custom.free_page) arena->opts.cfg.custom.free_page(arena->opts.cfg.custom.ctx, node, size);
+                arena->next_pgno--;
                 return SAP_FULL;
             }
             memset((uint8_t *)new_chunks + old_cap * sizeof(void*), 0, (new_cap - old_cap) * sizeof(void*));
@@ -252,12 +259,15 @@ int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size)
      */
     if (!arena) return SAP_ERROR;
     
-    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) {
+    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC || arena->opts.type == SAP_ARENA_BACKING_CUSTOM) {
         if (nodeno < arena->chunk_count && arena->malloc_chunks[nodeno]) {
-            free(arena->malloc_chunks[nodeno]);
+            void *p = arena->malloc_chunks[nodeno];
             arena->malloc_chunks[nodeno] = NULL;
-            /* In MALLOC we don't actively reuse this ID to avoid size-class
-             * complexity in this simple backend loop. */
+            if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) {
+                free(p);
+            } else if (arena->opts.cfg.custom.free_page) {
+                arena->opts.cfg.custom.free_page(arena->opts.cfg.custom.ctx, p, size);
+            }
             return SAP_OK;
         }
     }
@@ -269,13 +279,10 @@ int sap_arena_free_node_ptr(SapMemArena *arena, void *node, uint32_t size)
 {
     if (!arena || !node) return SAP_ERROR;
 
-    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC) {
-        /* Brute force scan; for production we'd use hash map or `nodeno` inside the item */
-        for (uint32_t i = 0; i < arena->chunk_count; i++) {
+    if (arena->opts.type == SAP_ARENA_BACKING_MALLOC || arena->opts.type == SAP_ARENA_BACKING_CUSTOM) {
+        for (uint32_t i = 1; i < arena->chunk_count; i++) {
             if (arena->malloc_chunks[i] == node) {
-                free(node);
-                arena->malloc_chunks[i] = NULL;
-                return SAP_OK;
+                return sap_arena_free_node(arena, i, size);
             }
         }
         return SAP_ERROR;

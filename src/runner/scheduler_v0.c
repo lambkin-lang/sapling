@@ -1,10 +1,6 @@
-/*
- * scheduler_v0.c - phase-C timer wake scheduling helper scaffold
- *
- * SPDX-License-Identifier: MIT
- */
 #include "runner/scheduler_v0.h"
-
+#include "runner/timer_v0.h"
+#include "sapling/bept.h"
 #include "generated/wit_schema_dbis.h"
 
 #include <stddef.h>
@@ -12,12 +8,7 @@
 int sap_runner_scheduler_v0_next_due(DB *db, int64_t *due_ts_out)
 {
     Txn *txn;
-    Cursor *cur;
-    const void *key = NULL;
-    uint32_t key_len = 0u;
-    const void *val = NULL;
-    uint32_t val_len = 0u;
-    uint64_t seq = 0u;
+    uint32_t bept_key[4];
     int rc;
 
     if (!db || !due_ts_out)
@@ -32,36 +23,17 @@ int sap_runner_scheduler_v0_next_due(DB *db, int64_t *due_ts_out)
         return SAP_ERROR;
     }
 
-    cur = cursor_open_dbi(txn, SAP_WIT_DBI_TIMERS);
-    if (!cur)
-    {
-        txn_abort(txn);
-        return SAP_ERROR;
-    }
-
-    rc = cursor_first(cur);
+    /* Use BEPT Min to find earliest timer */
+    rc = sap_bept_min(txn, bept_key, 4, NULL, NULL);
     if (rc != SAP_OK)
     {
-        cursor_close(cur);
         txn_abort(txn);
         return rc;
     }
 
-    rc = cursor_get(cur, &key, &key_len, &val, &val_len);
-    (void)val;
-    (void)val_len;
-    if (rc != SAP_OK)
-    {
-        cursor_close(cur);
-        txn_abort(txn);
-        return rc;
-    }
-
-    rc = sap_runner_timer_v0_key_decode((const uint8_t *)key, key_len, due_ts_out, &seq);
-    (void)seq;
-    cursor_close(cur);
+    sap_runner_timer_v0_bept_key_decode(bept_key, due_ts_out, NULL);
     txn_abort(txn);
-    return rc;
+    return SAP_OK;
 }
 
 int sap_runner_scheduler_v0_compute_sleep_ms(int64_t now_ts, int64_t next_due_ts,

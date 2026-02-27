@@ -6,8 +6,7 @@
 #include "runner/timer_v0.h"
 #include "sapling/bept.h"
 #include "runner/wire_v0.h" 
-#include "generated/wit_schema_dbis.h" /* Still needed for other DBIs? Maybe not for timers anymore */
-
+#include "generated/wit_schema_dbis.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -51,17 +50,17 @@ static int copy_bytes(const uint8_t *src, uint32_t len, uint8_t **dst_out)
 }
 
 /* Helper to convert timer (ts, seq) to BEPT-compatible ordered 128-bit key (4 x 32-bit words) */
-static void timer_to_bept_key(int64_t due_ts, uint64_t seq, uint32_t out_key[4]) {
+void sap_runner_timer_v0_bept_key_encode(int64_t due_ts, uint64_t seq, uint32_t out[4]) {
     /* Flip sign bit of signed int64 to sort correctly as unsigned */
     uint64_t ts_encoded = (uint64_t)due_ts ^ 0x8000000000000000ULL;
     
-    out_key[0] = (uint32_t)(ts_encoded >> 32);
-    out_key[1] = (uint32_t)(ts_encoded & 0xFFFFFFFF);
-    out_key[2] = (uint32_t)(seq >> 32);
-    out_key[3] = (uint32_t)(seq & 0xFFFFFFFF);
+    out[0] = (uint32_t)(ts_encoded >> 32);
+    out[1] = (uint32_t)(ts_encoded & 0xFFFFFFFF);
+    out[2] = (uint32_t)(seq >> 32);
+    out[3] = (uint32_t)(seq & 0xFFFFFFFF);
 }
 
-static void bept_key_to_timer(const uint32_t key[4], int64_t *due_ts_out, uint64_t *seq_out) {
+void sap_runner_timer_v0_bept_key_decode(const uint32_t key[4], int64_t *due_ts_out, uint64_t *seq_out) {
     uint64_t ts_encoded = ((uint64_t)key[0] << 32) | key[1];
     
     if (due_ts_out) *due_ts_out = (int64_t)(ts_encoded ^ 0x8000000000000000ULL);
@@ -127,7 +126,7 @@ static int read_next_due_timer(DB *db, int64_t now_ts, uint8_t **key_out, uint32
         return rc;
     }
 
-    bept_key_to_timer(bept_key, &due_ts, &seq);
+    sap_runner_timer_v0_bept_key_decode(bept_key, &due_ts, &seq);
 
     if (due_ts > now_ts)
     {
@@ -177,7 +176,7 @@ static int delete_timer_if_match(DB *db, const uint8_t *key_bytes, uint32_t key_
     rc = sap_runner_timer_v0_key_decode(key_bytes, key_len, &due_ts, &seq);
     if (rc != SAP_OK) return rc;
     
-    timer_to_bept_key(due_ts, seq, bept_key);
+    sap_runner_timer_v0_bept_key_encode(due_ts, seq, bept_key);
 
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
@@ -221,7 +220,7 @@ int sap_runner_timer_v0_append(DB *db, int64_t due_ts, uint64_t seq, const uint8
     }
 
     uint32_t bept_key[4]; 
-    timer_to_bept_key(due_ts, seq, bept_key);
+    sap_runner_timer_v0_bept_key_encode(due_ts, seq, bept_key);
 
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
