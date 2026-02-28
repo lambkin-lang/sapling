@@ -128,6 +128,20 @@ int thatch_read_skip_len(const ThatchRegion *region, ThatchCursor *cursor, uint3
  */
 int thatch_advance_cursor(const ThatchRegion *region, ThatchCursor *cursor, uint32_t skip_len);
 
+/*
+ * thatch_read_ptr — return a read-only pointer into the region's buffer
+ * at the current cursor position, advancing the cursor by len.
+ * Zero-copy: no memcpy, the returned pointer points directly into the
+ * arena page. This is the fundamental primitive for zero-deserialization.
+ */
+int thatch_read_ptr(const ThatchRegion *region, ThatchCursor *cursor,
+                    uint32_t len, const void **ptr_out);
+
+/*
+ * thatch_region_used — return the number of bytes written (the bump head).
+ */
+uint32_t thatch_region_used(const ThatchRegion *region);
+
 #ifdef __cplusplus
 }
 #endif

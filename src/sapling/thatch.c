@@ -220,3 +220,18 @@ int thatch_advance_cursor(const ThatchRegion *region, ThatchCursor *cursor, uint
     *cursor += skip_len;
     return THATCH_OK;
 }
+
+int thatch_read_ptr(const ThatchRegion *region, ThatchCursor *cursor,
+                    uint32_t len, const void **ptr_out) {
+    if (!region || !cursor || !ptr_out) return THATCH_INVALID;
+    if (*cursor + len > region->head) return THATCH_BOUNDS;
+
+    uint8_t *mem = (uint8_t *)region->page_ptr;
+    *ptr_out = mem + *cursor;
+    *cursor += len;
+    return THATCH_OK;
+}
+
+uint32_t thatch_region_used(const ThatchRegion *region) {
+    return region ? region->head : 0;
+}
