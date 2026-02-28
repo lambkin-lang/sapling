@@ -63,6 +63,7 @@ TEST_SEQ_BIN := $(BIN_DIR)/test_seq
 TEST_TEXT_BIN := $(BIN_DIR)/test_text
 TEST_BEPT_BIN := $(BIN_DIR)/test_bept
 TEST_ARENA_BIN := $(BIN_DIR)/test_arena
+TEST_THATCH_BIN := $(BIN_DIR)/test_thatch
 BENCH_BIN = $(BIN_DIR)/bench_sapling
 BENCH_SEQ_BIN = $(BIN_DIR)/bench_seq
 BENCH_TEXT_BIN = $(BIN_DIR)/bench_text
@@ -170,6 +171,8 @@ SEQ_SRC := src/sapling/seq.c
 SEQ_HDR := include/sapling/seq.h
 TEXT_SRC := src/sapling/text.c
 TEXT_HDR := include/sapling/text.h
+THATCH_SRC := src/sapling/thatch.c
+THATCH_HDR := include/sapling/thatch.h
 
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
@@ -192,7 +195,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test seq-test test-arena debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test seq-test test-arena thatch-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -358,6 +361,14 @@ test-arena: $(TEST_ARENA_BIN)
 $(TEST_ARENA_BIN): tests/unit/test_arena.c src/sapling/arena.c include/sapling/arena.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_arena.c src/sapling/arena.c -o $@ $(LDFLAGS)
+
+thatch-test: CFLAGS += -O2 -g
+thatch-test: $(TEST_THATCH_BIN)
+	./$(TEST_THATCH_BIN)
+
+$(TEST_THATCH_BIN): tests/unit/test_thatch.c $(THATCH_SRC) $(THATCH_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_thatch.c $(THATCH_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 $(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_SRC)
 	@mkdir -p $(dir $@)

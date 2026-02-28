@@ -8,14 +8,15 @@
 extern "C" {
 #endif
 
-/* Maximum number of supported subsystems (e.g., DB, Seq, Trie) */
-#define SAP_MAX_SUBSYSTEMS 4
+/* Maximum number of supported subsystems (e.g., DB, Seq, Trie, Thatch) */
+#define SAP_MAX_SUBSYSTEMS 8
 
 /* Supported subsystem IDs */
-#define SAP_SUBSYSTEM_DB   0
-#define SAP_SUBSYSTEM_SEQ  1
-#define SAP_SUBSYSTEM_BEPT 2
+#define SAP_SUBSYSTEM_DB      0
+#define SAP_SUBSYSTEM_SEQ     1
+#define SAP_SUBSYSTEM_BEPT    2
 #define SAP_SUBSYSTEM_BEPT128 3
+#define SAP_SUBSYSTEM_THATCH  4
 
 typedef struct SapTxnCtx SapTxnCtx;
 
