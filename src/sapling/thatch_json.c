@@ -412,6 +412,7 @@ int tj_parse(SapTxnCtx *txn, const char *json, uint32_t len,
     rc = jp_parse_value(&p);
     if (rc) {
         if (err_pos) *err_pos = p.pos;
+        thatch_region_release(txn, region);
         return rc;
     }
 
@@ -419,6 +420,7 @@ int tj_parse(SapTxnCtx *txn, const char *json, uint32_t len,
     jp_skip_ws(&p);
     if (p.pos != p.len) {
         if (err_pos) *err_pos = p.pos;
+        thatch_region_release(txn, region);
         return TJ_PARSE_ERROR;
     }
 
@@ -885,7 +887,10 @@ int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
                 /* Array index: .[N] */
                 uint32_t idx = 0;
                 while (*p >= '0' && *p <= '9') {
-                    idx = idx * 10 + (uint32_t)(*p - '0');
+                    uint32_t digit = (uint32_t)(*p - '0');
+                    if (idx > (UINT32_MAX - digit) / 10)
+                        return TJ_PARSE_ERROR; /* overflow */
+                    idx = idx * 10 + digit;
                     p++;
                 }
                 if (*p != ']') return TJ_PARSE_ERROR;
@@ -911,7 +916,10 @@ int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
                 if (*p >= '0' && *p <= '9') {
                     uint32_t idx = 0;
                     while (*p >= '0' && *p <= '9') {
-                        idx = idx * 10 + (uint32_t)(*p - '0');
+                        uint32_t digit = (uint32_t)(*p - '0');
+                        if (idx > (UINT32_MAX - digit) / 10)
+                            return TJ_PARSE_ERROR; /* overflow */
+                        idx = idx * 10 + digit;
                         p++;
                     }
                     if (*p != ']') return TJ_PARSE_ERROR;

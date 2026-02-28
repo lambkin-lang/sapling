@@ -709,6 +709,63 @@ static void test_zero_copy_strings(void) {
 }
 
 /* ================================================================== */
+/* Regression: [P1] path index overflow wraps to 0                    */
+/* ================================================================== */
+
+static void test_path_index_overflow(void) {
+    printf("--- path: index overflow ---\n");
+    setup();
+    ThatchRegion *r; ThatchVal v;
+
+    CHECK(parse_ok("[10, 20, 30]", &r, &v) == TJ_OK);
+
+    /* UINT32_MAX+1 = 4294967296 should be rejected, not wrap to 0 */
+    ThatchVal out;
+    CHECK(tj_path(v, ".[4294967296]", &out) == TJ_PARSE_ERROR);
+
+    /* Just below the overflow boundary should work (as NOT_FOUND) */
+    CHECK(tj_path(v, ".[4294967295]", &out) == TJ_NOT_FOUND);
+
+    /* Normal index still works */
+    CHECK(tj_path(v, ".[0]", &out) == TJ_OK);
+    int64_t iv;
+    CHECK(tj_int(out, &iv) == TJ_OK); CHECK(iv == 10);
+    teardown();
+}
+
+/* ================================================================== */
+/* Regression: [P1] parse failures release region pages               */
+/* ================================================================== */
+
+static void test_parse_failure_no_leak(void) {
+    printf("--- parse failure releases region ---\n");
+    setup();
+
+    /* Warm up arena */
+    {
+        void *warmup = NULL;
+        uint32_t warmup_pgno = 0;
+        sap_arena_alloc_page(g_arena, &warmup, &warmup_pgno);
+        sap_arena_free_page(g_arena, warmup_pgno);
+    }
+
+    uint32_t baseline = sap_arena_active_pages(g_arena);
+
+    /* Deliberately parse bad JSON many times in the same txn */
+    ThatchRegion *r; ThatchVal v; uint32_t err_pos;
+    for (int i = 0; i < 20; i++) {
+        int rc = tj_parse(g_txn, "{bad", 4, &r, &v, &err_pos);
+        CHECK(rc != TJ_OK);
+    }
+
+    /* Pages should be released, not accumulated */
+    uint32_t after = sap_arena_active_pages(g_arena);
+    CHECK(after == baseline);
+
+    teardown();
+}
+
+/* ================================================================== */
 /* Entry point                                                        */
 /* ================================================================== */
 
@@ -752,6 +809,10 @@ int main(void) {
     /* Stress */
     test_deep_nesting();
     test_zero_copy_strings();
+
+    /* Regression */
+    test_path_index_overflow();
+    test_parse_failure_no_leak();
 
     printf("\nResults: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

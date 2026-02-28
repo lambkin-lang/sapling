@@ -7,7 +7,7 @@
  *
  * Designed for portable C11 and universal Wasm compilation:
  * - No malloc per node — all data lives in ThatchRegion arena pages
- * - ThatchVal is a 12-byte value type (region pointer + cursor offset)
+ * - ThatchVal is a small value type (region pointer + cursor offset)
  * - Zero-copy string access via thatch_read_ptr
  * - O(1) subtree bypass via skip pointers (jq .[0] on a 10M-element
  *   array skips the first element in constant time, not linear)
@@ -36,8 +36,8 @@ extern "C" {
  *   TAG_NULL                                      1 byte
  *   TAG_TRUE                                      1 byte
  *   TAG_FALSE                                     1 byte
- *   TAG_INT      + int64_t (LE)                   9 bytes
- *   TAG_DOUBLE   + double  (IEEE 754 LE)          9 bytes
+ *   TAG_INT      + int64_t (native byte order)     9 bytes
+ *   TAG_DOUBLE   + double  (IEEE 754, native)     9 bytes
  *   TAG_STRING   + uint32_t(len) + UTF-8 bytes    5 + N bytes
  *   TAG_ARRAY    + uint32_t(skip) + elements...   5 + skip bytes
  *   TAG_OBJECT   + uint32_t(skip) + entries...    5 + skip bytes

@@ -95,6 +95,17 @@ Both require a WASI sysroot:
 - `docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md` defines release gates for compatibility/reliability/perf validation.
 - `docs/WASI_RUNTIME_V0.md` defines the concrete runtime invocation layer used by the shim.
 - `docs/WASI_SHIM_V0.md` defines runner worker integration with the WASI shim/runtime path.
+- `docs/THATCH_DESIGN.md` defines Thatch packed data ownership/lifetime rules,
+  nested transaction semantics, seal/commit/abort behavior, and region release
+  contracts.
+- `docs/THATCH_JSON_FORMAT.md` defines the v0 wire format (tag layout, native
+  byte order, skip pointers), jq-style path grammar, overflow protection, and
+  failure/cleanup semantics.
+
+### Thatch test targets
+- `make thatch-test` runs only the Thatch low-level tests.
+- `make thatch-json-test` runs only the Thatch JSON parser/cursor tests.
+- Both are also included in the default `make test` target.
 
 ## Source layout transition (phase 0 completed)
 - Canonical engine sources now live in:

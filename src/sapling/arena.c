@@ -251,11 +251,10 @@ int sap_arena_alloc_node(SapMemArena *arena, uint32_t size, void **node_out, uin
 int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size)
 {
     (void)size;
-    /* 
-     * In MALLOC backend, nodes occupy a chunk slot but we don't immediately
-     * drop the ID into the free_pgnos list since we aren't pooling non-page
-     * sized pieces. We just release the memory. Node-level pooling per-size
-     * is deferred to WASI blocks. 
+    /*
+     * Free a node's memory and return its slot ID to the free_pgnos list
+     * so that sap_arena_active_pages stays accurate and the slot can be
+     * reused by future allocations.
      */
     if (!arena) return SAP_ERROR;
     
@@ -267,6 +266,19 @@ int sap_arena_free_node(SapMemArena *arena, uint32_t nodeno, uint32_t size)
                 free(p);
             } else if (arena->opts.cfg.custom.free_page) {
                 arena->opts.cfg.custom.free_page(arena->opts.cfg.custom.ctx, p, size);
+            }
+            /* Track the freed slot so sap_arena_active_pages is accurate
+             * and the slot can be reused by future allocations. */
+            if (arena->free_pgno_count == arena->free_pgno_capacity) {
+                uint32_t new_cap = arena->free_pgno_capacity == 0 ? 16 : arena->free_pgno_capacity * 2;
+                uint32_t *new_free = realloc(arena->free_pgnos, new_cap * sizeof(uint32_t));
+                if (new_free) {
+                    arena->free_pgnos = new_free;
+                    arena->free_pgno_capacity = new_cap;
+                }
+            }
+            if (arena->free_pgno_count < arena->free_pgno_capacity) {
+                arena->free_pgnos[arena->free_pgno_count++] = nodeno;
             }
             return SAP_OK;
         }

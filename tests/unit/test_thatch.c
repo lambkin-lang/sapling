@@ -465,6 +465,269 @@ static void test_nested_skip_pointers(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Test: [P0] region survives commit and is readable in next txn      */
+/* ------------------------------------------------------------------ */
+static void test_region_valid_after_commit(void) {
+    printf("--- region valid after commit ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    /* Txn1: write data, commit */
+    SapTxnCtx *txn1 = sap_txn_begin(env, NULL, 0);
+    CHECK(txn1 != NULL);
+
+    ThatchRegion *r1 = NULL;
+    CHECK(thatch_region_new(txn1, &r1) == THATCH_OK);
+    CHECK(thatch_write_tag(r1, 0xAB) == THATCH_OK);
+    CHECK(thatch_write_data(r1, "hello", 5) == THATCH_OK);
+    CHECK(sap_txn_commit(txn1) == SAP_OK);
+
+    /* Txn2: start a new txn that allocates its own region.
+     * If r1's metadata was on scratch memory, txn2's scratch
+     * would alias the freed memory, corrupting r1. */
+    SapTxnCtx *txn2 = sap_txn_begin(env, NULL, 0);
+    CHECK(txn2 != NULL);
+
+    ThatchRegion *r2 = NULL;
+    CHECK(thatch_region_new(txn2, &r2) == THATCH_OK);
+    CHECK(thatch_write_tag(r2, 0xCD) == THATCH_OK);
+
+    /* r1 must still be readable and contain original data */
+    ThatchCursor cursor = 0;
+    uint8_t tag = 0;
+    CHECK(thatch_read_tag(r1, &cursor, &tag) == THATCH_OK);
+    CHECK(tag == 0xAB);  /* must NOT be 0xCD from txn2 */
+
+    char buf[8] = {0};
+    CHECK(thatch_read_data(r1, &cursor, 5, buf) == THATCH_OK);
+    CHECK(memcmp(buf, "hello", 5) == 0);
+
+    sap_txn_abort(txn2);
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: [P1] commit_skip rejects invalid skip_loc                    */
+/* ------------------------------------------------------------------ */
+static void test_commit_skip_bounds_check(void) {
+    printf("--- commit_skip bounds check ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
+    CHECK(txn != NULL);
+
+    ThatchRegion *region = NULL;
+    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+
+    /* Write a single tag byte so head == 1 */
+    CHECK(thatch_write_tag(region, 0x01) == THATCH_OK);
+
+    /* skip_loc pointing past end — must fail */
+    CHECK(thatch_commit_skip(region, 100) == THATCH_BOUNDS);
+
+    /* skip_loc at head (no room for 4-byte slot) — must fail */
+    CHECK(thatch_commit_skip(region, 1) == THATCH_BOUNDS);
+
+    /* skip_loc at 0 but only 1 byte written (need 4) — must fail */
+    CHECK(thatch_commit_skip(region, 0) == THATCH_BOUNDS);
+
+    /* Now write enough data so a valid skip_loc works */
+    ThatchCursor skip_loc;
+    CHECK(thatch_reserve_skip(region, &skip_loc) == THATCH_OK);
+    CHECK(thatch_write_tag(region, 0x42) == THATCH_OK);
+    CHECK(thatch_commit_skip(region, skip_loc) == THATCH_OK);
+
+    sap_txn_abort(txn);
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: [P1] thatch_region_release frees pages immediately           */
+/* ------------------------------------------------------------------ */
+static void test_region_release(void) {
+    printf("--- region release ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    /* Warm up arena */
+    {
+        void *warmup = NULL;
+        uint32_t warmup_pgno = 0;
+        CHECK(sap_arena_alloc_page(arena, &warmup, &warmup_pgno) == 0);
+        CHECK(sap_arena_free_page(arena, warmup_pgno) == 0);
+    }
+
+    SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
+    CHECK(txn != NULL);
+
+    uint32_t baseline = sap_arena_active_pages(arena);
+
+    /* Allocate 5 regions, then release them all within the same txn */
+    ThatchRegion *regions[5];
+    for (int i = 0; i < 5; i++) {
+        CHECK(thatch_region_new(txn, &regions[i]) == THATCH_OK);
+    }
+    CHECK(sap_arena_active_pages(arena) > baseline);
+
+    for (int i = 0; i < 5; i++) {
+        CHECK(thatch_region_release(txn, regions[i]) == THATCH_OK);
+    }
+    CHECK(sap_arena_active_pages(arena) == baseline);
+
+    sap_txn_abort(txn);
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: [P0] double-release returns THATCH_INVALID, no crash         */
+/* ------------------------------------------------------------------ */
+static void test_double_release(void) {
+    printf("--- double release ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
+    CHECK(txn != NULL);
+
+    ThatchRegion *region = NULL;
+    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+
+    /* First release succeeds */
+    CHECK(thatch_region_release(txn, region) == THATCH_OK);
+
+    /* Second release must fail — region is no longer in the txn's list */
+    CHECK(thatch_region_release(txn, region) == THATCH_INVALID);
+
+    sap_txn_abort(txn);
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: [P0] wrong-owner release returns THATCH_INVALID              */
+/* ------------------------------------------------------------------ */
+static void test_wrong_owner_release(void) {
+    printf("--- wrong-owner release ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    SapTxnCtx *txn1 = sap_txn_begin(env, NULL, 0);
+    CHECK(txn1 != NULL);
+    SapTxnCtx *txn2 = sap_txn_begin(env, NULL, 0);
+    CHECK(txn2 != NULL);
+
+    ThatchRegion *region = NULL;
+    CHECK(thatch_region_new(txn1, &region) == THATCH_OK);
+
+    /* Releasing from wrong txn must fail */
+    CHECK(thatch_region_release(txn2, region) == THATCH_INVALID);
+
+    /* Original owner can still release */
+    CHECK(thatch_region_release(txn1, region) == THATCH_OK);
+
+    sap_txn_abort(txn2);
+    sap_txn_abort(txn1);
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: [P1] nested txn: child commit + parent abort frees child     */
+/* ------------------------------------------------------------------ */
+static void test_nested_child_commit_parent_abort(void) {
+    printf("--- nested: child commit + parent abort ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    /* Warm up arena */
+    {
+        void *warmup = NULL;
+        uint32_t warmup_pgno = 0;
+        CHECK(sap_arena_alloc_page(arena, &warmup, &warmup_pgno) == 0);
+        CHECK(sap_arena_free_page(arena, warmup_pgno) == 0);
+    }
+
+    uint32_t baseline = sap_arena_active_pages(arena);
+
+    /* Parent txn */
+    SapTxnCtx *parent = sap_txn_begin(env, NULL, 0);
+    CHECK(parent != NULL);
+
+    /* Child txn */
+    SapTxnCtx *child = sap_txn_begin(env, parent, 0);
+    CHECK(child != NULL);
+
+    /* Allocate regions in child */
+    ThatchRegion *r1 = NULL;
+    CHECK(thatch_region_new(child, &r1) == THATCH_OK);
+    ThatchRegion *r2 = NULL;
+    CHECK(thatch_region_new(child, &r2) == THATCH_OK);
+    CHECK(sap_arena_active_pages(arena) > baseline);
+
+    /* Child commits — regions should transfer to parent */
+    CHECK(sap_txn_commit(child) == 0);
+
+    /* Parent aborts — child-committed regions must be freed */
+    sap_txn_abort(parent);
+    CHECK(sap_arena_active_pages(arena) == baseline);
+
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
+/* Test: [P1] nested txn: child commit + parent commit finalizes      */
+/* ------------------------------------------------------------------ */
+static void test_nested_child_commit_parent_commit(void) {
+    printf("--- nested: child commit + parent commit ---\n");
+    SapMemArena *arena = NULL;
+    SapEnv *env = NULL;
+    make_env(&arena, &env);
+
+    /* Parent txn */
+    SapTxnCtx *parent = sap_txn_begin(env, NULL, 0);
+    CHECK(parent != NULL);
+
+    /* Child txn */
+    SapTxnCtx *child = sap_txn_begin(env, parent, 0);
+    CHECK(child != NULL);
+
+    /* Write data in child */
+    ThatchRegion *region = NULL;
+    CHECK(thatch_region_new(child, &region) == THATCH_OK);
+    CHECK(thatch_write_tag(region, 0xAA) == THATCH_OK);
+    CHECK(thatch_write_data(region, "nested", 6) == THATCH_OK);
+
+    /* Child commits */
+    CHECK(sap_txn_commit(child) == 0);
+
+    /* Parent commits */
+    CHECK(sap_txn_commit(parent) == 0);
+
+    /* Data must still be readable */
+    ThatchCursor cursor = 0;
+    uint8_t tag = 0;
+    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(tag == 0xAA);
+    char buf[8] = {0};
+    CHECK(thatch_read_data(region, &cursor, 6, buf) == THATCH_OK);
+    CHECK(memcmp(buf, "nested", 6) == 0);
+
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+/* ------------------------------------------------------------------ */
 /* Entry point                                                        */
 /* ------------------------------------------------------------------ */
 int main(void) {
@@ -479,6 +742,13 @@ int main(void) {
     test_bounds_checking();
     test_invalid_args();
     test_nested_skip_pointers();
+    test_region_valid_after_commit();
+    test_commit_skip_bounds_check();
+    test_region_release();
+    test_double_release();
+    test_wrong_owner_release();
+    test_nested_child_commit_parent_abort();
+    test_nested_child_commit_parent_commit();
 
     printf("\nResults: %d passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

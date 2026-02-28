@@ -102,6 +102,14 @@ int thatch_commit_skip(ThatchRegion *region, ThatchCursor skip_loc);
  */
 int thatch_seal(SapTxnCtx *txn, ThatchRegion *region);
 
+/*
+ * thatch_region_release — release a region and its backing page.
+ * Removes the region from the transaction's tracking list and frees
+ * both the data page and the region metadata.  Use this to avoid
+ * leaking pages when a parse or write operation fails mid-region.
+ */
+int thatch_region_release(SapTxnCtx *txn, ThatchRegion *region);
+
 /* ------------------------------------------------------------------ */
 /* Reading / Cursor Traversal API                                     */
 /* ------------------------------------------------------------------ */
