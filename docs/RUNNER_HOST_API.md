@@ -96,13 +96,13 @@ int my_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *req, uint32_t req_
         return SAP_BUSY;
     }
 
-    // 2. Read state from DBI 10
-    if (sap_host_v0_get(host, 10, "key", 3, &val, &len) == SAP_OK) {
+    // 2. Read state from DBI 0 (app_state)
+    if (sap_host_v0_get(host, 0, "key", 3, &val, &len) == SAP_OK) {
         // ...
     }
     
     // 3. Stage a write
-    sap_host_v0_put(host, 10, "counter", 7, "\x01\x00...", 8);
+    sap_host_v0_put(host, 0, "counter", 7, "\x01\x00...", 8);
     
     // 4. Emit a side effect
     sap_host_v0_emit(host, "hello", 5);

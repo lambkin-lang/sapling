@@ -6,6 +6,7 @@
  */
 
 #include "sapling/sapling.h"
+#include "sapling/txn.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +26,7 @@ static void bench_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {bench_alloc, bench_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static double now_seconds(void)
 {
@@ -111,10 +112,22 @@ static void free_dataset(const void *const *keys, uint32_t *key_lens, const void
     free(val_buf);
 }
 
+static DB *create_bench_db(void)
+{
+    SapEnv *env = sap_env_create(g_alloc, SAPLING_PAGE_SIZE);
+    if (!env) return NULL;
+    /* Initialize B-Tree subsystem */
+    if (sap_btree_subsystem_init(env, NULL, NULL) != SAP_OK) {
+        sap_env_destroy(env);
+        return NULL;
+    }
+    return (DB *)env;
+}
+
 static int run_put_sorted(uint32_t count, const void *const *keys, const uint32_t *key_lens,
                           const void *const *vals, const uint32_t *val_lens)
 {
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    DB *db = create_bench_db();
     if (!db)
         return 0;
 
@@ -149,7 +162,7 @@ static int run_put_sorted(uint32_t count, const void *const *keys, const uint32_
 static int run_load_sorted(uint32_t count, const void *const *keys, const uint32_t *key_lens,
                            const void *const *vals, const uint32_t *val_lens)
 {
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    DB *db = create_bench_db();
     if (!db)
         return 0;
 
@@ -197,7 +210,7 @@ static int run_put_sorted_nonempty(uint32_t base_count, uint32_t delta_count,
                                    const void *const *delta_keys, const uint32_t *delta_key_lens,
                                    const void *const *delta_vals, const uint32_t *delta_val_lens)
 {
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    DB *db = create_bench_db();
     if (!db)
         return 0;
     if (!preload_sorted(db, base_count, base_keys, base_key_lens, base_vals, base_val_lens))
@@ -238,7 +251,7 @@ static int run_load_sorted_nonempty(uint32_t base_count, uint32_t delta_count,
                                     const void *const *delta_keys, const uint32_t *delta_key_lens,
                                     const void *const *delta_vals, const uint32_t *delta_val_lens)
 {
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    DB *db = create_bench_db();
     if (!db)
         return 0;
     if (!preload_sorted(db, base_count, base_keys, base_key_lens, base_vals, base_val_lens))
@@ -271,6 +284,14 @@ static int run_load_sorted_nonempty(uint32_t base_count, uint32_t delta_count,
 
 int main(int argc, char **argv)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = bench_alloc,
+        .cfg.custom.free_page = bench_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     uint32_t count = 100000;
     uint32_t rounds = 3;
     uint32_t delta_start;

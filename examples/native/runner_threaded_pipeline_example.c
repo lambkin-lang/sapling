@@ -51,16 +51,16 @@ typedef struct
     PipelineCtx *pipeline;
     const char *name;
     const uint8_t *in_prefix;
-    uint32_t in_prefix_len;
     const uint8_t *out_prefix;
-    uint32_t out_prefix_len;
     const uint8_t *counter_key;
-    uint32_t counter_key_len;
     const uint8_t *status_value;
+    uint64_t processed;
+    uint32_t in_prefix_len;
+    uint32_t out_prefix_len;
+    uint32_t counter_key_len;
     uint32_t status_value_len;
     uint32_t compute_delay_ms;
     int adjust_inventory;
-    uint64_t processed;
     int last_rc;
 } StageThreadCtx;
 
@@ -77,7 +77,7 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static void wr64be(uint8_t out[8], uint64_t v)
 {
@@ -641,6 +641,14 @@ static int verify_pipeline_state(PipelineCtx *pipeline, uint32_t order_count)
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     PipelineCtx pipeline;
     StageThreadCtx stages[4];
     pthread_t threads[4];
@@ -652,7 +660,7 @@ int main(void)
     memset(&pipeline, 0, sizeof(pipeline));
     memset(stages, 0, sizeof(stages));
 
-    pipeline.db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    pipeline.db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!pipeline.db)
     {
         fprintf(stderr, "runner-threaded-pipeline-example: db_open failed\n");

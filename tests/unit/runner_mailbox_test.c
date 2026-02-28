@@ -6,6 +6,7 @@
 #include "generated/wit_schema_dbis.h"
 #include "runner/mailbox_v0.h"
 #include "runner/runner_v0.h"
+#include "sapling/bept.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -33,16 +34,21 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static DB *new_db(void)
 {
-    DB *db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!db)
     {
         return NULL;
     }
     if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    {
+        db_close(db);
+        return NULL;
+    }
+    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
     {
         db_close(db);
         return NULL;
@@ -195,6 +201,14 @@ static int test_requeue_moves_message_and_clears_lease(void)
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     int rc;
 
     rc = test_claim_busy_and_takeover();

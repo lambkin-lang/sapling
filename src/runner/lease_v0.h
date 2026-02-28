@@ -22,26 +22,23 @@ typedef struct
 
 /* --- Staged Operations (for use in atomic blocks) --- */
 
-/* Attempt to acquire a lease. 
- * Returns SAP_OK if acquired, SAP_BUSY if held by others, or SAP_ERROR. 
+/* Attempt to acquire a lease.
+ * Returns SAP_OK if acquired, SAP_BUSY if held by others, or SAP_ERROR.
  */
-int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn,
-                                      const void *key, uint32_t key_len,
-                                      uint64_t owner_worker, int64_t now_ts,
+int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
+                                      uint32_t key_len, uint64_t owner_worker, int64_t now_ts,
                                       int64_t duration_ms, SapRunnerLeaseV0 *lease_out);
 
-/* Release a lease. 
- * Returns SAP_OK if released, SAP_CONFLICT if not owned by claimant, or SAP_ERROR. 
+/* Release a lease.
+ * Returns SAP_OK if released, SAP_CONFLICT if not owned by claimant, or SAP_ERROR.
  */
-int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn,
-                                      const void *key, uint32_t key_len,
-                                      uint64_t owner_worker);
+int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
+                                      uint32_t key_len, uint64_t owner_worker);
 
 /* --- Serialization --- */
 
 void sap_runner_lease_v0_encode(const SapRunnerLeaseV0 *lease,
                                 uint8_t out[SAP_RUNNER_LEASE_V0_VALUE_SIZE]);
-int sap_runner_lease_v0_decode(const uint8_t *raw, uint32_t raw_len,
-                               SapRunnerLeaseV0 *lease_out);
+int sap_runner_lease_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerLeaseV0 *lease_out);
 
 #endif /* SAPLING_RUNNER_LEASE_V0_H */

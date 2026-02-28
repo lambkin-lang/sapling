@@ -20,8 +20,8 @@ typedef struct
 } SapHostV0;
 
 /* Initialize a host API context for use within an atomic block execution phase. */
-void sap_host_v0_init(SapHostV0 *host, SapRunnerTxStackV0 *stack, Txn *read_txn,
-                      uint64_t worker_id, int64_t now_ms);
+void sap_host_v0_init(SapHostV0 *host, SapRunnerTxStackV0 *stack, Txn *read_txn, uint64_t worker_id,
+                      int64_t now_ms);
 
 /* --- Data APIs (mapped to txstack staging) --- */
 

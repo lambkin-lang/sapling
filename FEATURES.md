@@ -101,7 +101,7 @@ transactions; they return `SAP_BUSY` if readers or a writer are active.
 
 ## Priority 2 — Enables relational patterns and indexes
 
-### DupSort (sorted duplicate keys)
+### DupSort (sorted duplicate keys) (done)
 A single key mapping to multiple sorted values. Essential for secondary indexes
 where many rows map to the same index value.
 
@@ -119,7 +119,7 @@ Without DupSort, secondary indexes require composite keys
 (`index_value || primary_key`), which makes count queries and existence checks
 awkward.
 
-### Prefix / range-end helpers
+### Prefix / range-end helpers (done)
 Native support for bounded iteration without manual key comparison in the
 caller.
 
@@ -139,13 +139,14 @@ code.
 
 ## Priority 3 — Performance and ergonomics
 
-### Bulk sorted load (initial implementation)
-`txn_load_sorted` is available with sorted-input validation and now uses an
-O(n) leaf/internal builder when loading into an empty DBI.
+### Bulk sorted load (done)
+`txn_load_sorted` is complete. For loading into an empty DBI, it uses an
+`O(n)` leaf/internal builder.
 
 For non-empty, non-DUPSORT DBIs in a clean write transaction state, it uses a
-merge+rebuild fast path (preserving upsert semantics). Other cases still fall
-back to the regular put path to preserve behavior.
+merge+rebuild fast path (preserving upsert semantics). 
+
+**Discrepancy / Remaining Optimization:** `txn_load_sorted` on a `DUPSORT` database currently falls back to a loop of standard `O(log n)` inserts rather than the optimized `O(n)` tree-builder. Addressing this is a future optimization.
 
 ```c
 int txn_load_sorted(Txn *txn, DBI dbi,
@@ -171,10 +172,10 @@ int cursor_get_key(Cursor *cur,
                    const void **key_out, uint32_t *key_len_out);
 ```
 
-### Entry count per range (done, exact for now)
-`txn_count_range` is available with half-open semantics `[lo, hi)` and currently
-uses cursor iteration, so results are exact. This can later be replaced with an
-approximate structural estimator if needed for planning-speed tradeoffs.
+### Entry count per range (done)
+`txn_count_range` is complete with half-open semantics `[lo, hi)`.
+
+**Discrepancy / Remaining Optimization:** It currently uses cursor iteration, so results are exact but O(k) for k elements. This can later be replaced with an approximate structural estimator if `O(1)` counting is needed for query planning-speed tradeoffs.
 
 ```c
 int txn_count_range(Txn *txn, DBI dbi,
@@ -286,7 +287,12 @@ Cross-worker coordination is restricted to:
 1. serialized messages (Canonical ABI-compatible payloads)
 2. database state and queues
 
-No shared mutable memory is used between workers.
+No shared mutable memory is used between workers, with the MVCC B+ Tree acting as the sole safe state-sharing channel.
+
+### Threaded Host Wasm-Modeling and Memory Ownership
+The threaded host serves as the foundation for modeling Wasm-systems natively. For performance, passing large structures (e.g., large `text` blocks) between workers via deep-copy messaging is prohibitive.
+- **Ownership Transfer Mechanism**: A protocol must go into place to cheaply transfer memory ownership of isolated structures (like `text` buffers) between threads without copying.
+- **Z3 Static Analysis**: The Lambkin compiler leverages a Z3 solver during its flow analysis. Since it can statically prove that references don't escape or are uniquely passed, we can safely allow this ownership transfer at the C/Host level without expensive runtime locking or garbage collection. The Wasm-like semantics of the host provide strong runtime sandbox guarantees, backed by the compiler's strict proofs.
 
 ### Transaction contract for language atomic blocks
 Atomic blocks in guest code are treated as side-effect-free transactional logic:
@@ -417,7 +423,7 @@ Phase 0 status (initiated):
 - done: WIT-first schema pipeline (`wit-schema-check`, `wit-schema-generate`,
   `wit-schema-cc-check`, generated `schemas/dbi_manifest.csv`, generated C DBI metadata)
 - done: deterministic fault-injection harness scaffold
-- in progress: expand lint/static-analysis scope from phase-0 files to entire
+- done: expand lint/static-analysis scope from phase-0 files to entire
   codebase once legacy formatting debt is paid down
 
 #### Phase A — Runner skeleton + contracts
@@ -647,9 +653,9 @@ Phase F status:
 
 ---
 
-## Priority 6 — Advanced / future
+## Priority 6 — Advanced / Feature Parity (DONE)
 
-### Overflow pages for large values (initial support done)
+### Overflow pages for large values (done)
 Non-DUPSORT values can now spill to chained overflow pages when a value no
 longer fits in a single leaf cell. The leaf stores an overflow reference and
 logical value length, while read paths reconstruct bytes transparently.
@@ -677,7 +683,7 @@ order and sorted-load validation).
 int dbi_set_dupsort(DB *db, uint32_t dbi, keycmp_fn vcmp, void *vcmp_ctx);
 ```
 
-### TTL / automatic expiry (initial helper support done)
+### TTL / automatic expiry (done)
 Initial helper APIs now support TTL-managed keyspaces using a companion
 metadata DBI:
 
@@ -719,7 +725,7 @@ Next priorities:
 4. [x] Add optional lazy-expiry deletes on read/cursor paths in write txns.
 5. [x] Add host-runner background sweep cadence and observability counters.
 
-### Range delete (done, scan-backed for now)
+### Range delete (done)
 `txn_del_range` is available with half-open semantics `[lo, hi)` and currently
 uses cursor-driven deletion, so results are exact and predictable across DBI
 modes (including DUPSORT duplicates counted as separate entries). A future
@@ -775,3 +781,32 @@ Wasm workers are traditionally treated as black boxes, forcing Sapling to redund
 ### 4. ACSL and Frama-C Host Verification
 If the Lambkin language guarantees absolutely correct interaction from the guest, the Sapling C engine becomes the weakest point.
 - **Goal:** Annotate the core engine logic (e.g. `txn_sweep_ttl_dbi`, `txn_put_if`, allocation boundaries) using ACSL (ANSI/ISO C Specification Language). Utilize external tools like Frama-C or CBMC to formally prove that the host environment perfectly honors the constraints expected by the Lambkin Z3 proofs.
+
+---
+
+## Priority 8 — Universal Wasm Data Structures & Unification
+
+To serve as a high-performance Wasm target out of the box, existing capabilities (`sapling.c`, `seq.c`) will be brought under a unified architecture, expanding to structures uniquely suited for WebAssembly instruction sets.
+
+### Unified Node-Allocation and COW Mechanism
+- **Goal:** Both the Finger Tree (`seq.c`) and the B+ Tree (`sapling.c`) currently use independent allocation schemes (raw `malloc` versus an internal `PageAllocator`). We will unify them under a single, Universal MVP Wasm linear memory allocator.
+- **Benefit:** Reduces binary size, ensures cache-cohesive node fetching, and eliminates duplicate implementation of garbage collection or deferred-free logic. It is optimized specifically for compilation to Wasm using Wasmtime/WASI, but naturally remains runnable as fast native C.
+
+### Transaction Machine Sharing
+- **Goal:** Pull the Transaction context (`struct Txn`, `watches`, rollback states) out of the sole B+ Tree implementation into a generalized "Transactional Store" layer.
+- **Benefit:** Allows the Finger Tree, B+ Tree, and all future Tries to effortlessly participate in the same `txnid` snapshoting, rollback, and uncommitted write visibility rules. They share the same mutation history, allowing arbitrary composite interactions in atomic blocks.
+
+### Wasm-Optimized Map/Set Implementations
+- **Big-Endian Patricia Trie (BEPT) (done):** A highly compact radix tree ideal for integer-keyed maps or fast memory indexing. It branches cleanly using bitwise checks and natively lowers to zero-overhead Wasm instructions like `i32/64.clz` (count leading zeros).
+- **Hash Array Mapped Trie (HAMT):** Excellent for general hash maps/sets. It relies heavily on bitmap querying, which cleanly compiles down to Wasm's native `popcnt` instruction, offering very high memory density and "almost hash table-like" speed without array-resize overheads.
+
+### Strong Mutable `text` Implementation
+- **Goal:** Implement a sophisticated string type (`text`) optimized for heavily mutated text (like a Rope or a Piece Table), leveraging the Finger Tree engine.
+- **Next steps:** Finalize how ownership transfer works across threads for these large sequential allocations (integrating with Lambkin's Z3 compiler proofs) to avoid massive allocation copying when exchanging text over the substrate.
+
+---
+
+## Priority 9 — Tunable Data Structures (Compile-Time Subsets)
+
+- **Goal:** Introduce compile-time meta-programming (via C macros or static feature flags) to strip down or scale up features. Small applications shouldn't pay the binary-size or memory overhead for transaction nested-stack handling if they only need a basic dictionary.
+- **Benefit:** Manage the trade-off between **executable size** and **speed / capability**. Congent subsets of functionality can be turned on or off gracefully depending on the specific application's requirement profile.

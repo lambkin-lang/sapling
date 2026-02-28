@@ -1,0 +1,80 @@
+name: Benchmark Guardrail
+
+on:
+  workflow_dispatch:
+    inputs:
+      emit_baseline_update:
+        description: "Record mode: emit baseline update lines instead of enforcing guardrails"
+        required: false
+        default: false
+        type: boolean
+      bench_count:
+        description: "Benchmark count override"
+        required: false
+        default: "100000"
+        type: string
+      bench_rounds:
+        description: "Benchmark rounds override"
+        required: false
+        default: "3"
+        type: string
+      baseline_profile:
+        description: "Baseline profile override"
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - linux
+          - apple_silicon
+
+jobs:
+  benchmark-guardrail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+          clang --version
+
+      - name: Run benchmark guardrail
+        env:
+          BENCH_COUNT: ${{ inputs.bench_count }}
+          BENCH_ROUNDS: ${{ inputs.bench_rounds }}
+          BENCH_EMIT_BASELINE_UPDATE: ${{ inputs.emit_baseline_update && '1' || '0' }}
+          BENCH_BASELINE_PROFILE: ${{ inputs.baseline_profile != 'auto' && inputs.baseline_profile || '' }}
+          BENCH_BASELINE_UPDATE_FILE: benchmark-baseline-update.env
+        run: |
+          set -euo pipefail
+          echo "Runner: ${RUNNER_OS}/${RUNNER_ARCH}"
+          make bench-ci \
+            CC=clang \
+            BENCH_COUNT="${BENCH_COUNT}" \
+            BENCH_ROUNDS="${BENCH_ROUNDS}"
+
+      - name: Upload baseline update artifact
+        if: always() && inputs.emit_baseline_update
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline-update-${{ github.run_id }}
+          path: benchmark-baseline-update.env
+          if-no-files-found: error
+
+      - name: Append baseline update to run summary
+        if: always() && inputs.emit_baseline_update
+        run: |
+          if [[ -f benchmark-baseline-update.env ]]; then
+            {
+              echo "### Baseline Update Suggestion"
+              echo ""
+              echo '```bash'
+              cat benchmark-baseline-update.env
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

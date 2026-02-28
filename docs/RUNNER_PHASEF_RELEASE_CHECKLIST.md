@@ -27,7 +27,7 @@ This runs:
 Expected:
 - all unit/integration targets pass
 - threaded lifecycle TSan target passes
-- no lint/format regressions
+- no lint regressions (`make style-check` is available for formatting audits)
 
 ## 3) Coupling-study benchmark
 

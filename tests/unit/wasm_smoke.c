@@ -32,8 +32,15 @@ static int expect_kv(Txn *txn, const char *key, const char *val)
 
 int main(void)
 {
-    PageAllocator alloc = {smoke_alloc, smoke_free, NULL};
-    DB *db = db_open(&alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    SapMemArena *alloc = NULL;
+    SapArenaOptions alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = smoke_alloc,
+        .cfg.custom.free_page = smoke_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&alloc, &alloc_opts);
+    DB *db = db_open(alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     Txn *outer = NULL;
     Txn *inner = NULL;
     Txn *r = NULL;

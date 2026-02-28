@@ -20,7 +20,7 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
 
 /* Acknowledge and remove inbox+lease, guarded by exact expected lease token. */
 int sap_runner_mailbox_v0_ack(DB *db, uint64_t worker_id, uint64_t seq,
-                               const SapRunnerLeaseV0 *expected_lease);
+                              const SapRunnerLeaseV0 *expected_lease);
 
 /* Requeue claimed message at new_seq, guarded by exact expected lease token. */
 int sap_runner_mailbox_v0_requeue(DB *db, uint64_t worker_id, uint64_t seq,

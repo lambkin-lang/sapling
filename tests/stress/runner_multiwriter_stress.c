@@ -20,6 +20,14 @@
 #ifndef SAPLING_THREADED
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     printf("runner-multiwriter-stress: SAPLING_THREADED required (skipped)\n");
     return 0;
 }
@@ -88,7 +96,7 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static void wr64be(uint8_t out[8], uint64_t v)
 {
@@ -593,7 +601,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
     memset(workers, 0, sizeof(workers));
     memset(&dispatch, 0, sizeof(dispatch));
 
-    db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!db)
     {
         fprintf(stderr, "runner-multiwriter-stress: round=%u db_open failed\n", round_index);
@@ -889,6 +897,14 @@ done:
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     uint32_t rounds = env_u32("RUNNER_MULTIWRITER_STRESS_ROUNDS", STRESS_DEFAULT_ROUNDS);
     uint32_t orders = env_u32("RUNNER_MULTIWRITER_STRESS_ORDERS", STRESS_DEFAULT_ORDERS);
     uint32_t timeout_ms =

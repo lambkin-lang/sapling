@@ -74,9 +74,8 @@ int sap_runner_lease_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerLe
     return SAP_OK;
 }
 
-int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn,
-                                      const void *key, uint32_t key_len,
-                                      uint64_t owner_worker, int64_t now_ts,
+int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
+                                      uint32_t key_len, uint64_t owner_worker, int64_t now_ts,
                                       int64_t duration_ms, SapRunnerLeaseV0 *lease_out)
 {
     const void *val = NULL;
@@ -90,8 +89,8 @@ int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn,
         return SAP_ERROR;
     }
 
-    rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_LEASES, key, key_len,
-                                        &val, &val_len);
+    rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_LEASES, key, key_len, &val,
+                                        &val_len);
     if (rc == SAP_OK)
     {
         SapRunnerLeaseV0 cur = {0};
@@ -122,8 +121,8 @@ int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn,
     }
 
     sap_runner_lease_v0_encode(&next, raw);
-    rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_LEASES, key, key_len,
-                                             raw, sizeof(raw));
+    rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_LEASES, key, key_len, raw,
+                                             sizeof(raw));
     if (rc == SAP_OK)
     {
         *lease_out = next;
@@ -131,9 +130,8 @@ int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn,
     return rc;
 }
 
-int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn,
-                                      const void *key, uint32_t key_len,
-                                      uint64_t owner_worker)
+int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
+                                      uint32_t key_len, uint64_t owner_worker)
 {
     const void *val = NULL;
     uint32_t val_len = 0u;
@@ -145,8 +143,8 @@ int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn,
         return SAP_ERROR;
     }
 
-    rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_LEASES, key, key_len,
-                                        &val, &val_len);
+    rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_LEASES, key, key_len, &val,
+                                        &val_len);
     if (rc != SAP_OK)
     {
         return rc;

@@ -53,7 +53,7 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
 static void wr64be(uint8_t out[8], uint64_t v)
 {
@@ -323,6 +323,14 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     static const uint8_t payload[] = {'n', 'a', 't', 'i', 'v', 'e', '-', 'v', '0'};
     static const uint8_t msg_id[] = {'e', 'x', 'a', 'm', 'p', 'l', 'e', '-', '1'};
     SapRunnerMessageV0 msg = {0};
@@ -346,7 +354,7 @@ int main(void)
     int worker_inited = 0;
     DB *db = NULL;
 
-    db = db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     dbi_open(db, 10u, NULL, NULL, 0u);
     if (!db)
     {

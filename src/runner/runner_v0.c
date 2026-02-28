@@ -173,31 +173,40 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
                                   uint32_t payload_len, void *ctx)
 {
     TimerDispatchCtx *tctx = (TimerDispatchCtx *)ctx;
+    SapRunnerV0Worker *worker;
+    int64_t step_start_ms;
+    int64_t step_end_ms;
     int rc;
 
     (void)due_ts;
-    if (!tctx || !tctx->worker)
+    if (!tctx || !tctx->worker || !payload || payload_len == 0u)
     {
         return SAP_ERROR;
     }
+    worker = tctx->worker;
 
-    /* 
-     * Fire the timer message into the worker's own inbox.
-     * We use the timer's sequence number as the inbox sequence number.
-     * This is fine because timer sequences are unique within the worker's timer space,
-     * and inbox sequences are traditionally managed by the sender.
-     */
-    rc = sap_runner_v0_inbox_put(tctx->worker->runner.db, tctx->worker->runner.worker_id, seq,
-                                 payload, payload_len);
+    metrics_note_step_attempt(&worker->runner);
+    step_start_ms = worker_now_ms(worker);
+    emit_replay_event(&worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT, seq, SAP_OK,
+                      payload, payload_len);
+    rc = sap_runner_v0_run_step(&worker->runner, payload, payload_len, worker->handler,
+                                worker->handler_ctx);
+    step_end_ms = worker_now_ms(worker);
+    metrics_note_latency(&worker->runner, step_start_ms, step_end_ms);
+    emit_replay_event(&worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, seq, (int32_t)rc,
+                      payload, payload_len);
     if (rc != SAP_OK)
     {
-        metrics_note_failure(&tctx->worker->runner, rc);
-        emit_log_event(&tctx->worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u, (int32_t)rc, 0u);
+        metrics_note_failure(&worker->runner, rc);
+        emit_log_event(&worker->runner,
+                       is_retryable_step_rc(rc)
+                           ? SAP_RUNNER_V0_LOG_EVENT_STEP_RETRYABLE_FAILURE
+                           : SAP_RUNNER_V0_LOG_EVENT_STEP_NON_RETRYABLE_FAILURE,
+                       seq, (int32_t)rc, 0u);
         return rc;
     }
 
-    emit_replay_event(&tctx->worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, seq, SAP_OK,
-                      payload, payload_len);
+    metrics_note_step_success(&worker->runner);
     tctx->count++;
     return SAP_OK;
 }

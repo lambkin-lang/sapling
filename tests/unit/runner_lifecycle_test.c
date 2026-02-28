@@ -6,9 +6,13 @@
 #include "runner/runner_v0.h"
 #include "runner/mailbox_v0.h"
 #include "runner/timer_v0.h"
+#ifndef SAP_WIT_SCHEMA_DBIS_H
 #include "generated/wit_schema_dbis.h"
+#endif
 
+#include "sapling/bept.h"
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -71,9 +75,25 @@ static void test_free(void *ctx, void *p, uint32_t sz)
     free(p);
 }
 
-static PageAllocator g_alloc = {test_alloc, test_free, NULL};
+static SapMemArena *g_alloc = NULL;
 
-static DB *new_db(void) { return db_open(&g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
+static void timer_to_bept_key(int64_t due_ts, uint64_t seq, uint32_t out_key[4]) {
+    /* Flip sign bit of signed int64 to sort correctly as unsigned */
+    uint64_t ts_encoded = (uint64_t)due_ts ^ 0x8000000000000000ULL;
+    
+    out_key[0] = (uint32_t)(ts_encoded >> 32);
+    out_key[1] = (uint32_t)(ts_encoded & 0xFFFFFFFF);
+    out_key[2] = (uint32_t)(seq >> 32);
+    out_key[3] = (uint32_t)(seq & 0xFFFFFFFF);
+}
+
+static DB *new_db(void) { 
+    DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); 
+    if (db) {
+        (void)sap_bept_subsystem_init((SapEnv *)db);
+    }
+    return db;
+}
 
 static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *ctx)
 {
@@ -200,7 +220,7 @@ static int inbox_entry_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exi
 static int timer_entry_exists(DB *db, int64_t due_ts, uint64_t seq, int *exists_out)
 {
     Txn *txn;
-    uint8_t key[SAP_RUNNER_TIMER_KEY_V0_SIZE];
+    uint32_t bept_key[4];
     const void *val = NULL;
     uint32_t val_len = 0u;
     int rc;
@@ -215,8 +235,8 @@ static int timer_entry_exists(DB *db, int64_t due_ts, uint64_t seq, int *exists_
     {
         return SAP_ERROR;
     }
-    sap_runner_timer_v0_key_encode(due_ts, seq, key);
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_TIMERS, key, sizeof(key), &val, &val_len);
+    timer_to_bept_key(due_ts, seq, bept_key);
+    rc = sap_bept_get((Txn *)txn, bept_key, 4, &val, &val_len);
     txn_abort(txn);
 
     if (rc == SAP_OK)
@@ -1302,6 +1322,14 @@ static int test_worker_idle_sleep_budget(void)
 
 int main(void)
 {
+    SapArenaOptions g_alloc_opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .cfg.custom.alloc_page = test_alloc,
+        .cfg.custom.free_page = test_free,
+        .cfg.custom.ctx = NULL
+    };
+    sap_arena_init(&g_alloc, &g_alloc_opts);
+
     if (test_inbox_key_codec() != 0)
     {
         return 1;

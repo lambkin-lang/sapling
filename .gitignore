@@ -56,7 +56,11 @@ dkms.conf
 
 # Sapling build artifacts
 test_sapling
+test_text
+test_seq
 bench_sapling
+bench_seq
+bench_text
 fault_harness
 runner_wire_test
 runner_lifecycle_test
@@ -81,3 +85,16 @@ _codeql_detected_source_root
 
 # Build directory
 build/
+
+# Local fuzz corpora and crash artifacts
+.fuzz-corpus/
+
+# Keep checked-in seq fuzz seed corpus stable; ignore evolved local files
+tests/fuzz/corpus/seq/*
+!tests/fuzz/corpus/seq/.gitignore
+!tests/fuzz/corpus/seq/seed_*.bin
+
+# Keep checked-in text fuzz seed corpus stable; ignore evolved local files
+tests/fuzz/corpus/text/*
+!tests/fuzz/corpus/text/.gitignore
+!tests/fuzz/corpus/text/seed_*.bin

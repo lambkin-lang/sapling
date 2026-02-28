@@ -46,9 +46,19 @@ notifications.
 - `make phaseb-check` runs phase-A checks plus phase-B tx/attempt tests
 - `make phasec-check` runs phase-B checks plus phase-C mailbox/dead-letter/outbox/timer tests
 
-Benchmark guardrail overrides:
+Benchmark guardrail:
+- `Benchmark Guardrail` GitHub Actions workflow is manual-only (`workflow_dispatch`)
+- Default mode compares benchmark output against committed baseline values for the detected host profile
+- Record mode (`emit_baseline_update=true`) prints suggested baseline lines for updating `benchmarks/baseline.env`
+
+Benchmark guardrail overrides for local/manual runs:
 - `BENCH_BASELINE=benchmarks/baseline.env` selects the baseline file
 - `BENCH_ALLOWED_REGRESSION_PCT=45` overrides the allowed regression budget
+- `BENCH_BASELINE_PROFILE=linux|apple_silicon` forces a profile instead of auto-detection
+- `BENCH_EMIT_BASELINE_UPDATE=1` emits baseline update lines instead of enforcing guardrail checks
+- `benchmarks/baseline.env` should include provenance metadata per profile, e.g.
+  `BASELINE_CAPTURED_AT_UTC_LINUX`, `BASELINE_CAPTURED_COMMIT_LINUX`,
+  `BASELINE_CAPTURED_HOSTNAME_LINUX`, and `BASELINE_CAPTURED_MACHINE_LINUX`
 
 ## Wasm build checks
 Sapling includes explicit `wasm32-wasi` targets:
