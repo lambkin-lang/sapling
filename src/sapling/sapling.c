@@ -1658,7 +1658,9 @@ static uint32_t int_split(struct BTreeTxnState *txn, uint32_t lpgno, void *lpg, 
 int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len,
                       const void *val, uint32_t val_len, unsigned flags, void **reserved_out)
 {
-    struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!txn_pub) return SAP_ERROR;
+    struct BTreeTxnState *txn = sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB);
+    if (!txn) return SAP_ERROR;
     struct ScratchMark scratch_mark = txn_scratch_mark(txn);
     const void *watch_key = key;
     uint32_t watch_key_len = key_len;

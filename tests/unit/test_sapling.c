@@ -4170,6 +4170,16 @@ static void test_writer_reader_concurrent(void)
 #endif /* SAPLING_THREADED */
 
 /* ================================================================== */
+/* Regression: txn_put(NULL, ...) must return SAP_ERROR, not crash     */
+/* ================================================================== */
+static void test_null_txn_put(void) {
+    printf("test_null_txn_put...\n");
+    CHECK(txn_put(NULL, "k", 1, "v", 1) == SAP_ERROR);
+    CHECK(txn_put_flags(NULL, "k", 1, "v", 1, 0, NULL) == SAP_ERROR);
+    printf("  ok\n");
+}
+
+/* ================================================================== */
 /* main                                                                 */
 /* ================================================================== */
 
@@ -4244,6 +4254,7 @@ int main(void)
     test_watch_notifications();
     test_watch_nested_commit();
     test_watch_api_hardening();
+    test_null_txn_put();
 
 #ifdef SAPLING_THREADED
     test_concurrent_readers();

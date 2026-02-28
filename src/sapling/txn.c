@@ -16,6 +16,11 @@ struct SapTxnCtx {
     uint64_t txnid;
     unsigned int flags;
     void *subsystem_states[SAP_MAX_SUBSYSTEMS];
+    /* Scratch bump allocator for small per-transaction allocations */
+    uint8_t *scratch_page;
+    uint32_t scratch_pgno;
+    uint32_t scratch_head;
+    uint32_t scratch_cap;
 };
 
 SapEnv *sap_env_create(SapMemArena *arena, uint32_t page_size) {
@@ -121,7 +126,7 @@ int sap_txn_commit(SapTxnCtx *txn)
 {
     if (!txn) return SAP_ERROR;
     SapEnv *env = txn->env;
-    
+
     for (uint32_t i = 0; i < env->active_subs; i++) {
         if (env->subsystems[i].on_commit) {
             if (env->subsystems[i].on_commit(txn, txn->subsystem_states[i]) != SAP_OK) {
@@ -130,7 +135,10 @@ int sap_txn_commit(SapTxnCtx *txn)
             }
         }
     }
-    
+
+    if (txn->scratch_page) {
+        sap_arena_free_page(env->arena, txn->scratch_pgno);
+    }
     free(txn);
     return SAP_OK;
 }
@@ -139,12 +147,42 @@ void sap_txn_abort(SapTxnCtx *txn)
 {
     if (!txn) return;
     SapEnv *env = txn->env;
-    
+
     for (uint32_t i = 0; i < env->active_subs; i++) {
         if (env->subsystems[i].on_abort) {
             env->subsystems[i].on_abort(txn, txn->subsystem_states[i]);
         }
     }
-    
+
+    if (txn->scratch_page) {
+        sap_arena_free_page(env->arena, txn->scratch_pgno);
+    }
     free(txn);
+}
+
+void *sap_txn_scratch_alloc(SapTxnCtx *txn, uint32_t len)
+{
+    if (!txn || len == 0) return NULL;
+
+    /* Lazy-allocate the scratch page on first use */
+    if (!txn->scratch_page) {
+        void *page = NULL;
+        uint32_t pgno = 0;
+        if (sap_arena_alloc_page(txn->env->arena, &page, &pgno) != SAP_OK) {
+            return NULL;
+        }
+        txn->scratch_page = (uint8_t *)page;
+        txn->scratch_pgno = pgno;
+        txn->scratch_head = 0;
+        txn->scratch_cap = txn->env->page_size;
+    }
+
+    /* Align to pointer size for safe struct placement */
+    uint32_t align = (uint32_t)sizeof(void *);
+    uint32_t aligned = (txn->scratch_head + align - 1) & ~(align - 1);
+    if (aligned + len > txn->scratch_cap) return NULL;
+
+    void *ptr = txn->scratch_page + aligned;
+    txn->scratch_head = aligned + len;
+    return ptr;
 }
