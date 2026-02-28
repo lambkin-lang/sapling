@@ -62,6 +62,7 @@ TEST_BIN := $(BIN_DIR)/test_sapling
 TEST_SEQ_BIN := $(BIN_DIR)/test_seq
 TEST_TEXT_BIN := $(BIN_DIR)/test_text
 TEST_BEPT_BIN := $(BIN_DIR)/test_bept
+TEST_HAMT_BIN := $(BIN_DIR)/test_hamt
 TEST_ARENA_BIN := $(BIN_DIR)/test_arena
 TEST_THATCH_BIN := $(BIN_DIR)/test_thatch
 TEST_THATCH_JSON_BIN := $(BIN_DIR)/test_thatch_json
@@ -166,8 +167,8 @@ PHASE0_TIDY_FILES := $(filter-out generated/%, $(C_SOURCES))
 LINT_WARNING_SOURCES := $(filter src/%, $(C_SOURCES))
 LINT_TIDY_SOURCES := $(filter src/%, $(PHASE0_TIDY_FILES))
 
-SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c
-SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h
+SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c src/sapling/hamt.c
+SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h include/sapling/hamt.h
 SEQ_SRC := src/sapling/seq.c
 SEQ_HDR := include/sapling/seq.h
 TEXT_SRC := src/sapling/text.c
@@ -180,7 +181,7 @@ THATCH_JSON_HDR := include/sapling/thatch_json.h
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 
-CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o $(OBJ_DIR)/src/sapling/arena.o $(OBJ_DIR)/src/sapling/txn.o $(OBJ_DIR)/src/sapling/bept.o
+CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o $(OBJ_DIR)/src/sapling/arena.o $(OBJ_DIR)/src/sapling/txn.o $(OBJ_DIR)/src/sapling/bept.o $(OBJ_DIR)/src/sapling/hamt.o
 SEQ_OBJ := $(OBJ_DIR)/src/sapling/seq.o
 TEXT_OBJ := $(OBJ_DIR)/src/sapling/text.o
 COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
@@ -188,7 +189,7 @@ RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 THREADED_OBJ_DIR := $(BUILD_DIR)/obj_threaded
-THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/bept.o
+THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/bept.o $(THREADED_OBJ_DIR)/src/sapling/hamt.o
 THREADED_COMMON_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
 THREADED_RUNNER_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 THREADED_WASI_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
@@ -198,7 +199,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test seq-test test-arena thatch-test thatch-json-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test seq-test test-arena thatch-test thatch-json-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -212,11 +213,12 @@ $(LIB): $(OBJ)
 
 
 test: CFLAGS += -O2 -g
-test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_BEPT_BIN) $(TEST_ARENA_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
+test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
 	./$(TEST_BIN)
 	./$(TEST_SEQ_BIN)
 	./$(TEST_TEXT_BIN)
 	./$(TEST_BEPT_BIN)
+	./$(TEST_HAMT_BIN)
 	./$(TEST_ARENA_BIN)
 	./$(TEST_THATCH_BIN)
 	./$(TEST_THATCH_JSON_BIN)
@@ -394,6 +396,14 @@ $(TEST_SEQ_BIN): tests/unit/test_seq.c $(SEQ_SRC) $(SEQ_HDR) $(SAPLING_SRC)
 $(TEST_BEPT_BIN): tests/unit/test_bept.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_bept.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+hamt-test: CFLAGS += -O2 -g
+hamt-test: $(TEST_HAMT_BIN)
+	./$(TEST_HAMT_BIN)
+
+$(TEST_HAMT_BIN): tests/unit/test_hamt.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -DSAPLING_HAMT_TESTING $(INCLUDES) tests/unit/test_hamt.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 seq-test: CFLAGS += -O2 -g
 seq-test: $(TEST_SEQ_BIN)
