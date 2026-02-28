@@ -56,6 +56,18 @@ remaining feedback has diminishing returns, say it is minor and not a blocker.
 If "plaintext" is requested, place the review content in the five-backtick
 `text` block defined above.
 
+### Review Scope Contract
+
+When reviewing work for a specific task, focus on files and behavior that are
+directly in scope for that task.
+
+Rules:
+- Treat unrelated edits in the workspace as likely parallel development.
+- Do not flag unrelated edits as findings unless they directly conflict with, or
+  create risk for, the task under review.
+- If unrelated edits are noticed, mention them briefly only as context, not as
+  primary findings.
+
 ### Path Reference Contract
 
 When referring to files, prefer paths relative to the project root.
