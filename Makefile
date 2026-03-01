@@ -211,7 +211,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ) $(THREADED_OBJ_DIR)/src/sapling/thatch.o
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test wit-thatch-codegen-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check test-result-codegen wit-codegen-drift-check wit-codegen-unsupported-list-test $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test wit-thatch-codegen-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check test-result-codegen wit-codegen-drift-check wit-codegen-unsupported-list-test $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean clean-generated distclean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -649,6 +649,29 @@ TEST_RESULT_GEN_HDR := tests/generated/test_result_types.h
 TEST_RESULT_GEN_SRC := tests/generated/test_result_types.c
 TEST_UNSUPPORTED_LIST_WIT := tests/fixtures/unsupported-list.wit
 
+CLEAN_BUILD_DIRS := $(BUILD_DIR)
+CLEAN_VOLATILE_GENERATED := tests/generated $(WIT_CODEGEN_BIN)
+CLEAN_LEGACY_BINS := \
+	test_sapling test_text test_seq \
+	bench_sapling bench_seq bench_text \
+	fuzz_seq fuzz_text \
+	fault_harness runner_wire_test \
+	runner_lifecycle_test runner_lifecycle_test_tsan \
+	runner_txctx_test runner_txstack_test \
+	runner_attempt_test runner_attempt_handler_test \
+	runner_atomic_integration_test runner_recovery_integration_test \
+	runner_mailbox_test runner_dead_letter_test \
+	runner_outbox_test runner_timer_test \
+	runner_scheduler_test runner_intent_sink_test \
+	runner_native_example runner_host_api_example \
+	runner_threaded_pipeline_example \
+	runner_multiwriter_stress runner_multiwriter_stress_fault \
+	bench_runner_phasee runner_ttl_sweep_test \
+	wasi_runtime_test wasi_shim_test wasi_dedupe_test \
+	wasm_runner_test runner_dedupe_test runner_lease_test \
+	wasm_guest_example.wasm wasm_smoke.wasm
+DISTCLEAN_GENERATED := $(WIT_GEN_HDR) $(WIT_GEN_SRC)
+
 test-result-codegen: $(WIT_CODEGEN_BIN) $(TEST_RESULT_WIT)
 	@mkdir -p tests/generated
 	./$(WIT_CODEGEN_BIN) --wit $(TEST_RESULT_WIT) --header $(TEST_RESULT_GEN_HDR) --source $(TEST_RESULT_GEN_SRC)
@@ -778,12 +801,11 @@ nomalloc-check:
 	  src/sapling/txn_vec.c
 	@echo "nomalloc-check PASSED"
 
-clean:
-	rm -rf $(BUILD_DIR) tests/generated test_sapling test_text test_seq bench_sapling bench_seq bench_text fuzz_seq fuzz_text fault_harness runner_wire_test \
-		runner_lifecycle_test runner_lifecycle_test_tsan runner_txctx_test runner_txstack_test \
-		runner_attempt_test runner_attempt_handler_test runner_atomic_integration_test \
-		runner_recovery_integration_test runner_mailbox_test runner_dead_letter_test \
-		runner_outbox_test runner_timer_test runner_scheduler_test runner_intent_sink_test \
-		runner_native_example runner_host_api_example runner_threaded_pipeline_example runner_multiwriter_stress runner_multiwriter_stress_fault \
-		bench_runner_phasee runner_ttl_sweep_test wasi_runtime_test wasi_shim_test wasi_dedupe_test wasm_runner_test runner_dedupe_test runner_lease_test wasm_guest_example.wasm wasm_smoke.wasm \
-		$(WIT_CODEGEN_BIN)
+clean-generated:
+	rm -rf $(CLEAN_VOLATILE_GENERATED)
+
+clean: clean-generated
+	rm -rf $(CLEAN_BUILD_DIRS) $(CLEAN_LEGACY_BINS)
+
+distclean: clean
+	rm -f $(DISTCLEAN_GENERATED)
