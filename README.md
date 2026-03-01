@@ -197,11 +197,7 @@ The `docs/` directory contains detailed design documents for each subsystem.
 These items are actively being developed or recently stabilized and may still
 need attention under load.
 
-1. **TTL time sourcing in WASI shim.** The atomic context in `shim_v0.c`
-   currently hardcodes `now_ms = 0` rather than reading a real clock source. TTL
-   sweep correctness depends on this being wired to an actual time provider.
-
-2. **WIT codegen hardening follow-through.** Complex WIT types now emit real C
+1. **WIT codegen hardening follow-through.** Complex WIT types now emit real C
    layouts (no `unknown_layout` placeholders), with structural validators and
    skip-pointer segment checks. Remaining work is maintenance: keep
    schema/codegen drift checks and adversarial tests current as the schema
@@ -309,7 +305,7 @@ phase reference relate to the runner implementation track described in
 
 ### Must do
 
-- [ ] Wire a real clock source into the WASI shim's `atomic_ctx.now_ms` for TTL
+- [x] Wire a real clock source into the WASI shim's `atomic_ctx.now_ms` for TTL
   sweep correctness
 - [x] Harden BEPT timer integration: standardize subsystem initialization
   (remove manual call-site init requirements)

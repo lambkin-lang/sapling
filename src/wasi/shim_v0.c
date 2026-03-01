@@ -9,6 +9,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static void wr64be(uint8_t *p, uint64_t v)
 {
@@ -36,6 +37,24 @@ typedef struct
     const SapRunnerMessageV0 *msg;
     int64_t now_ms;
 } WasiShimAtomicCtx;
+
+static int64_t shim_wall_now_ms(void)
+{
+    struct timespec ts;
+    time_t sec;
+
+    if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
+    {
+        return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000L);
+    }
+
+    sec = time(NULL);
+    if (sec <= 0)
+    {
+        return 0;
+    }
+    return (int64_t)sec * 1000;
+}
 
 static int shim_push_reply_intent(SapRunnerTxStackV0 *stack, SapWasiShimV0 *shim,
                                   const SapRunnerV0 *runner, const SapRunnerMessageV0 *msg,
@@ -274,7 +293,7 @@ int sap_wasi_shim_v0_runner_handler(SapRunnerV0 *runner, const SapRunnerMessageV
     atomic_ctx.shim = shim;
     atomic_ctx.runner = runner;
     atomic_ctx.msg = msg;
-    atomic_ctx.now_ms = 0; // TODO: Pass real time if needed for TTL
+    atomic_ctx.now_ms = shim_wall_now_ms();
     rc =
         sap_runner_attempt_v0_run(shim->db, &shim->attempt_policy, shim_atomic_execute, &atomic_ctx,
                                   sap_runner_intent_sink_v0_publish, &shim->intent_sink, &stats);

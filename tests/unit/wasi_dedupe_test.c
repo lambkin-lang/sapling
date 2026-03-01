@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "generated/wit_schema_dbis.h"
+#include "runner/dedupe_v0.h"
 #include "runner/runner_v0.h"
 #include "wasi/runtime_v0.h"
 #include "wasi/shim_v0.h"
@@ -87,6 +88,9 @@ static int test_shim_dedupe_skips_invoke(void)
     uint8_t frame[128];
     uint32_t frame_len = 0u;
     uint32_t processed = 0u;
+    SapRunnerDedupeV0 dedupe = {0};
+    int64_t first_seen_ts = 0;
+    Txn *rtxn = NULL;
 
     CHECK(db != NULL);
     CHECK(dbi_open(db, SAP_WIT_DBI_INBOX, NULL, NULL, 0u) == ERR_OK);
@@ -110,11 +114,28 @@ static int test_shim_dedupe_skips_invoke(void)
     CHECK(processed == 1u);
     CHECK(guest.calls == 1u);
 
+    rtxn = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(rtxn != NULL);
+    CHECK(sap_runner_dedupe_v0_get(rtxn, "m1", 2u, &dedupe) == ERR_OK);
+    CHECK(dedupe.accepted == 1);
+    CHECK(dedupe.last_seen_ts > 0);
+    first_seen_ts = dedupe.last_seen_ts;
+    txn_abort(rtxn);
+    rtxn = NULL;
+
     // Attempt 2: Duplicate message (with same ID and dedupe flag)
     CHECK(sap_runner_v0_inbox_put(db, 7u, 2u, frame, frame_len) == ERR_OK);
     CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(guest.calls == 1u); // Should still be 1!
+
+    rtxn = txn_begin(db, NULL, TXN_RDONLY);
+    CHECK(rtxn != NULL);
+    CHECK(sap_runner_dedupe_v0_get(rtxn, "m1", 2u, &dedupe) == ERR_OK);
+    CHECK(dedupe.accepted == 1);
+    /* Duplicate skips guest invocation and should not rewrite dedupe metadata. */
+    CHECK(dedupe.last_seen_ts == first_seen_ts);
+    txn_abort(rtxn);
 
     db_close(db);
     return 0;
