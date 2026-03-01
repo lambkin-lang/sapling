@@ -14,17 +14,6 @@
 /* Internal State Structures                                          */
 /* ------------------------------------------------------------------ */
 
-struct ThatchRegion {
-    SapMemArena    *arena;
-    void           *page_ptr;   /* The raw Wasm linear memory chunk */
-    uint32_t        pgno;       /* The page number for O(1) freeing */
-    uint32_t        nodeno;     /* Arena node ID for this struct itself */
-    uint32_t        capacity;   /* e.g., SAPLING_PAGE_SIZE */
-    uint32_t        head;       /* The bump allocator cursor */
-    int             sealed;     /* 1 if immutable/read-only, 0 if mutable */
-    ThatchRegion   *next;       /* Linked list for transaction tracking */
-};
-
 /*
  * ThatchTxnState tracks all regions allocated during a transaction.
  * This is the crucial link for zero-overhead GC.
@@ -243,7 +232,8 @@ int thatch_region_release(SapTxnCtx *txn, ThatchRegion *region) {
 
 int thatch_read_tag(const ThatchRegion *region, ThatchCursor *cursor, uint8_t *tag_out) {
     if (!region || !cursor || !tag_out) return ERR_INVALID;
-    if (*cursor + 1 > region->head) return ERR_RANGE;
+    if (*cursor > region->head) return ERR_RANGE;
+    if (1u > (region->head - *cursor)) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     *tag_out = mem[*cursor];
@@ -253,7 +243,8 @@ int thatch_read_tag(const ThatchRegion *region, ThatchCursor *cursor, uint8_t *t
 
 int thatch_read_data(const ThatchRegion *region, ThatchCursor *cursor, uint32_t len, void *data_out) {
     if (!region || !cursor || !data_out) return ERR_INVALID;
-    if (*cursor + len > region->head) return ERR_RANGE;
+    if (*cursor > region->head) return ERR_RANGE;
+    if (len > (region->head - *cursor)) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     memcpy(data_out, mem + *cursor, len);
@@ -263,7 +254,8 @@ int thatch_read_data(const ThatchRegion *region, ThatchCursor *cursor, uint32_t 
 
 int thatch_read_skip_len(const ThatchRegion *region, ThatchCursor *cursor, uint32_t *skip_len_out) {
     if (!region || !cursor || !skip_len_out) return ERR_INVALID;
-    if (*cursor + sizeof(uint32_t) > region->head) return ERR_RANGE;
+    if (*cursor > region->head) return ERR_RANGE;
+    if ((uint32_t)sizeof(uint32_t) > (region->head - *cursor)) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     memcpy(skip_len_out, mem + *cursor, sizeof(uint32_t));
@@ -273,7 +265,8 @@ int thatch_read_skip_len(const ThatchRegion *region, ThatchCursor *cursor, uint3
 
 int thatch_advance_cursor(const ThatchRegion *region, ThatchCursor *cursor, uint32_t skip_len) {
     if (!region || !cursor) return ERR_INVALID;
-    if (*cursor + skip_len > region->head) return ERR_RANGE;
+    if (*cursor > region->head) return ERR_RANGE;
+    if (skip_len > (region->head - *cursor)) return ERR_RANGE;
 
     /* The core of the O(1) jq-style bypass mechanism */
     *cursor += skip_len;
@@ -283,7 +276,8 @@ int thatch_advance_cursor(const ThatchRegion *region, ThatchCursor *cursor, uint
 int thatch_read_ptr(const ThatchRegion *region, ThatchCursor *cursor,
                     uint32_t len, const void **ptr_out) {
     if (!region || !cursor || !ptr_out) return ERR_INVALID;
-    if (*cursor + len > region->head) return ERR_RANGE;
+    if (*cursor > region->head) return ERR_RANGE;
+    if (len > (region->head - *cursor)) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     *ptr_out = mem + *cursor;
@@ -293,4 +287,15 @@ int thatch_read_ptr(const ThatchRegion *region, ThatchCursor *cursor,
 
 uint32_t thatch_region_used(const ThatchRegion *region) {
     return region ? region->head : 0;
+}
+
+int thatch_region_init_readonly(ThatchRegion *out, const void *data, uint32_t len) {
+    if (!out) return ERR_INVALID;
+    if (!data && len) return ERR_INVALID;
+    memset(out, 0, sizeof(*out));
+    out->page_ptr  = (void *)data;
+    out->capacity  = len;
+    out->head      = len;
+    out->sealed    = 1;
+    return ERR_OK;
 }

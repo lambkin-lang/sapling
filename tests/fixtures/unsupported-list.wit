@@ -1,0 +1,13 @@
+package lambkin:unsupported-list@0.1.0;
+
+interface types {
+    type bad-list = list<s64>;
+
+    record bad-record {
+        values: bad-list,
+    }
+}
+
+world unsupported-list {
+    export types;
+}

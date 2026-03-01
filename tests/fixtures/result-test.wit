@@ -1,0 +1,31 @@
+package lambkin:result-test@0.1.0;
+
+interface types {
+    type utf8 = list<u8>;
+    type worker-id = s64;
+    type timestamp = s64;
+
+    record test-ack {
+        message-id: utf8,
+        committed-at: timestamp,
+        accepted: bool,
+    }
+
+    variant test-error {
+        busy,
+        conflict,
+        not-found,
+        schema-mismatch(utf8),
+        internal(utf8),
+    }
+
+    type test-apply-result = result<test-ack, test-error>;
+
+    record test-result-carrier {
+        result: test-apply-result,
+    }
+}
+
+world result-test {
+    export types;
+}

@@ -400,6 +400,51 @@ static void test_invalid_args(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Test: readonly region init contract and overflow-safe reads         */
+/* ------------------------------------------------------------------ */
+static void test_readonly_region_init_contract(void) {
+    printf("--- readonly region init contract ---\n");
+
+    uint8_t raw[] = {0xAA, 0xBB, 0xCC, 0xDD};
+    ThatchRegion view;
+    uint8_t tag = 0;
+
+    CHECK(thatch_region_init_readonly(NULL, raw, sizeof(raw)) == ERR_INVALID);
+    CHECK(thatch_region_init_readonly(&view, NULL, sizeof(raw)) == ERR_INVALID);
+
+    /* (NULL, 0) is a valid empty readonly region */
+    CHECK(thatch_region_init_readonly(&view, NULL, 0) == ERR_OK);
+    CHECK(thatch_region_used(&view) == 0);
+    ThatchCursor cur = 0;
+    CHECK(thatch_read_tag(&view, &cur, &tag) == ERR_RANGE);
+
+    /* (non-NULL, 0) is also valid and treated as empty */
+    CHECK(thatch_region_init_readonly(&view, raw, 0) == ERR_OK);
+    CHECK(thatch_region_used(&view) == 0);
+    cur = 0;
+    CHECK(thatch_read_tag(&view, &cur, &tag) == ERR_RANGE);
+
+    /* Non-empty readonly region works with normal read APIs */
+    CHECK(thatch_region_init_readonly(&view, raw, sizeof(raw)) == ERR_OK);
+    CHECK(thatch_region_used(&view) == sizeof(raw));
+    cur = 0;
+    CHECK(thatch_read_tag(&view, &cur, &tag) == ERR_OK);
+    CHECK(tag == 0xAA);
+    const void *ptr = NULL;
+    CHECK(thatch_read_ptr(&view, &cur, 3, &ptr) == ERR_OK);
+    CHECK(memcmp(ptr, raw + 1, 3) == 0);
+
+    /* Cursor beyond head must fail cleanly (no overflow wrap). */
+    cur = UINT32_MAX;
+    uint32_t skip_len = 0;
+    CHECK(thatch_read_tag(&view, &cur, &tag) == ERR_RANGE);
+    CHECK(thatch_read_data(&view, &cur, 1, &tag) == ERR_RANGE);
+    CHECK(thatch_read_skip_len(&view, &cur, &skip_len) == ERR_RANGE);
+    CHECK(thatch_advance_cursor(&view, &cur, 1) == ERR_RANGE);
+    CHECK(thatch_read_ptr(&view, &cur, 1, &ptr) == ERR_RANGE);
+}
+
+/* ------------------------------------------------------------------ */
 /* Test: nested skip pointers (object within object)                  */
 /* ------------------------------------------------------------------ */
 static void test_nested_skip_pointers(void) {
@@ -741,6 +786,7 @@ int main(void) {
     test_multiple_regions();
     test_bounds_checking();
     test_invalid_args();
+    test_readonly_region_init_contract();
     test_nested_skip_pointers();
     test_region_valid_after_commit();
     test_commit_skip_bounds_check();

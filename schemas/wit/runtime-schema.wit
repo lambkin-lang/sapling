@@ -62,7 +62,7 @@ interface types {
   type apply-result = result<message-ack, tx-error>;
 
   // DBI schema records.
-  // Naming convention is consumed by tools/wit_schema_codegen.py:
+  // Naming convention is consumed by tools/wit_codegen.c:
   //   record dbi<index>-<name>-key
   //   record dbi<index>-<name>-value
   // where <index> is an integer and <name> is kebab-case.

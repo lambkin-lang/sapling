@@ -38,10 +38,20 @@ extern "C" {
 typedef uint32_t ThatchCursor;
 
 /*
- * Opaque handle representing a contiguous memory region (typically
- * backed by one or more SapMemArena pages).
+ * ThatchRegion — a contiguous memory region (typically backed by one
+ * or more SapMemArena pages).  Exposed here to allow stack allocation
+ * for thatch_region_init_readonly; fields are internal.
  */
-typedef struct ThatchRegion ThatchRegion;
+typedef struct ThatchRegion {
+    SapMemArena    *arena;
+    void           *page_ptr;
+    uint32_t        pgno;
+    uint32_t        nodeno;
+    uint32_t        capacity;
+    uint32_t        head;
+    int             sealed;
+    struct ThatchRegion *next;
+} ThatchRegion;
 
 /* ------------------------------------------------------------------ */
 /* Subsystem Lifecycle                                                */
@@ -142,6 +152,24 @@ int thatch_read_ptr(const ThatchRegion *region, ThatchCursor *cursor,
  * thatch_region_used — return the number of bytes written (the bump head).
  */
 uint32_t thatch_region_used(const ThatchRegion *region);
+
+/*
+ * thatch_region_init_readonly — initialize a caller-owned ThatchRegion as a
+ * non-owning, read-only view over raw bytes.  No allocation, no cleanup.
+ * The caller must ensure the data buffer outlives all reads.
+ *
+ * Returns 0 on success, ERR_INVALID on invalid inputs (out == NULL, or
+ * data == NULL with len > 0).
+ *
+ * Generic contract (permissive — usable beyond validators):
+ *   (NULL, 0)     -> valid empty region
+ *   (non-NULL, 0) -> valid empty region (pointer ignored)
+ *   (NULL, >0)    -> ERR_INVALID (can't read from NULL)
+ *   (non-NULL, >0)-> valid region over [data, data+len)
+ *
+ * DBI validators layer stricter absent-value semantics on top.
+ */
+int thatch_region_init_readonly(ThatchRegion *out, const void *data, uint32_t len);
 
 #ifdef __cplusplus
 }

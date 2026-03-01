@@ -69,6 +69,7 @@ TEST_ARENA_BIN := $(BIN_DIR)/test_arena
 TEST_TXN_VEC_BIN := $(BIN_DIR)/test_txn_vec
 TEST_THATCH_BIN := $(BIN_DIR)/test_thatch
 TEST_THATCH_JSON_BIN := $(BIN_DIR)/test_thatch_json
+TEST_WIT_THATCH_CODEGEN_BIN := $(BIN_DIR)/test_wit_thatch_codegen
 TEST_CORRUPTION_STATS_BIN := $(BIN_DIR)/test_corruption_stats
 TEST_FREELIST_CHECK_BIN := $(BIN_DIR)/test_freelist_check
 BENCH_BIN = $(BIN_DIR)/bench_sapling
@@ -122,7 +123,8 @@ BENCH_BASELINE ?= benchmarks/baseline.env
 DBI_MANIFEST ?= schemas/dbi_manifest.csv
 WIT_SCHEMA_DIR ?= schemas/wit
 WIT_SCHEMA ?= $(WIT_SCHEMA_DIR)/runtime-schema.wit
-WIT_CODEGEN ?= tools/wit_schema_codegen.py
+WIT_CODEGEN_SRC ?= tools/wit_codegen.c
+WIT_CODEGEN_BIN ?= tools/wit_codegen
 WIT_GEN_DIR ?= generated
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
@@ -190,9 +192,6 @@ THATCH_HDR := include/sapling/thatch.h
 THATCH_JSON_SRC := src/sapling/thatch_json.c
 THATCH_JSON_HDR := include/sapling/thatch_json.h
 
-WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
-WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
-
 CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o $(OBJ_DIR)/src/sapling/arena.o $(OBJ_DIR)/src/sapling/txn.o $(OBJ_DIR)/src/sapling/txn_vec.o $(OBJ_DIR)/src/sapling/bept.o $(OBJ_DIR)/src/sapling/hamt.o
 SEQ_OBJ := $(OBJ_DIR)/src/sapling/seq.o
 TEXT_OBJ := $(OBJ_DIR)/src/sapling/text.o
@@ -200,6 +199,7 @@ COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)
 RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
+THATCH_OBJ := $(OBJ_DIR)/src/sapling/thatch.o
 THREADED_OBJ_DIR := $(BUILD_DIR)/obj_threaded
 THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/txn_vec.o $(THREADED_OBJ_DIR)/src/sapling/bept.o $(THREADED_OBJ_DIR)/src/sapling/hamt.o $(THREADED_OBJ_DIR)/src/sapling/err.o
 THREADED_COMMON_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
@@ -207,11 +207,11 @@ THREADED_RUNNER_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/runn
 THREADED_WASI_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 THREADED_WIT_GEN_OBJ := $(THREADED_OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 
-ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ)
-THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
+ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GEN_OBJ) $(THATCH_OBJ)
+THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ) $(THREADED_OBJ_DIR)/src/sapling/thatch.o
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test wit-thatch-codegen-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check test-result-codegen wit-codegen-drift-check wit-codegen-unsupported-list-test $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -423,6 +423,14 @@ $(TEST_THATCH_JSON_BIN): tests/unit/test_thatch_json.c $(THATCH_JSON_SRC) $(THAT
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_thatch_json.c $(THATCH_JSON_SRC) $(THATCH_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS) -lm
 
+wit-thatch-codegen-test: CFLAGS += -O2 -g
+wit-thatch-codegen-test: wit-schema-generate test-result-codegen wit-codegen-unsupported-list-test $(TEST_WIT_THATCH_CODEGEN_BIN)
+	./$(TEST_WIT_THATCH_CODEGEN_BIN)
+
+$(TEST_WIT_THATCH_CODEGEN_BIN): tests/unit/test_wit_thatch_codegen.c $(WIT_GEN_SRC) $(WIT_GEN_HDR) $(TEST_RESULT_GEN_SRC) $(TEST_RESULT_GEN_HDR) $(THATCH_SRC) $(THATCH_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_wit_thatch_codegen.c $(WIT_GEN_SRC) $(THATCH_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
 $(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(SEQ_SRC) $(TEXT_HDR) $(TEXT_LITERAL_HDR) $(TEXT_TREE_REG_HDR) $(SEQ_HDR) $(SAPLING_SRC)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text.c $(TEXT_SRC) $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
@@ -626,14 +634,48 @@ wit-schema-check:
 	@command -v $(WASM_TOOLS) >/dev/null 2>&1 || { echo "wasm-tools not found: $(WASM_TOOLS)"; exit 2; }
 	$(WASM_TOOLS) component wit $(WIT_SCHEMA_DIR) --json >/dev/null
 
-wit-schema-generate: $(WIT_SCHEMA) $(WIT_CODEGEN)
-	python3 $(WIT_CODEGEN) --wit $(WIT_SCHEMA) --manifest $(DBI_MANIFEST) --header $(WIT_GEN_HDR) --source $(WIT_GEN_SRC)
+$(WIT_CODEGEN_BIN): $(WIT_CODEGEN_SRC)
+	$(CC) -Wall -Wextra -Werror -Wswitch-enum -std=c11 -o $@ $<
+
+wit-schema-generate: $(WIT_SCHEMA) $(WIT_CODEGEN_BIN)
+	./$(WIT_CODEGEN_BIN) --wit $(WIT_SCHEMA) --header $(WIT_GEN_HDR) --source $(WIT_GEN_SRC)
 
 wit-schema-cc-check: wit-schema-generate
 	@mkdir -p $(dir $(WIT_GEN_OBJ))
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(WIT_GEN_SRC) -o $(WIT_GEN_OBJ)
 
-schema-check: wit-schema-check wit-schema-cc-check
+TEST_RESULT_WIT := tests/fixtures/result-test.wit
+TEST_RESULT_GEN_HDR := tests/generated/test_result_types.h
+TEST_RESULT_GEN_SRC := tests/generated/test_result_types.c
+TEST_UNSUPPORTED_LIST_WIT := tests/fixtures/unsupported-list.wit
+
+test-result-codegen: $(WIT_CODEGEN_BIN) $(TEST_RESULT_WIT)
+	@mkdir -p tests/generated
+	./$(WIT_CODEGEN_BIN) --wit $(TEST_RESULT_WIT) --header $(TEST_RESULT_GEN_HDR) --source $(TEST_RESULT_GEN_SRC)
+
+wit-codegen-unsupported-list-test: $(WIT_CODEGEN_BIN) $(TEST_UNSUPPORTED_LIST_WIT)
+	@tmpdir=$$(mktemp -d) && \
+	trap 'rm -rf "$$tmpdir"' EXIT && \
+	if ./$(WIT_CODEGEN_BIN) --wit $(TEST_UNSUPPORTED_LIST_WIT) --header "$$tmpdir/unsupported.h" --source "$$tmpdir/unsupported.c" >/dev/null 2>&1; then \
+	    echo "FAIL: expected wit_codegen to reject unsupported list<T>"; \
+	    exit 1; \
+	fi && \
+	echo "wit-codegen-unsupported-list-test PASSED"
+
+wit-codegen-drift-check: $(WIT_CODEGEN_BIN)
+	@tmpdir=$$(mktemp -d) && \
+	trap 'rm -rf "$$tmpdir"' EXIT && \
+	mkdir -p "$$tmpdir/generated" && \
+	(cd "$$tmpdir" && \
+	  "$(CURDIR)/$(WIT_CODEGEN_BIN)" \
+	    --wit "$(CURDIR)/$(WIT_SCHEMA)" \
+	    --header "generated/wit_schema_dbis.h" \
+	    --source "generated/wit_schema_dbis.c") && \
+	diff -u $(WIT_GEN_HDR) "$$tmpdir/generated/wit_schema_dbis.h" && \
+	diff -u $(WIT_GEN_SRC) "$$tmpdir/generated/wit_schema_dbis.c" && \
+	echo "wit-codegen-drift-check PASSED"
+
+schema-check: wit-schema-check wit-schema-cc-check wit-codegen-drift-check wit-thatch-codegen-test
 	python3 tools/check_dbi_manifest.py $(DBI_MANIFEST)
 	$(MAKE) runner-dbi-status-check
 
@@ -737,10 +779,11 @@ nomalloc-check:
 	@echo "nomalloc-check PASSED"
 
 clean:
-	rm -rf $(BUILD_DIR) test_sapling test_text test_seq bench_sapling bench_seq bench_text fuzz_seq fuzz_text fault_harness runner_wire_test \
+	rm -rf $(BUILD_DIR) tests/generated test_sapling test_text test_seq bench_sapling bench_seq bench_text fuzz_seq fuzz_text fault_harness runner_wire_test \
 		runner_lifecycle_test runner_lifecycle_test_tsan runner_txctx_test runner_txstack_test \
 		runner_attempt_test runner_attempt_handler_test runner_atomic_integration_test \
 		runner_recovery_integration_test runner_mailbox_test runner_dead_letter_test \
 		runner_outbox_test runner_timer_test runner_scheduler_test runner_intent_sink_test \
 		runner_native_example runner_host_api_example runner_threaded_pipeline_example runner_multiwriter_stress runner_multiwriter_stress_fault \
-		bench_runner_phasee runner_ttl_sweep_test wasi_runtime_test wasi_shim_test wasi_dedupe_test wasm_runner_test runner_dedupe_test runner_lease_test wasm_guest_example.wasm wasm_smoke.wasm
+		bench_runner_phasee runner_ttl_sweep_test wasi_runtime_test wasi_shim_test wasi_dedupe_test wasm_runner_test runner_dedupe_test runner_lease_test wasm_guest_example.wasm wasm_smoke.wasm \
+		$(WIT_CODEGEN_BIN)
