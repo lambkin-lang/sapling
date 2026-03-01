@@ -44,7 +44,7 @@ This is used for error-path cleanup (e.g., failed JSON parse).
 
 **Contract:**
 - The region MUST be in the given transaction's active list.
-- Releasing a region not owned by the txn returns `THATCH_INVALID` and
+- Releasing a region not owned by the txn returns `ERR_INVALID` and
   performs no freeing (prevents UAF on double-release or wrong-owner).
 - After release, the region pointer and any ThatchVal handles into it are
   invalid.
@@ -80,13 +80,13 @@ backpatches the length.
 
 **Bounds contract:** `thatch_commit_skip` validates that `skip_loc` is within
 the written region and that there is room for the 4-byte slot.  Returns
-`THATCH_BOUNDS` on violation.
+`ERR_RANGE` on violation.
 
 ## Sealing
 
 `thatch_seal(txn, region)` marks a region as immutable.  Sealed regions reject
 all write operations (`thatch_write_tag`, `thatch_write_data`,
-`thatch_reserve_skip`, `thatch_commit_skip` all return `THATCH_INVALID`).
+`thatch_reserve_skip`, `thatch_commit_skip` all return `ERR_INVALID`).
 
 Commit automatically seals all regions in the committing transaction.
 

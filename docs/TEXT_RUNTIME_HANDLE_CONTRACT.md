@@ -37,7 +37,7 @@ callbacks:
 
 Callback requirements:
 
-- return `SEQ_OK` on success, `SEQ_*` error otherwise
+- return `ERR_OK` on success, `ERR_*` error otherwise
 - returned literal bytes must be valid UTF-8
 - returned `Text*` must be valid (`text_is_valid(...) == 1`)
 - callback-owned data must remain valid until callback returns
@@ -47,11 +47,11 @@ Callback requirements:
 
 `text_expand_runtime_handle(...)` enforces:
 
-- cycle rejection: repeated tree id on active recursion path => `SEQ_INVALID`
+- cycle rejection: repeated tree id on active recursion path => `ERR_INVALID`
 - depth bound: `max_tree_depth` (`0` uses default 64)
 - visit bound: `max_tree_visits` (`0` uses default 4096)
 
-Guard violations return `SEQ_INVALID`.
+Guard violations return `ERR_INVALID`.
 
 ## Ownership and COW
 

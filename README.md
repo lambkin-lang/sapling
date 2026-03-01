@@ -229,9 +229,9 @@ need attention under load.
 - **Runner scheduler, lease, and dedupe** subsystems each have around 110 lines
   of test code. Coverage is functional but not deep.
 
-### Cross-project quality issues
+### Recently resolved quality issues
 
-- **~~Multi-writer stress hardening.~~** Resolved. The threaded 4-stage
+- **Multi-writer stress hardening.** Resolved. The threaded 4-stage
   pipeline stress harness (`make runner-multiwriter-stress`) passes reliably
   with per-round corruption telemetry and free-list structural validation.
   A burn-in profile (`make runner-multiwriter-stress-burn-in`) runs 32 rounds
@@ -242,14 +242,17 @@ need attention under load.
   HAMT concurrent stress, deferred-page pressure, and fault-injected B+ tree
   stress tests.
 
-- **~~Error code families are disjoint.~~** Resolved. All subsystems now share a
-  unified `ERR_*` taxonomy defined in `include/sapling/err.h`. The former
-  `SAP_*`, `SEQ_*`, `THATCH_*`, and `TJ_*` families have been replaced. The
-  generic `SAP_ERROR` has been decomposed into specific codes (`ERR_OOM`,
-  `ERR_INVALID`, `ERR_CORRUPT`) at each call site. A diagnostic helper
-  `err_to_string()` is available for logging.
+- **Error code families are disjoint.** Resolved. All subsystems now share a
+  unified `ERR_*` taxonomy defined in `include/sapling/err.h`. Previous
+  per-subsystem error families were removed and generic catch-all returns were
+  decomposed into specific codes (`ERR_OOM`, `ERR_INVALID`, `ERR_CORRUPT`) at
+  each call site. A diagnostic helper `err_to_string()` is available for
+  logging.
 
-- **~~Allocator usage is asymmetric.~~** Resolved. All companion subsystems
+- **Legacy error wording in docs/examples.** Resolved. Public docs/examples now
+  consistently refer to `ERR_*` result codes for subsystem APIs.
+
+- **Allocator usage is asymmetric.** Resolved. All companion subsystems
   (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry) now allocate
   exclusively through `SapMemArena`. Transaction-scoped metadata uses
   `sap_txn_scratch_alloc`; growable arrays use the new `SapTxnVec`
@@ -260,7 +263,7 @@ need attention under load.
   (`#pragma GCC poison malloc calloc realloc free`) enforces this at compile
   time; run `make nomalloc-check` to verify.
 
-- **~~Memory cleanup questions in text.c.~~** Resolved. The inline questions
+- **Memory cleanup questions in text.c.** Resolved. The inline questions
   referenced at lines 561 and 600 no longer exist (line numbers drifted after
   prior edits). The code at those locations (`text_insert_range` epilogue and
   `text_shared_retain` in `text_clone`) is clean with correct arena-based
@@ -302,7 +305,7 @@ This is a concrete task list, ordered roughly by impact. Items marked with a
 phase reference relate to the runner implementation track described in
 `FEATURES.md`.
 
-### Must do
+### Must do (completed)
 
 - [x] Wire a real clock source into the WASI shim's `atomic_ctx.now_ms` for TTL
   sweep correctness
@@ -320,12 +323,8 @@ phase reference relate to the runner implementation track described in
 
 ### Should do
 
-- [ ] Add an error-code cross-reference table or mapping functions between
-  `SAP_*`, `SEQ_*`, `THATCH_*`, and `TJ_*` families
-- [ ] Give BEPT its own error code family (or document why reusing `SAP_*` is
-  intentional)
-- [ ] Audit `malloc` call sites in Seq, BEPT, and Text for Wasm linear-memory
-  compatibility; document which are host-only and which need migration
+- [ ] Finalize policy for host-only `malloc` usage in `text.c` conversion paths
+  (document guarantees and decide whether to add an arena-backed alternative)
 - [ ] Deepen runner scheduler, lease, and dedupe test coverage
 - [ ] Implement DupSort-aware `txn_load_sorted` using the tree-builder fast path
 
@@ -335,8 +334,6 @@ phase reference relate to the runner implementation track described in
   and Text
 - [ ] Extract a generalized transactional-store layer from the B+ tree `Txn`
   context
-- [x] Add integration tests covering runner timer behavior through
-  checkpoint/restore under the selected BEPT durability contract
 - [ ] Evaluate expressing wire payloads as Thatch regions for zero-allocation
   message traversal
 - [ ] Add an approximate structural estimator for `txn_count_range`

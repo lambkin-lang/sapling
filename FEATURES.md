@@ -497,8 +497,8 @@ Phase A status (started):
   no longer exits on transient `ERR_BUSY`; threaded regression coverage added
 - done: worker clock hooks now drive inbox lease-claim timing and timer/inbox
   step-latency measurements (not only scheduler idle-sleep decisions)
-- next: execute reprioritized backlog below (starting with future Priority 6
-  items based on product demand)
+- next: execute reprioritized backlog below (Priority 7 and beyond, based on
+  product demand)
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -544,8 +544,8 @@ Phase B status (started):
 - done: threaded worker stop/join signaling is now synchronized; worker loop
   now treats transient `ERR_BUSY` as retryable
 - done: worker clock hooks now cover lease timing + latency measurement paths
-- next: execute reprioritized backlog below (starting with future Priority 6
-  items based on product demand)
+- next: execute reprioritized backlog below (Priority 7 and beyond, based on
+  product demand)
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
@@ -586,8 +586,8 @@ Phase C status (started):
 - done: added threaded C-level order-pipeline sample with four worker threads
   and DB-backed stage queues (`examples/native/runner_threaded_pipeline_example.c`,
   `make runner-threaded-pipeline-example`)
-- next: execute reprioritized backlog below (starting with future Priority 6
-  items based on product demand)
+- next: execute reprioritized backlog below (Priority 7 and beyond, based on
+  product demand)
 
 #### Reprioritized runner backlog (known issues + planned features)
 1. [Done][P1] Replay fidelity gap fixed: timer replay events now preserve timer
@@ -775,7 +775,7 @@ Because Lambkin favors Universal Wasm with linear memory over heavier options li
 
 ### 1. WIT Semantic Annotations (Liquid WIT) (done)
 Extend the WIT IDL with a pseudo-annotation DSL inside the comments (e.g., `/// @refine(value >= 0)`).
-- **Goal:** The custom `wit_codegen.c` parser will read these annotations to automatically generate C-level assert checks, protective `SAP_INVALID` barriers at the Wasm boundary, and inputs for the deterministic `fault_harness`.
+- **Goal:** The custom `wit_codegen.c` parser will read these annotations to automatically generate C-level assert checks, protective `ERR_INVALID` barriers at the Wasm boundary, and inputs for the deterministic `fault_harness`.
 
 ### 2. Zero-Cost `atomic` Reads via Escape Analysis
 Because the Lambkin compiler can statically prove when an `atomic { ... }` block contains only reads and no cross-thread side-effects:

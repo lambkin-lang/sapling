@@ -76,7 +76,7 @@ quoted_key = '"' chars '"'
 ### Overflow Protection
 
 Array indices must fit in `uint32_t`.  Parsing rejects indices that would
-overflow (e.g., `.[4294967296]`) with `TJ_PARSE_ERROR` rather than silently
+overflow (e.g., `.[4294967296]`) with `ERR_PARSE` rather than silently
 wrapping.
 
 ## Failure Semantics

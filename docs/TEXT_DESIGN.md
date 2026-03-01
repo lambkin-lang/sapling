@@ -35,7 +35,7 @@ Handle layout:
 - `text_length` reports leaf count, not expanded grapheme/UTF-8 byte length.
 - With only `TEXT_HANDLE_CODEPOINT` leaves, `text_length` equals code-point
   length.
-- UTF-8 encoding/length routines return `SEQ_INVALID` if any non-codepoint
+- UTF-8 encoding/length routines return `ERR_INVALID` if any non-codepoint
   handle is present.
 - Resolved code-point/UTF-8 routines can operate on mixed-handle text without
   flattening:

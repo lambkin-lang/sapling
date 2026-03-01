@@ -99,7 +99,7 @@ Both input trees are **consumed** (one shell is reused for the result, the
 other is freed).
 
 API note: `seq_concat` requires distinct sequence objects (`dest != src`);
-self-concat is rejected with `SEQ_INVALID`.  Concat also requires allocator
+self-concat is rejected with `ERR_INVALID`.  Concat also requires allocator
 compatibility (`alloc_fn`, `free_fn`, and `ctx` must match exactly) so the
 merged tree can be safely freed by the destination sequence.
 
@@ -144,10 +144,10 @@ the `[idx, n)` contract.
 - There is no structural sharing, so `seq_free` never double-frees.
 - `seq_split_at` creates `left`/`right` results with the same allocator as the
   source sequence, so split/concat round-trips remain allocator-compatible.
-- On allocation failure `seq_push_front` / `seq_push_back` return `SEQ_OOM`.
-  `seq_concat` / `seq_split_at` return `SEQ_OOM` instead of aborting; the
+- On allocation failure `seq_push_front` / `seq_push_back` return `ERR_OOM`.
+  `seq_concat` / `seq_split_at` return `ERR_OOM` instead of aborting; the
   involved sequence object(s) may become invalid and subsequently return
-  `SEQ_INVALID`.
+  `ERR_INVALID`.
 - `seq_is_valid()` reports whether a sequence is still usable.
 - `seq_reset()` reinitializes a sequence to an empty valid state.
 - For invalid sequences, cleanup/reset prioritizes safety over full reclaim;

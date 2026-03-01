@@ -36,7 +36,7 @@ Replay behavior:
 - inserts original frame into inbox `(worker_id, replay_seq)` using
   `SAP_NOOVERWRITE`
 - removes the dead-letter record only if inbox insert succeeds
-- returns `SAP_EXISTS` when replay sequence already exists
+- returns `ERR_EXISTS` when replay sequence already exists
 
 ## Retention and Observability
 
