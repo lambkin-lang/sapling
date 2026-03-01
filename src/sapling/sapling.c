@@ -6,7 +6,10 @@
  */
 
 #include "sapling/sapling.h"
+#include "sapling/corruption_stats.h"
+#include "sapling/freelist_check.h"
 #include "sapling/txn.h"
+#include "common/fault_inject.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -41,6 +44,16 @@ typedef int sap_mutex_t;
 #define SAP_MUTEX_UNLOCK(m) ((void)(m))
 
 #endif /* SAPLING_THREADED */
+
+/* ================================================================== */
+/* Corruption telemetry                                                 */
+/* ================================================================== */
+
+#ifdef SAPLING_THREADED
+#define SAP_STAT_INC(counter) __atomic_fetch_add(&(counter), 1, __ATOMIC_RELAXED)
+#else
+#define SAP_STAT_INC(counter) ((counter)++)
+#endif
 
 /* ================================================================== */
 /* Constants                                                            */
@@ -235,6 +248,8 @@ struct BTreeEnvState
     struct WatchRec *watches;
     uint32_t num_watches;
     uint32_t cap_watches;
+    SapCorruptionStats stats;
+    SapFaultInjector *fi;
 };
 
 struct BTreeTxnStateDB
@@ -816,6 +831,7 @@ static uint32_t raw_alloc(struct BTreeTxnState *txn)
         {
             /* Harden against free-list head corruption under heavy churn. */
             txn->free_pgno = INVALID_PGNO;
+            SAP_STAT_INC(db->stats.free_list_head_reset);
         }
         else
         {
@@ -828,6 +844,7 @@ static uint32_t raw_alloc(struct BTreeTxnState *txn)
                  * to fresh-page growth instead of dereferencing invalid memory.
                  */
                 next = INVALID_PGNO;
+                SAP_STAT_INC(db->stats.free_list_next_dropped);
             }
             txn->free_pgno = next;
             memset(db->pages[pgno], 0, db->page_size);
@@ -859,6 +876,8 @@ static uint32_t raw_alloc(struct BTreeTxnState *txn)
         db->pages_cap = nc;
         SAP_MUTEX_UNLOCK(db->write_mutex);
     }
+    if (db->fi && sap_fi_should_fail(db->fi, "alloc.page"))
+        return INVALID_PGNO;
     uint32_t dummy_pgno;
     void *pg = NULL;
     if (sap_arena_alloc_page(db->arena, &pg, &dummy_pgno) != 0) pg = NULL;
@@ -1781,6 +1800,9 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         if (leaf_insert(db->pages[pgno], db->page_size, 0, key, (uint16_t)key_len, store_val,
                         store_vlen, rout) < 0)
         {
+            /* Freshly initialized page rejected an insert — bounds
+             * corruption or free-space metadata issue. */
+            SAP_STAT_INC(db->stats.leaf_insert_bounds_reject);
             rc = ERR_OOM;
             goto cleanup;
         }
@@ -4031,7 +4053,10 @@ static void txn_abort_free_untracked_new_pages(struct BTreeTxnState *txn)
         if (pgno >= txn->saved_npages && !u32_find(txn->new_pages, txn->new_cnt, pgno, NULL))
         {
             if (pgno >= db->pages_cap || !db->pages[pgno])
+            {
+                SAP_STAT_INC(db->stats.abort_bounds_break);
                 break;
+            }
             pg = db->pages[pgno];
             next = rd32(pg);
             sap_arena_free_page_ptr(db->arena, pg);
@@ -4041,11 +4066,16 @@ static void txn_abort_free_untracked_new_pages(struct BTreeTxnState *txn)
         else
         {
             if (pgno >= db->pages_cap || !db->pages[pgno])
+            {
+                SAP_STAT_INC(db->stats.abort_bounds_break);
                 break;
+            }
             pgno = rd32(db->pages[pgno]);
         }
         steps++;
     }
+    if (pgno != INVALID_PGNO && steps > max_steps)
+        SAP_STAT_INC(db->stats.abort_loop_limit_hit);
 }
 
 static void btree_on_abort(SapTxnCtx *ctx, void *state)
@@ -4350,6 +4380,117 @@ uint32_t db_num_pages(DB *db_pub)
 {
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
     return db ? db->num_pages : 0;
+}
+
+int sap_db_corruption_stats(struct SapEnv *db_pub, SapCorruptionStats *out)
+{
+    struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db || !out)
+        return ERR_INVALID;
+#ifdef SAPLING_THREADED
+    out->free_list_head_reset = __atomic_load_n(&db->stats.free_list_head_reset, __ATOMIC_RELAXED);
+    out->free_list_next_dropped = __atomic_load_n(&db->stats.free_list_next_dropped, __ATOMIC_RELAXED);
+    out->leaf_insert_bounds_reject = __atomic_load_n(&db->stats.leaf_insert_bounds_reject, __ATOMIC_RELAXED);
+    out->abort_loop_limit_hit = __atomic_load_n(&db->stats.abort_loop_limit_hit, __ATOMIC_RELAXED);
+    out->abort_bounds_break = __atomic_load_n(&db->stats.abort_bounds_break, __ATOMIC_RELAXED);
+#else
+    *out = db->stats;
+#endif
+    return ERR_OK;
+}
+
+int sap_db_set_fault_injector(struct SapEnv *db_pub, SapFaultInjector *fi)
+{
+    struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db)
+        return ERR_INVALID;
+    db->fi = fi;
+    return ERR_OK;
+}
+
+int sap_db_corruption_stats_reset(struct SapEnv *db_pub)
+{
+    struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db)
+        return ERR_INVALID;
+#ifdef SAPLING_THREADED
+    __atomic_store_n(&db->stats.free_list_head_reset, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&db->stats.free_list_next_dropped, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&db->stats.leaf_insert_bounds_reject, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&db->stats.abort_loop_limit_hit, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&db->stats.abort_bounds_break, 0, __ATOMIC_RELAXED);
+#else
+    memset(&db->stats, 0, sizeof(db->stats));
+#endif
+    return ERR_OK;
+}
+
+int sap_db_deferred_count(struct SapEnv *db_pub, uint32_t *count_out)
+{
+    struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db || !count_out)
+        return ERR_INVALID;
+    *count_out = db->num_deferred;
+    return ERR_OK;
+}
+
+int sap_db_freelist_check(struct SapEnv *db_pub, SapFreelistCheckResult *result)
+{
+    struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db || !result)
+        return ERR_INVALID;
+    memset(result, 0, sizeof(*result));
+
+    SAP_MUTEX_LOCK(db->write_mutex);
+    if (db->write_txn)
+    {
+        SAP_MUTEX_UNLOCK(db->write_mutex);
+        return ERR_BUSY;
+    }
+
+    result->deferred_count = db->num_deferred;
+
+    uint32_t tortoise = db->free_pgno;
+    uint32_t hare = db->free_pgno;
+    uint32_t steps = 0;
+    uint32_t max_steps = db->num_pages ? db->num_pages : 1u;
+
+    while (tortoise != INVALID_PGNO && steps <= max_steps)
+    {
+        if (tortoise >= db->pages_cap)
+        {
+            result->out_of_bounds++;
+            break;
+        }
+        if (!db->pages[tortoise])
+        {
+            result->null_backing++;
+            break;
+        }
+        result->walk_length++;
+
+        /* Advance tortoise one step */
+        tortoise = rd32(db->pages[tortoise]);
+
+        /* Advance hare two steps for cycle detection */
+        for (int h = 0; h < 2; h++)
+        {
+            if (hare != INVALID_PGNO && hare < db->pages_cap && db->pages[hare])
+                hare = rd32(db->pages[hare]);
+            else
+                hare = INVALID_PGNO;
+        }
+
+        if (hare != INVALID_PGNO && tortoise == hare)
+        {
+            result->cycle_detected = 1;
+            break;
+        }
+        steps++;
+    }
+
+    SAP_MUTEX_UNLOCK(db->write_mutex);
+    return ERR_OK;
 }
 
 int db_checkpoint(DB *db_pub, sap_write_fn writer, void *ctx)

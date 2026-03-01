@@ -1,8 +1,13 @@
 /*
- * runner_multiwriter_stress.c - threaded runner-style multi-writer stress harness
+ * runner_multiwriter_stress_fault.c - fault-injected multi-writer stress test
+ *
+ * Verifies graceful degradation of the 4-stage runner pipeline under
+ * page-alloc failures.  Reuses struct definitions and utility functions
+ * from runner_multiwriter_stress.c (keep in sync).
  *
  * SPDX-License-Identifier: MIT
  */
+#include "common/fault_inject.h"
 #include "generated/wit_schema_dbis.h"
 #include "runner/attempt_handler_v0.h"
 #include "runner/dedupe_v0.h"
@@ -21,10 +26,14 @@
 #ifndef SAPLING_THREADED
 int main(void)
 {
-    printf("runner-multiwriter-stress: SAPLING_THREADED required (skipped)\n");
+    printf("runner-multiwriter-stress-fault: SAPLING_THREADED required (skipped)\n");
     return 0;
 }
 #else
+
+/* ------------------------------------------------------------------ */
+/* Constants — keep in sync with runner_multiwriter_stress.c           */
+/* ------------------------------------------------------------------ */
 
 #define STRESS_WORKER_COUNT 4u
 #define STRESS_MAX_BATCH 32u
@@ -32,11 +41,13 @@ int main(void)
 #define STRESS_IDLE_SLEEP_MS 1u
 #define STRESS_FRAME_CAP 256u
 #define STRESS_OUTBOX_SEQ_STRIDE 1000000000ULL
-#define STRESS_DBI_COUNTERS 7u /* custom DBI for stress counters (no WIT validation) */
+#define STRESS_DBI_COUNTERS 7u
 
-#define STRESS_DEFAULT_ROUNDS 8u
-#define STRESS_DEFAULT_ORDERS 64u
-#define STRESS_DEFAULT_TIMEOUT_MS 5000u
+#define FAULT_DEFAULT_ROUNDS 4u
+#define FAULT_DEFAULT_ORDERS 32u
+#define FAULT_DEFAULT_TIMEOUT_MS 8000u
+#define FAULT_DEFAULT_FAIL_PCT 25u
+#define FAULT_DEFAULT_CORRUPTION_THRESHOLD 0u
 
 #define WORKER_STAGE1 101u
 #define WORKER_STAGE2 102u
@@ -47,6 +58,10 @@ static const uint8_t k_counter_stage1[] = {'s', 't', 'a', 'g', 'e', '.', '1'};
 static const uint8_t k_counter_stage2[] = {'s', 't', 'a', 'g', 'e', '.', '2'};
 static const uint8_t k_counter_stage3[] = {'s', 't', 'a', 'g', 'e', '.', '3'};
 static const uint8_t k_counter_stage4[] = {'s', 't', 'a', 'g', 'e', '.', '4'};
+
+/* ------------------------------------------------------------------ */
+/* Struct definitions — keep in sync with runner_multiwriter_stress.c  */
+/* ------------------------------------------------------------------ */
 
 typedef struct
 {
@@ -76,6 +91,10 @@ typedef struct
     int stop_requested;
     int last_error;
 } DispatcherCtx;
+
+/* ------------------------------------------------------------------ */
+/* Utility functions — keep in sync with runner_multiwriter_stress.c   */
+/* ------------------------------------------------------------------ */
 
 static void *test_alloc(void *ctx, uint32_t sz)
 {
@@ -143,18 +162,6 @@ static void sleep_ms(uint32_t ms)
     nanosleep(&ts, NULL);
 }
 
-static const char *env_str(const char *name, const char *fallback)
-{
-    const char *raw;
-
-    if (!name)
-    {
-        return fallback;
-    }
-    raw = getenv(name);
-    return (raw && *raw != '\0') ? raw : fallback;
-}
-
 static uint32_t env_u32(const char *name, uint32_t default_value)
 {
     const char *raw;
@@ -179,6 +186,10 @@ static uint32_t env_u32(const char *name, uint32_t default_value)
 
     return (uint32_t)v;
 }
+
+/* ------------------------------------------------------------------ */
+/* Counter helpers — keep in sync with runner_multiwriter_stress.c     */
+/* ------------------------------------------------------------------ */
 
 static int app_state_read_counter(DB *db, const uint8_t *key, uint32_t key_len, uint64_t *value_out)
 {
@@ -295,6 +306,10 @@ static int txstack_stage_counter(SapRunnerTxStackV0 *stack, const uint8_t *key, 
                                                sizeof(raw));
 }
 
+/* ------------------------------------------------------------------ */
+/* Message encoding — keep in sync with runner_multiwriter_stress.c    */
+/* ------------------------------------------------------------------ */
+
 static int encode_forward_frame(const SapRunnerMessageV0 *msg, uint32_t from_worker,
                                 uint32_t to_worker, uint8_t *frame_out, uint32_t frame_cap,
                                 uint32_t *frame_len_out)
@@ -336,6 +351,10 @@ static int encode_forward_frame(const SapRunnerMessageV0 *msg, uint32_t from_wor
     }
     return ERR_CORRUPT;
 }
+
+/* ------------------------------------------------------------------ */
+/* Atomic apply — keep in sync with runner_multiwriter_stress.c        */
+/* ------------------------------------------------------------------ */
 
 static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *runner,
                                const SapRunnerMessageV0 *msg, void *ctx)
@@ -421,6 +440,10 @@ static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
     return ERR_OK;
 }
+
+/* ------------------------------------------------------------------ */
+/* Dispatcher — keep in sync with runner_multiwriter_stress.c          */
+/* ------------------------------------------------------------------ */
 
 static int dispatcher_stop_requested(const DispatcherCtx *ctx)
 {
@@ -530,8 +553,6 @@ static void *dispatcher_thread_main(void *arg)
         }
         if (rc != ERR_OK)
         {
-            fprintf(stderr, "runner-multiwriter-stress: dispatcher drain rc=%d drained=%u\n", rc,
-                    drained);
             dispatch->last_error = rc;
             break;
         }
@@ -592,10 +613,16 @@ static int seed_stage1_inbox(DB *db, uint32_t worker_id, uint32_t order_count)
     return ERR_OK;
 }
 
-static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeout_ms)
+/* ------------------------------------------------------------------ */
+/* Fault-injected round                                                */
+/* ------------------------------------------------------------------ */
+
+static int run_round_fault(uint32_t round_index, uint32_t order_count, uint32_t timeout_ms,
+                           uint32_t fail_pct, uint32_t corruption_threshold)
 {
     DB *db = NULL;
     SapRunnerV0DbGate db_gate;
+    SapFaultInjector fi;
     StageWorkerCtx workers[STRESS_WORKER_COUNT];
     DispatcherCtx dispatch;
     const uint32_t worker_ids[STRESS_WORKER_COUNT] = {WORKER_STAGE1, WORKER_STAGE2, WORKER_STAGE3,
@@ -603,21 +630,23 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
     pthread_t dispatch_thread;
     int dispatch_started = 0;
     int db_gate_inited = 0;
+    int fi_attached = 0;
     int rc = ERR_CORRUPT;
     uint32_t i;
 
     memset(workers, 0, sizeof(workers));
     memset(&dispatch, 0, sizeof(dispatch));
+    sap_fi_reset(&fi);
 
     db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!db)
     {
-        fprintf(stderr, "runner-multiwriter-stress: round=%u db_open failed\n", round_index);
+        fprintf(stderr, "fault: round=%u db_open failed\n", round_index);
         return ERR_CORRUPT;
     }
     if (sap_runner_v0_db_gate_init(&db_gate) != ERR_OK)
     {
-        fprintf(stderr, "runner-multiwriter-stress: round=%u db gate init failed\n", round_index);
+        fprintf(stderr, "fault: round=%u db gate init failed\n", round_index);
         db_close(db);
         return ERR_CORRUPT;
     }
@@ -625,12 +654,13 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
 
     if (dbi_open(db, STRESS_DBI_COUNTERS, NULL, NULL, 0u) != ERR_OK)
     {
-        fprintf(stderr, "runner-multiwriter-stress: round=%u dbi_open(%u) failed\n", round_index,
-                STRESS_DBI_COUNTERS);
+        fprintf(stderr, "fault: round=%u dbi_open(%u) failed\n", round_index, STRESS_DBI_COUNTERS);
         sap_runner_v0_db_gate_shutdown(&db_gate);
         db_close(db);
         return ERR_CORRUPT;
     }
+
+    /* --- Worker configuration --- */
 
     workers[0].atomic.worker_id = WORKER_STAGE1;
     workers[0].atomic.next_worker_id = WORKER_STAGE2;
@@ -668,8 +698,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
         if (sap_runner_outbox_v0_publisher_init(&workers[i].outbox, db, outbox_initial_seq) !=
             ERR_OK)
         {
-            fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] outbox init failed\n",
-                    round_index, i);
+            fprintf(stderr, "fault: round=%u worker[%u] outbox init failed\n", round_index, i);
             goto done;
         }
 
@@ -677,8 +706,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
                 &workers[i].handler, db, stress_atomic_apply, &workers[i].atomic,
                 sap_runner_outbox_v0_publish_intent, &workers[i].outbox) != ERR_OK)
         {
-            fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] handler init failed\n",
-                    round_index, i);
+            fprintf(stderr, "fault: round=%u worker[%u] handler init failed\n", round_index, i);
             goto done;
         }
 
@@ -692,14 +720,15 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
                                       sap_runner_attempt_handler_v0_runner_handler,
                                       &workers[i].handler, STRESS_MAX_BATCH) != ERR_OK)
         {
-            fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] worker init failed\n",
-                    round_index, i);
+            fprintf(stderr, "fault: round=%u worker[%u] worker init failed\n", round_index, i);
             goto done;
         }
         sap_runner_v0_worker_set_idle_policy(&workers[i].worker, STRESS_IDLE_SLEEP_MS);
         sap_runner_v0_worker_set_db_gate(&workers[i].worker, &db_gate);
         workers[i].inited = 1;
     }
+
+    /* --- Dispatcher setup --- */
 
     dispatch.db = db;
     dispatch.db_gate = &db_gate;
@@ -712,18 +741,35 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
         dispatch.next_seq[i] = 1u;
     }
 
+    /* --- Seed inbox (fault injection OFF) --- */
+
     if (seed_stage1_inbox(db, WORKER_STAGE1, order_count) != ERR_OK)
     {
-        fprintf(stderr, "runner-multiwriter-stress: round=%u seed failed\n", round_index);
+        fprintf(stderr, "fault: round=%u seed failed\n", round_index);
         goto done;
     }
+
+    /* --- Attach fault injector --- */
+
+    if (sap_fi_add_rate_rule(&fi, "alloc.page", fail_pct) != 0)
+    {
+        fprintf(stderr, "fault: round=%u fi add_rate_rule failed\n", round_index);
+        goto done;
+    }
+    if (sap_db_set_fault_injector((struct SapEnv *)db, &fi) != ERR_OK)
+    {
+        fprintf(stderr, "fault: round=%u set_fault_injector failed\n", round_index);
+        goto done;
+    }
+    fi_attached = 1;
+
+    /* --- Start workers and dispatcher --- */
 
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
         if (sap_runner_v0_worker_start(&workers[i].worker) != ERR_OK)
         {
-            fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] start failed\n",
-                    round_index, i);
+            fprintf(stderr, "fault: round=%u worker[%u] start failed\n", round_index, i);
             goto done;
         }
         workers[i].started = 1;
@@ -731,66 +777,57 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
 
     if (pthread_create(&dispatch_thread, NULL, dispatcher_thread_main, &dispatch) != 0)
     {
-        fprintf(stderr, "runner-multiwriter-stress: round=%u dispatcher start failed\n",
-                round_index);
+        fprintf(stderr, "fault: round=%u dispatcher start failed\n", round_index);
         goto done;
     }
     dispatch_started = 1;
 
+    /* --- Poll loop --- */
+
     {
         int64_t deadline_ms = wall_now_ms() + (int64_t)timeout_ms;
+        int all_dead;
+
         for (;;)
         {
             uint64_t delivered = 0u;
 
-            if (app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4),
-                                       &delivered) != ERR_OK)
-            {
-                fprintf(stderr,
-                        "runner-multiwriter-stress: round=%u failed to read stage4 counter\n",
-                        round_index);
-                goto done;
-            }
+            (void)app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4),
+                                         &delivered);
             if (delivered >= (uint64_t)order_count)
             {
                 break;
             }
-            if (dispatch.last_error != ERR_OK)
+
+            /* Early exit if all workers have died */
+            all_dead = 1;
+            for (i = 0u; i < STRESS_WORKER_COUNT; i++)
             {
-                fprintf(
-                    stderr,
-                    "runner-multiwriter-stress: round=%u dispatcher error while waiting rc=%d\n",
-                    round_index, dispatch.last_error);
-                goto done;
+                if (workers[i].started && workers[i].worker.last_error == ERR_OK)
+                {
+                    all_dead = 0;
+                    break;
+                }
             }
+            if (all_dead)
+            {
+                fprintf(stderr, "fault: round=%u all workers died, stage4=%" PRIu64 "/%u\n",
+                        round_index, delivered, order_count);
+                break;
+            }
+
             if (wall_now_ms() > deadline_ms)
             {
-                uint64_t c1 = 0u;
-                uint64_t c2 = 0u;
-                uint64_t c3 = 0u;
-                uint64_t c4 = 0u;
-                uint32_t j;
-
-                for (j = 0u; j < STRESS_WORKER_COUNT; j++)
-                {
-                    if (workers[j].worker.last_error != ERR_OK)
-                    {
-                        fprintf(stderr,
-                                "runner-multiwriter-stress: round=%u worker[%u] died with "
-                                "last_error=%d\n",
-                                round_index, j, workers[j].worker.last_error);
-                    }
-                }
-
+                uint64_t c1 = 0u, c2 = 0u, c3 = 0u, c4 = 0u;
                 (void)app_state_read_counter(db, k_counter_stage1, sizeof(k_counter_stage1), &c1);
                 (void)app_state_read_counter(db, k_counter_stage2, sizeof(k_counter_stage2), &c2);
                 (void)app_state_read_counter(db, k_counter_stage3, sizeof(k_counter_stage3), &c3);
                 (void)app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4), &c4);
                 fprintf(stderr,
-                        "runner-multiwriter-stress: round=%u timeout waiting for stage4=%u"
-                        " counters=%" PRIu64 "/%" PRIu64 "/%" PRIu64 "/%" PRIu64 "\n",
-                        round_index, order_count, c1, c2, c3, c4);
-                goto done;
+                        "fault: round=%u timeout counters=%" PRIu64 "/%" PRIu64 "/%" PRIu64
+                        "/%" PRIu64 " expected=%u\n",
+                        round_index, c1, c2, c3, c4, order_count);
+                break;
             }
             sleep_ms(2u);
         }
@@ -799,6 +836,13 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
     rc = ERR_OK;
 
 done:
+    /* --- Detach fault injector before teardown writes --- */
+    if (fi_attached)
+    {
+        sap_db_set_fault_injector((struct SapEnv *)db, NULL);
+        fi_attached = 0;
+    }
+
     dispatcher_request_stop(&dispatch);
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
@@ -810,12 +854,7 @@ done:
 
     if (dispatch_started)
     {
-        if (pthread_join(dispatch_thread, NULL) != 0 && rc == ERR_OK)
-        {
-            fprintf(stderr, "runner-multiwriter-stress: round=%u dispatcher join failed\n",
-                    round_index);
-            rc = ERR_CORRUPT;
-        }
+        (void)pthread_join(dispatch_thread, NULL);
         dispatch_started = 0;
     }
 
@@ -823,109 +862,85 @@ done:
     {
         if (workers[i].started)
         {
-            if (sap_runner_v0_worker_join(&workers[i].worker) != ERR_OK && rc == ERR_OK)
-            {
-                fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] join failed\n",
-                        round_index, i);
-                rc = ERR_CORRUPT;
-            }
-            if (workers[i].worker.last_error != ERR_OK)
-            {
-                rc = workers[i].worker.last_error;
-            }
+            (void)sap_runner_v0_worker_join(&workers[i].worker);
             workers[i].started = 0;
         }
     }
 
-    if (rc != ERR_OK)
+    /* --- Verification --- */
+
+    /* 1. Require stage4 > 0: the pipeline must make forward progress */
+    if (rc == ERR_OK)
+    {
+        uint64_t c4 = 0u;
+        (void)app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4), &c4);
+        if (c4 == 0u)
+        {
+            fprintf(stderr, "fault: round=%u FAILED: stage4=0 (no forward progress)\n",
+                    round_index);
+            rc = ERR_CORRUPT;
+        }
+        else
+        {
+            uint64_t c1 = 0u, c2 = 0u, c3 = 0u;
+            (void)app_state_read_counter(db, k_counter_stage1, sizeof(k_counter_stage1), &c1);
+            (void)app_state_read_counter(db, k_counter_stage2, sizeof(k_counter_stage2), &c2);
+            (void)app_state_read_counter(db, k_counter_stage3, sizeof(k_counter_stage3), &c3);
+            printf("  round=%u counters=%" PRIu64 "/%" PRIu64 "/%" PRIu64 "/%" PRIu64
+                   " expected=%u\n",
+                   round_index, c1, c2, c3, c4, order_count);
+        }
+    }
+
+    /* 2. Worker error classification: ERR_OOM and ERR_BUSY are expected,
+     *    anything else is a hard failure */
+    if (rc == ERR_OK)
     {
         for (i = 0u; i < STRESS_WORKER_COUNT; i++)
         {
-            if (workers[i].inited)
+            int err = workers[i].worker.last_error;
+            if (err != ERR_OK && err != ERR_OOM && err != ERR_BUSY)
             {
                 fprintf(stderr,
-                        "runner-multiwriter-stress: round=%u worker[%u] id=%u last_error=%d"
-                        " attempts=%u retries=%u last_rc=%d\n",
-                        round_index, i, workers[i].atomic.worker_id, workers[i].worker.last_error,
-                        workers[i].handler.last_stats.attempts,
-                        workers[i].handler.last_stats.retries,
-                        workers[i].handler.last_stats.last_rc);
+                        "fault: round=%u worker[%u] unexpected last_error=%d (id=%u)\n",
+                        round_index, i, err, workers[i].atomic.worker_id);
+                rc = err;
+            }
+            else if (err != ERR_OK)
+            {
+                printf("  round=%u worker[%u] expected error=%d (id=%u)\n",
+                       round_index, i, err, workers[i].atomic.worker_id);
             }
         }
     }
 
-    if (rc == ERR_OK && dispatch.last_error != ERR_OK)
-    {
-        fprintf(stderr, "runner-multiwriter-stress: round=%u dispatcher last_error=%d\n",
-                round_index, dispatch.last_error);
-        rc = dispatch.last_error;
-    }
-
-    for (i = 0u; i < STRESS_WORKER_COUNT; i++)
-    {
-        if (rc == ERR_OK && workers[i].inited && workers[i].worker.last_error != ERR_OK)
-        {
-            fprintf(stderr,
-                    "runner-multiwriter-stress: round=%u worker[%u] last_error=%d (worker_id=%u)\n",
-                    round_index, i, workers[i].worker.last_error, workers[i].atomic.worker_id);
-            rc = workers[i].worker.last_error;
-        }
-    }
-
-    if (rc == ERR_OK)
-    {
-        uint64_t c1 = 0u;
-        uint64_t c2 = 0u;
-        uint64_t c3 = 0u;
-        uint64_t c4 = 0u;
-        if (app_state_read_counter(db, k_counter_stage1, sizeof(k_counter_stage1), &c1) != ERR_OK ||
-            app_state_read_counter(db, k_counter_stage2, sizeof(k_counter_stage2), &c2) != ERR_OK ||
-            app_state_read_counter(db, k_counter_stage3, sizeof(k_counter_stage3), &c3) != ERR_OK ||
-            app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4), &c4) != ERR_OK ||
-            c1 != (uint64_t)order_count || c2 != (uint64_t)order_count ||
-            c3 != (uint64_t)order_count || c4 != (uint64_t)order_count)
-        {
-            fprintf(stderr,
-                    "runner-multiwriter-stress: round=%u counter mismatch c1=%" PRIu64
-                    " c2=%" PRIu64 " c3=%" PRIu64 " c4=%" PRIu64 " expected=%u\n",
-                    round_index, c1, c2, c3, c4, order_count);
-            rc = ERR_CONFLICT;
-        }
-    }
-
-    /* Corruption telemetry and free-list integrity check */
+    /* 3. Corruption stats — thresholded enforcement */
     if (rc == ERR_OK)
     {
         SapCorruptionStats cstats;
         if (sap_db_corruption_stats((struct SapEnv *)db, &cstats) == ERR_OK)
         {
-            uint64_t total = cstats.free_list_head_reset +
-                             cstats.free_list_next_dropped +
-                             cstats.leaf_insert_bounds_reject +
-                             cstats.abort_loop_limit_hit +
+            uint64_t total = cstats.free_list_head_reset + cstats.free_list_next_dropped +
+                             cstats.leaf_insert_bounds_reject + cstats.abort_loop_limit_hit +
                              cstats.abort_bounds_break;
-            printf("  round=%u corruption_stats: head_reset=%" PRIu64
-                   " next_dropped=%" PRIu64 " leaf_reject=%" PRIu64
+            printf("  round=%u corruption_stats: total=%" PRIu64
+                   " head_reset=%" PRIu64 " next_dropped=%" PRIu64 " leaf_reject=%" PRIu64
                    " abort_limit=%" PRIu64 " abort_bounds=%" PRIu64 "\n",
-                   round_index, cstats.free_list_head_reset,
-                   cstats.free_list_next_dropped,
-                   cstats.leaf_insert_bounds_reject,
-                   cstats.abort_loop_limit_hit,
-                   cstats.abort_bounds_break);
+                   round_index, total, cstats.free_list_head_reset,
+                   cstats.free_list_next_dropped, cstats.leaf_insert_bounds_reject,
+                   cstats.abort_loop_limit_hit, cstats.abort_bounds_break);
 
-            uint32_t threshold =
-                env_u32("RUNNER_STRESS_CORRUPTION_THRESHOLD", 0u);
-            if (total > (uint64_t)threshold)
+            if (total > (uint64_t)corruption_threshold)
             {
                 fprintf(stderr,
-                        "runner-multiwriter-stress: round=%u CORRUPTION total=%" PRIu64
-                        " > threshold=%u\n",
-                        round_index, total, threshold);
+                        "fault: round=%u CORRUPTION total=%" PRIu64 " > threshold=%u\n",
+                        round_index, total, corruption_threshold);
                 rc = ERR_CORRUPT;
             }
         }
     }
 
+    /* 4. Free-list integrity — hard failure */
     if (rc == ERR_OK)
     {
         SapFreelistCheckResult fl;
@@ -934,13 +949,27 @@ done:
             if (fl.out_of_bounds || fl.null_backing || fl.cycle_detected)
             {
                 fprintf(stderr,
-                        "runner-multiwriter-stress: round=%u FREE-LIST FAILURE "
-                        "oob=%u null=%u cycle=%u\n",
+                        "fault: round=%u FREE-LIST FAILURE oob=%u null=%u cycle=%u\n",
                         round_index, fl.out_of_bounds, fl.null_backing, fl.cycle_detected);
                 rc = ERR_CORRUPT;
             }
         }
     }
+
+    /* 5. Faults must have actually fired */
+    if (rc == ERR_OK)
+    {
+        printf("  round=%u fi: hits=%u fails=%u\n",
+               round_index, fi.rules[0].hit_count, fi.rules[0].fail_count);
+        if (fi.rules[0].fail_count == 0u)
+        {
+            fprintf(stderr, "fault: round=%u FAILED: no faults injected (fail_count=0)\n",
+                    round_index);
+            rc = ERR_CORRUPT;
+        }
+    }
+
+    /* --- Cleanup --- */
 
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
@@ -961,6 +990,10 @@ done:
     return rc;
 }
 
+/* ------------------------------------------------------------------ */
+/* Main                                                                */
+/* ------------------------------------------------------------------ */
+
 int main(void)
 {
     SapArenaOptions g_alloc_opts = {
@@ -971,39 +1004,34 @@ int main(void)
     };
     sap_arena_init(&g_alloc, &g_alloc_opts);
 
-    const char *profile = env_str("RUNNER_MULTIWRITER_STRESS_PROFILE", "");
-    uint32_t def_rounds = STRESS_DEFAULT_ROUNDS;
-    uint32_t def_orders = STRESS_DEFAULT_ORDERS;
-    uint32_t def_timeout = STRESS_DEFAULT_TIMEOUT_MS;
-
-    if (strcmp(profile, "burn-in") == 0)
-    {
-        def_rounds = 32u;
-        def_orders = 256u;
-        def_timeout = 15000u;
-    }
-
-    uint32_t rounds = env_u32("RUNNER_MULTIWRITER_STRESS_ROUNDS", def_rounds);
-    uint32_t orders = env_u32("RUNNER_MULTIWRITER_STRESS_ORDERS", def_orders);
+    uint32_t rounds = env_u32("RUNNER_MULTIWRITER_STRESS_FAULT_ROUNDS", FAULT_DEFAULT_ROUNDS);
+    uint32_t orders = env_u32("RUNNER_MULTIWRITER_STRESS_FAULT_ORDERS", FAULT_DEFAULT_ORDERS);
     uint32_t timeout_ms =
-        env_u32("RUNNER_MULTIWRITER_STRESS_TIMEOUT_MS", def_timeout);
+        env_u32("RUNNER_MULTIWRITER_STRESS_FAULT_TIMEOUT_MS", FAULT_DEFAULT_TIMEOUT_MS);
+    uint32_t fail_pct =
+        env_u32("RUNNER_MULTIWRITER_STRESS_FAULT_FAIL_PCT", FAULT_DEFAULT_FAIL_PCT);
+    uint32_t corruption_threshold = env_u32("RUNNER_MULTIWRITER_STRESS_FAULT_CORRUPTION_THRESHOLD",
+                                            FAULT_DEFAULT_CORRUPTION_THRESHOLD);
     uint32_t round;
+
+    printf("runner-multiwriter-stress-fault: rounds=%u orders=%u timeout=%u fail_pct=%u "
+           "corruption_threshold=%u\n",
+           rounds, orders, timeout_ms, fail_pct, corruption_threshold);
 
     for (round = 1u; round <= rounds; round++)
     {
-        int rc = run_round(round, orders, timeout_ms);
+        int rc = run_round_fault(round, orders, timeout_ms, fail_pct, corruption_threshold);
         if (rc != ERR_OK)
         {
             fprintf(stderr,
-                    "runner-multiwriter-stress: FAILED round=%u/%u rc=%d orders=%u timeout_ms=%u\n",
-                    round, rounds, rc, orders, timeout_ms);
+                    "runner-multiwriter-stress-fault: FAILED round=%u/%u rc=%d\n",
+                    round, rounds, rc);
             return 1;
         }
     }
 
-    printf("runner-multiwriter-stress: OK rounds=%u orders=%u workers=%u profile=%s\n",
-           rounds, orders, STRESS_WORKER_COUNT,
-           (*profile != '\0') ? profile : "default");
+    printf("runner-multiwriter-stress-fault: PASSED rounds=%u orders=%u fail_pct=%u\n",
+           rounds, orders, fail_pct);
     return 0;
 }
 

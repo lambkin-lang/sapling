@@ -88,6 +88,21 @@ uint32_t db_num_pages(DB *db); /* total allocated pages (for diagnostics) */
 int db_checkpoint(DB *db, sap_write_fn writer, void *ctx);
 int db_restore(DB *db, sap_read_fn reader, void *ctx);
 
+/* Corruption telemetry and diagnostics */
+#include <sapling/corruption_stats.h>
+#include <sapling/freelist_check.h>
+int sap_db_deferred_count(struct SapEnv *db, uint32_t *count_out);
+
+/*
+ * Fault injection (test-only) — attach an injector to fail alloc.page at
+ * configured rates.  Pass NULL to detach.  The struct definition lives in
+ * src/common/fault_inject.h (not part of the public API).  Only the
+ * write-mutex holder calls raw_alloc, so there is no concurrent access
+ * to the injector from that path.
+ */
+struct SapFaultInjector;
+int sap_db_set_fault_injector(struct SapEnv *db, struct SapFaultInjector *fi);
+
 /* ------------------------------------------------------------------ */
 /* Multiple database support (integer-indexed)                          */
 /*                                                                      */

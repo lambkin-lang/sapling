@@ -1003,9 +1003,16 @@ static int test_worker_shell_tick(void)
     CHECK(exists == 0);
 
 #ifdef SAPLING_THREADED
-    CHECK(sap_runner_v0_worker_start(&worker) == ERR_OK);
-    sap_runner_v0_worker_request_stop(&worker);
-    CHECK(sap_runner_v0_worker_join(&worker) == ERR_OK);
+    {
+        SapRunnerV0DbGate db_gate;
+        CHECK(sap_runner_v0_db_gate_init(&db_gate) == ERR_OK);
+        sap_runner_v0_worker_set_db_gate(&worker, &db_gate);
+        CHECK(sap_runner_v0_worker_start(&worker) == ERR_OK);
+        sap_runner_v0_worker_request_stop(&worker);
+        CHECK(sap_runner_v0_worker_join(&worker) == ERR_OK);
+        sap_runner_v0_worker_set_db_gate(&worker, NULL);
+        sap_runner_v0_db_gate_shutdown(&db_gate);
+    }
 #else
     CHECK(sap_runner_v0_worker_start(&worker) == ERR_INVALID);
     CHECK(sap_runner_v0_worker_join(&worker) == ERR_INVALID);
@@ -1082,6 +1089,7 @@ static int test_worker_thread_survives_transient_busy(void)
     DB *db = new_db();
     SapRunnerV0Worker worker;
     SapRunnerV0Config cfg;
+    SapRunnerV0DbGate db_gate;
     TestDispatchCtx dispatch_state = {0};
     Txn *hold_wtxn = NULL;
     uint8_t frame[128];
@@ -1090,27 +1098,40 @@ static int test_worker_thread_survives_transient_busy(void)
     uint32_t i;
 
     CHECK(db != NULL);
+    CHECK(sap_runner_v0_db_gate_init(&db_gate) == ERR_OK);
+
     cfg.db = db;
     cfg.worker_id = 7u;
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
     CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == ERR_OK);
+    sap_runner_v0_worker_set_db_gate(&worker, &db_gate);
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
     CHECK(sap_runner_timer_v0_append(db, 0, 11u, frame, frame_len) == ERR_OK);
 
+    /*
+     * Hold a write txn under the db_gate, then start the worker.
+     * The worker will block on the gate mutex until we release.
+     */
+    pthread_mutex_lock(&db_gate.mutex);
     hold_wtxn = txn_begin(db, NULL, 0u);
     CHECK(hold_wtxn != NULL);
+    pthread_mutex_unlock(&db_gate.mutex);
 
     CHECK(sap_runner_v0_worker_start(&worker) == ERR_OK);
     sleep_for_ms(10u);
 
+    pthread_mutex_lock(&db_gate.mutex);
     txn_abort(hold_wtxn);
     hold_wtxn = NULL;
+    pthread_mutex_unlock(&db_gate.mutex);
 
     for (i = 0u; i < 200u; i++)
     {
+        pthread_mutex_lock(&db_gate.mutex);
         CHECK(timer_entry_exists(db, 0, 11u, &exists) == ERR_OK);
+        pthread_mutex_unlock(&db_gate.mutex);
         if (!exists)
         {
             break;
@@ -1125,6 +1146,7 @@ static int test_worker_thread_survives_transient_busy(void)
     CHECK(worker.last_error == ERR_OK);
 
     sap_runner_v0_worker_shutdown(&worker);
+    sap_runner_v0_db_gate_shutdown(&db_gate);
     db_close(db);
     return 0;
 }

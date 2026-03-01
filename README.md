@@ -225,17 +225,11 @@ The `docs/` directory contains detailed design documents for each subsystem.
 These items are actively being developed or recently stabilized and may still
 need attention under load.
 
-1. **Multi-writer stress hardening.** The threaded multi-writer stress harness
-   (`make runner-multiwriter-stress`) passes reliably, but concurrent writer
-   behavior under sustained churn continues to be monitored. Storage hardening
-   guards were added to allocator and leaf-insert paths to prevent out-of-bounds
-   writes on corrupted free-space metadata.
-
-2. **TTL time sourcing in WASI shim.** The atomic context in `shim_v0.c`
+1. **TTL time sourcing in WASI shim.** The atomic context in `shim_v0.c`
    currently hardcodes `now_ms = 0` rather than reading a real clock source. TTL
    sweep correctness depends on this being wired to an actual time provider.
 
-3. **WIT codegen for complex types.** The code generator marks several WIT types
+2. **WIT codegen for complex types.** The code generator marks several WIT types
    as `unknown_layout` in the generated C headers — notably `message-envelope`,
    `lease-state`, and `worker-id`. These affect DBIs 1, 2, 3, 5, and 6. The
    wire format (`wire_v0`) handles serialization correctly at runtime, but the
@@ -270,6 +264,17 @@ need attention under load.
   of test code. Coverage is functional but not deep.
 
 ### Cross-project quality issues
+
+- **~~Multi-writer stress hardening.~~** Resolved. The threaded 4-stage
+  pipeline stress harness (`make runner-multiwriter-stress`) passes reliably
+  with per-round corruption telemetry and free-list structural validation.
+  A burn-in profile (`make runner-multiwriter-stress-burn-in`) runs 32 rounds
+  of 256 orders for extended soak testing. A fault-injected variant
+  (`make runner-multiwriter-stress-fault`) verifies graceful degradation under
+  configurable page-alloc failure rates — workers survive transient OOM and the
+  pipeline makes forward progress despite faults. Additional coverage includes
+  HAMT concurrent stress, deferred-page pressure, and fault-injected B+ tree
+  stress tests.
 
 - **~~Error code families are disjoint.~~** Resolved. All subsystems now share a
   unified `ERR_*` taxonomy defined in `include/sapling/err.h`. The former

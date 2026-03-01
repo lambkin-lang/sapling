@@ -69,11 +69,16 @@ TEST_ARENA_BIN := $(BIN_DIR)/test_arena
 TEST_TXN_VEC_BIN := $(BIN_DIR)/test_txn_vec
 TEST_THATCH_BIN := $(BIN_DIR)/test_thatch
 TEST_THATCH_JSON_BIN := $(BIN_DIR)/test_thatch_json
+TEST_CORRUPTION_STATS_BIN := $(BIN_DIR)/test_corruption_stats
+TEST_FREELIST_CHECK_BIN := $(BIN_DIR)/test_freelist_check
 BENCH_BIN = $(BIN_DIR)/bench_sapling
 BENCH_SEQ_BIN = $(BIN_DIR)/bench_seq
 BENCH_TEXT_BIN = $(BIN_DIR)/bench_text
 BENCH_BEPT_BIN = $(BIN_DIR)/bench_bept
 STRESS_BIN = $(BIN_DIR)/fault_harness
+DEFERRED_PRESSURE_BIN = $(BIN_DIR)/deferred_page_pressure
+HAMT_CONCURRENT_STRESS_BIN = $(BIN_DIR)/hamt_concurrent_stress
+BTREE_FAULT_STRESS_BIN = $(BIN_DIR)/btree_fault_stress
 SEQ_FUZZ_BIN = $(BIN_DIR)/fuzz_seq
 TEXT_FUZZ_BIN = $(BIN_DIR)/fuzz_text
 
@@ -170,7 +175,7 @@ PHASE0_TIDY_FILES := $(filter-out generated/%, $(C_SOURCES))
 LINT_WARNING_SOURCES := $(filter src/%, $(C_SOURCES))
 LINT_TIDY_SOURCES := $(filter src/%, $(PHASE0_TIDY_FILES))
 
-SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/txn_vec.c src/sapling/bept.c src/sapling/hamt.c src/sapling/err.c
+SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/txn_vec.c src/sapling/bept.c src/sapling/hamt.c src/sapling/err.c src/common/fault_inject.c
 SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/txn_vec.h include/sapling/bept.h include/sapling/hamt.h include/sapling/err.h
 SEQ_SRC := src/sapling/seq.c
 SEQ_HDR := include/sapling/seq.h
@@ -196,7 +201,7 @@ RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 THREADED_OBJ_DIR := $(BUILD_DIR)/obj_threaded
-THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/txn_vec.o $(THREADED_OBJ_DIR)/src/sapling/bept.o $(THREADED_OBJ_DIR)/src/sapling/hamt.o
+THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/txn_vec.o $(THREADED_OBJ_DIR)/src/sapling/bept.o $(THREADED_OBJ_DIR)/src/sapling/hamt.o $(THREADED_OBJ_DIR)/src/sapling/err.o
 THREADED_COMMON_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
 THREADED_RUNNER_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 THREADED_WASI_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
@@ -206,7 +211,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -388,6 +393,20 @@ $(TEST_TXN_VEC_BIN): tests/unit/test_txn_vec.c src/sapling/txn_vec.c src/sapling
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_txn_vec.c src/sapling/txn_vec.c src/sapling/arena.c src/sapling/err.c -o $@ $(LDFLAGS)
 
+test-corruption-stats: $(TEST_CORRUPTION_STATS_BIN)
+	./$(TEST_CORRUPTION_STATS_BIN)
+
+$(TEST_CORRUPTION_STATS_BIN): tests/unit/test_corruption_stats.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_corruption_stats.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+test-freelist-check: $(TEST_FREELIST_CHECK_BIN)
+	./$(TEST_FREELIST_CHECK_BIN)
+
+$(TEST_FREELIST_CHECK_BIN): tests/unit/test_freelist_check.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_freelist_check.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
 thatch-test: CFLAGS += -O2 -g
 thatch-test: $(TEST_THATCH_BIN)
 	./$(TEST_THATCH_BIN)
@@ -462,7 +481,32 @@ $(BENCH_BEPT_BIN): benchmarks/bench_bept.c $(SAPLING_SRC) $(SAPLING_HDR)
 
 $(STRESS_BIN): tests/stress/fault_harness.c src/common/fault_inject.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/fault_harness.c src/common/fault_inject.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/fault_harness.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+$(DEFERRED_PRESSURE_BIN): tests/stress/deferred_page_pressure.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/deferred_page_pressure.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+deferred-page-pressure-test: $(DEFERRED_PRESSURE_BIN)
+	./$(DEFERRED_PRESSURE_BIN)
+
+hamt-concurrent-stress-build: CFLAGS += -O2 -g -DSAPLING_THREADED
+hamt-concurrent-stress-build: LDFLAGS += -lpthread
+hamt-concurrent-stress-build: $(HAMT_CONCURRENT_STRESS_BIN)
+
+$(HAMT_CONCURRENT_STRESS_BIN): tests/stress/hamt_concurrent_stress.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/hamt_concurrent_stress.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+hamt-concurrent-stress: hamt-concurrent-stress-build
+	./$(HAMT_CONCURRENT_STRESS_BIN)
+
+$(BTREE_FAULT_STRESS_BIN): tests/stress/btree_fault_stress.c $(SAPLING_SRC) $(SAPLING_HDR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/stress/btree_fault_stress.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+btree-fault-stress: $(BTREE_FAULT_STRESS_BIN)
+	./$(BTREE_FAULT_STRESS_BIN)
 
 # Consolidated Runner Test Build Rules
 # 1. Build the unit test binaries (pattern rule)
@@ -509,6 +553,7 @@ RUNNER_NATIVE_EXAMPLE_BIN = $(BIN_DIR)/runner_native_example
 RUNNER_HOST_API_EXAMPLE_BIN = $(BIN_DIR)/runner_host_api_example
 RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_example
 RUNNER_MULTIWRITER_STRESS_BIN = $(BIN_DIR)/runner_multiwriter_stress
+RUNNER_MULTIWRITER_STRESS_FAULT_BIN = $(BIN_DIR)/runner_multiwriter_stress_fault
 RUNNER_PHASEE_BENCH_BIN = $(BIN_DIR)/bench_runner_phasee
 RUNNER_INTEGRATION_TEST_BIN = $(BIN_DIR)/runner_atomic_integration_test
 
@@ -601,7 +646,7 @@ runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN
 
 $(RUNNER_LIFECYCLE_TSAN_TEST_BIN): tests/unit/runner_lifecycle_test.c $(C_SOURCES) $(WIT_GEN_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(filter src/common/%, $(C_SOURCES)) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
+	$(CC) $(CFLAGS) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(filter-out $(SAPLING_SRC),$(filter src/common/%, $(C_SOURCES))) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
 
 test-integration: runner-integration-test
 
@@ -628,6 +673,20 @@ runner-multiwriter-stress: runner-multiwriter-stress-build
 	RUNNER_MULTIWRITER_STRESS_ORDERS=$(RUNNER_MULTIWRITER_STRESS_ORDERS) \
 	RUNNER_MULTIWRITER_STRESS_TIMEOUT_MS=$(RUNNER_MULTIWRITER_STRESS_TIMEOUT_MS) \
 	./$(RUNNER_MULTIWRITER_STRESS_BIN)
+
+runner-multiwriter-stress-burn-in: runner-multiwriter-stress-build
+	RUNNER_MULTIWRITER_STRESS_PROFILE=burn-in ./$(RUNNER_MULTIWRITER_STRESS_BIN)
+
+$(RUNNER_MULTIWRITER_STRESS_FAULT_BIN): $(THREADED_OBJ_DIR)/tests/stress/runner_multiwriter_stress_fault.o $(THREADED_ALL_LIB_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) $(THREADED_OBJ_DIR)/tests/stress/runner_multiwriter_stress_fault.o $(THREADED_ALL_LIB_OBJS) -o $(RUNNER_MULTIWRITER_STRESS_FAULT_BIN) $(LDFLAGS)
+
+runner-multiwriter-stress-fault-build: CFLAGS += -O2 -g -DSAPLING_THREADED
+runner-multiwriter-stress-fault-build: LDFLAGS += -lpthread
+runner-multiwriter-stress-fault-build: wit-schema-generate $(RUNNER_MULTIWRITER_STRESS_FAULT_BIN)
+
+runner-multiwriter-stress-fault: runner-multiwriter-stress-fault-build
+	./$(RUNNER_MULTIWRITER_STRESS_FAULT_BIN)
 
 runner-phasee-bench: CFLAGS += -O3 -g
 runner-phasee-bench: wit-schema-generate $(RUNNER_PHASEE_BENCH_BIN)
@@ -661,13 +720,13 @@ $(WASI_DEDUPE_TEST_BIN): $(OBJ_DIR)/tests/unit/wasi_dedupe_test.o $(ALL_LIB_OBJS
 stress-harness: $(STRESS_BIN)
 	./$(STRESS_BIN)
 
-phase0-check: lint schema-check stress-harness
+phase0-check: lint schema-check stress-harness test-corruption-stats test-freelist-check
 
 phasea-check: phase0-check runner-wire-test runner-lifecycle-test runner-lifecycle-threaded-tsan-test wasi-runtime-test wasi-shim-test
 
 phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test
 
-phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-recovery-test
+phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress-fault-build runner-recovery-test hamt-concurrent-stress deferred-page-pressure-test btree-fault-stress
 
 nomalloc-check:
 	@echo "Checking arena-migrated files compile with SAP_NO_MALLOC..."
@@ -683,5 +742,5 @@ clean:
 		runner_attempt_test runner_attempt_handler_test runner_atomic_integration_test \
 		runner_recovery_integration_test runner_mailbox_test runner_dead_letter_test \
 		runner_outbox_test runner_timer_test runner_scheduler_test runner_intent_sink_test \
-		runner_native_example runner_host_api_example runner_threaded_pipeline_example runner_multiwriter_stress \
+		runner_native_example runner_host_api_example runner_threaded_pipeline_example runner_multiwriter_stress runner_multiwriter_stress_fault \
 		bench_runner_phasee runner_ttl_sweep_test wasi_runtime_test wasi_shim_test wasi_dedupe_test wasm_runner_test runner_dedupe_test runner_lease_test wasm_guest_example.wasm wasm_smoke.wasm

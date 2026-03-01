@@ -1573,7 +1573,7 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                                worker->now_ms_ctx);
     if (rc != ERR_OK)
     {
-        if (rc == ERR_NOT_FOUND || rc == ERR_CONFLICT)
+        if (rc == ERR_NOT_FOUND || rc == ERR_CONFLICT || rc == ERR_OOM)
         {
             rc = ERR_BUSY;
             goto out;
@@ -1600,7 +1600,7 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                                            timer_dispatch_handler, &timer_ctx, &timer_processed);
         if (rc != ERR_OK)
         {
-            if (rc == ERR_NOT_FOUND || rc == ERR_CONFLICT)
+            if (rc == ERR_NOT_FOUND || rc == ERR_CONFLICT || rc == ERR_OOM)
             {
                 rc = ERR_BUSY;
                 goto out;
