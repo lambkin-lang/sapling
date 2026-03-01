@@ -217,15 +217,14 @@ need attention under load.
 - **Range delete fast path.** `txn_del_range` also uses cursor-driven deletion.
   Subtree-unlink could make bulk deletes significantly cheaper.
 
-### Test coverage gaps
+### Test coverage status
 
-- **BEPT** coverage is stronger (including rollback and 128-bit key regression
-  tests) but still has targeted gaps around deletion-collapse corners,
-  word-boundary key patterns, and arena-pressure behavior.
+- **BEPT** coverage includes rollback, 128-bit regression, deletion-collapse
+  edge cases, word-boundary key patterns, and allocator-pressure behavior.
 
-- **Arena allocator** tests cover basic allocation and custom callbacks but not
-  exhaustion, fragmentation, or multi-backing-strategy scenarios (110 test lines
-  for 324 implementation lines).
+- **Arena allocator** coverage includes basic alloc/free paths plus
+  backing-strategy switching, exhaustion behavior, and multi-region
+  fragmentation/reuse checks.
 
 - **Runner scheduler, lease, and dedupe** subsystems each have around 110 lines
   of test code. Coverage is functional but not deep.
@@ -311,9 +310,9 @@ phase reference relate to the runner implementation track described in
   (remove manual call-site init requirements)
 - [x] Define and test BEPT timer-index durability semantics for
   `db_checkpoint`/`db_restore` (deterministic DBI4 source-of-truth rebuild)
-- [ ] Expand BEPT test coverage further: deletion edge cases, word-boundary
+- [x] Expand BEPT test coverage further: deletion edge cases, word-boundary
   keys, arena exhaustion
-- [ ] Expand arena allocator tests: backing-strategy switching, exhaustion
+- [x] Expand arena allocator tests: backing-strategy switching, exhaustion
   behavior, multi-region fragmentation
 - [x] Extend WIT codegen to produce usable C struct layouts for compound types
   (`message-envelope`, `lease-state`, `worker-id`) instead of `unknown_layout`

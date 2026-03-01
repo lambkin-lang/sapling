@@ -151,6 +151,202 @@ static void test_key_length_boundary_stress(void)
     sap_arena_destroy(arena);
 }
 
+static void test_word_boundary_patterns(void)
+{
+    SapEnv *env = NULL;
+    SapMemArena *arena = NULL;
+    SapTxnCtx *txn = NULL;
+    SapArenaOptions opts = {0};
+    int rc;
+    const void *vptr = NULL;
+    uint32_t vlen = 0u;
+    uint32_t min_key_buf[3] = {0};
+
+    static const uint32_t k_bit31[1] = {0x00000001u};
+    static const uint32_t k_bit32[2] = {0x00000000u, 0x80000000u};
+    static const uint32_t k_bit63[2] = {0x00000000u, 0x00000001u};
+    static const uint32_t k_bit64[3] = {0x00000000u, 0x00000000u, 0x80000000u};
+    static const uint32_t k_bit65[3] = {0x00000000u, 0x00000000u, 0x40000000u};
+    static const uint32_t k_missing[3] = {0x00000000u, 0x00000000u, 0x20000000u};
+
+    static const char v31[] = "b31";
+    static const char v32[] = "b32";
+    static const char v63[] = "b63";
+    static const char v64[] = "b64";
+    static const char v65[] = "b65";
+
+    printf("Running word-boundary key stress test...\n");
+
+    opts.page_size = 4096u;
+    opts.type = SAP_ARENA_BACKING_MALLOC;
+    rc = sap_arena_init(&arena, &opts);
+    CHECK(rc == ERR_OK);
+    CHECK(arena != NULL);
+
+    env = sap_env_create(arena, 4096u);
+    CHECK(env != NULL);
+    rc = sap_bept_subsystem_init(env);
+    CHECK(rc == ERR_OK);
+
+    txn = sap_txn_begin(env, NULL, 0u);
+    CHECK(txn != NULL);
+
+    /* Insert in mixed order so trie branches are built across 31/32/63/64/65 boundaries. */
+    rc = sap_bept_put(txn, k_bit31, 1u, v31, (uint32_t)(sizeof(v31) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k_bit64, 3u, v64, (uint32_t)(sizeof(v64) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k_bit32, 2u, v32, (uint32_t)(sizeof(v32) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k_bit65, 3u, v65, (uint32_t)(sizeof(v65) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k_bit63, 2u, v63, (uint32_t)(sizeof(v63) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+
+    rc = sap_bept_get(txn, k_bit31, 1u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(vlen == (uint32_t)(sizeof(v31) - 1u));
+    CHECK(memcmp(vptr, v31, vlen) == 0);
+
+    rc = sap_bept_get(txn, k_bit32, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(vlen == (uint32_t)(sizeof(v32) - 1u));
+    CHECK(memcmp(vptr, v32, vlen) == 0);
+
+    rc = sap_bept_get(txn, k_bit63, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(vlen == (uint32_t)(sizeof(v63) - 1u));
+    CHECK(memcmp(vptr, v63, vlen) == 0);
+
+    rc = sap_bept_get(txn, k_bit64, 3u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(vlen == (uint32_t)(sizeof(v64) - 1u));
+    CHECK(memcmp(vptr, v64, vlen) == 0);
+
+    rc = sap_bept_get(txn, k_bit65, 3u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(vlen == (uint32_t)(sizeof(v65) - 1u));
+    CHECK(memcmp(vptr, v65, vlen) == 0);
+
+    memset(min_key_buf, 0, sizeof(min_key_buf));
+    rc = sap_bept_min(txn, min_key_buf, 3u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(memcmp(min_key_buf, k_bit65, sizeof(k_bit65)) == 0);
+
+    rc = sap_bept_del(txn, k_bit65, 3u);
+    CHECK(rc == ERR_OK);
+    memset(min_key_buf, 0, sizeof(min_key_buf));
+    rc = sap_bept_min(txn, min_key_buf, 3u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(memcmp(min_key_buf, k_bit64, sizeof(k_bit64)) == 0);
+
+    rc = sap_bept_del(txn, k_bit64, 3u);
+    CHECK(rc == ERR_OK);
+    memset(min_key_buf, 0, sizeof(min_key_buf));
+    rc = sap_bept_min(txn, min_key_buf, 3u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(min_key_buf[0] == k_bit63[0]);
+    CHECK(min_key_buf[1] == k_bit63[1]);
+
+    rc = sap_bept_get(txn, k_missing, 3u, &vptr, &vlen);
+    CHECK(rc == ERR_NOT_FOUND);
+
+    rc = sap_txn_commit(txn);
+    CHECK(rc == ERR_OK);
+
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
+static void test_delete_collapse_edge_cases(void)
+{
+    SapEnv *env = NULL;
+    SapMemArena *arena = NULL;
+    SapTxnCtx *txn = NULL;
+    SapArenaOptions opts = {0};
+    int rc;
+    const void *vptr = NULL;
+    uint32_t vlen = 0u;
+    uint32_t min_key_buf[2] = {0u, 0u};
+
+    static const uint32_t k0[2] = {0x00000000u, 0x00000000u};
+    static const uint32_t k1[2] = {0x00000000u, 0x80000000u};
+    static const uint32_t k2[2] = {0x00000000u, 0x80000001u};
+    static const uint32_t k3[2] = {0xffffffffu, 0xffffffffu};
+    static const uint32_t km[2] = {0x12345678u, 0x9abcdef0u};
+
+    static const char v0[] = "d0";
+    static const char v1[] = "d1";
+    static const char v2[] = "d2";
+    static const char v3[] = "d3";
+
+    printf("Running deletion collapse edge-case test...\n");
+
+    opts.page_size = 4096u;
+    opts.type = SAP_ARENA_BACKING_MALLOC;
+    rc = sap_arena_init(&arena, &opts);
+    CHECK(rc == ERR_OK);
+    CHECK(arena != NULL);
+
+    env = sap_env_create(arena, 4096u);
+    CHECK(env != NULL);
+    rc = sap_bept_subsystem_init(env);
+    CHECK(rc == ERR_OK);
+
+    txn = sap_txn_begin(env, NULL, 0u);
+    CHECK(txn != NULL);
+
+    rc = sap_bept_put(txn, k0, 2u, v0, (uint32_t)(sizeof(v0) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k1, 2u, v1, (uint32_t)(sizeof(v1) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k2, 2u, v2, (uint32_t)(sizeof(v2) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k3, 2u, v3, (uint32_t)(sizeof(v3) - 1u), 0u, NULL);
+    CHECK(rc == ERR_OK);
+
+    rc = sap_bept_del(txn, km, 2u);
+    CHECK(rc == ERR_NOT_FOUND);
+
+    rc = sap_bept_del(txn, k2, 2u);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_get(txn, k2, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_NOT_FOUND);
+    rc = sap_bept_get(txn, k1, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(vlen == (uint32_t)(sizeof(v1) - 1u));
+    CHECK(memcmp(vptr, v1, vlen) == 0);
+
+    rc = sap_bept_del(txn, k1, 2u);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_get(txn, k1, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_NOT_FOUND);
+    memset(min_key_buf, 0, sizeof(min_key_buf));
+    rc = sap_bept_min(txn, min_key_buf, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(memcmp(min_key_buf, k0, sizeof(k0)) == 0);
+
+    rc = sap_bept_del(txn, k0, 2u);
+    CHECK(rc == ERR_OK);
+    memset(min_key_buf, 0, sizeof(min_key_buf));
+    rc = sap_bept_min(txn, min_key_buf, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_OK);
+    CHECK(memcmp(min_key_buf, k3, sizeof(k3)) == 0);
+
+    rc = sap_bept_del(txn, k3, 2u);
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_min(txn, min_key_buf, 2u, &vptr, &vlen);
+    CHECK(rc == ERR_NOT_FOUND);
+    rc = sap_bept_del(txn, k3, 2u);
+    CHECK(rc == ERR_NOT_FOUND);
+
+    rc = sap_txn_commit(txn);
+    CHECK(rc == ERR_OK);
+
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+}
+
 static void test_arena_exhaustion_behavior(void)
 {
     SapArenaOptions opts = {0};
@@ -224,6 +420,35 @@ static void test_arena_exhaustion_behavior(void)
     CHECK(rc == ERR_OK);
     CHECK(vlen == (uint32_t)(sizeof(v1) - 1u));
     CHECK(memcmp(vptr, v1, vlen) == 0);
+    sap_txn_abort(txn);
+
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
+
+    /* Case 3: failed insert followed by abort should leave environment unchanged. */
+    fail.alloc_calls = 0u;
+    fail.fail_after = 4u;
+    rc = sap_arena_init(&arena, &opts);
+    CHECK(rc == ERR_OK);
+    env = sap_env_create(arena, 4096u);
+    CHECK(env != NULL);
+    rc = sap_bept_subsystem_init(env);
+    CHECK(rc == ERR_OK); /* alloc call #1 */
+
+    txn = sap_txn_begin(env, NULL, 0u);
+    CHECK(txn != NULL);
+    rc = sap_bept_put(txn, k1, 1u, v1, (uint32_t)(sizeof(v1) - 1u), 0u, NULL); /* alloc call #2 */
+    CHECK(rc == ERR_OK);
+    rc = sap_bept_put(txn, k2, 1u, v2, (uint32_t)(sizeof(v2) - 1u), 0u, NULL); /* alloc call #3 fails */
+    CHECK(rc == ERR_OOM);
+    sap_txn_abort(txn);
+
+    txn = sap_txn_begin(env, NULL, TXN_RDONLY);
+    CHECK(txn != NULL);
+    rc = sap_bept_get(txn, k1, 1u, &vptr, &vlen);
+    CHECK(rc == ERR_NOT_FOUND);
+    rc = sap_bept_get(txn, k2, 1u, &vptr, &vlen);
+    CHECK(rc == ERR_NOT_FOUND);
     sap_txn_abort(txn);
 
     sap_env_destroy(env);
@@ -474,6 +699,8 @@ int main(void) {
     sap_arena_destroy(arena);
 
     test_key_length_boundary_stress();
+    test_word_boundary_patterns();
+    test_delete_collapse_edge_cases();
     test_arena_exhaustion_behavior();
 
     printf("test_bept passed!\n");
