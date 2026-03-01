@@ -10,10 +10,10 @@ used as schema input and code-generation source.
 ## Files
 
 - `schemas/wit/runtime-schema.wit`: canonical WIT schema package
-- `tools/wit_schema_codegen.py`: generates DBI manifest + C metadata
+- `tools/wit_codegen.c`: generates C metadata from WIT
 - `generated/wit_schema_dbis.h`: generated C declarations
-- `generated/wit_schema_dbis.c`: generated C table
-- `schemas/dbi_manifest.csv`: generated DBI manifest
+- `generated/wit_schema_dbis.c`: generated C definitions
+- `schemas/dbi_manifest.csv`: checked manifest for DBI/runtime status validation
 
 ## Naming convention for DBI records
 
@@ -32,7 +32,7 @@ The codegen tool derives DBI index and logical name from this convention.
 - `make wit-schema-check`
   - validates WIT package parse using `wasm-tools component wit`
 - `make wit-schema-generate`
-  - regenerates `schemas/dbi_manifest.csv` and generated C metadata
+  - regenerates generated C metadata (`generated/wit_schema_dbis.h/.c`)
 - `make wit-schema-cc-check`
   - compile-checks generated C metadata (`generated/wit_schema_dbis.c`)
 - `make schema-check`

@@ -158,52 +158,20 @@ The encoding is designed for zero-copy reads from Wasm linear memory.
 ## Schema pipeline
 
 The WIT interface definition (`schemas/wit/runtime-schema.wit`) is the canonical
-source of truth for DBI layouts. A code generator (`tools/wit_schema_codegen.py`)
-produces C metadata headers and a CSV manifest. `make schema-check` validates the
-full pipeline: WIT syntax, codegen freshness, C compilation, and manifest
-consistency with runtime usage.
+source of truth for DBI layouts. A code generator (`tools/wit_codegen.c`)
+produces C metadata (`generated/wit_schema_dbis.h` and
+`generated/wit_schema_dbis.c`). `make schema-check` validates the full pipeline:
+WIT syntax, codegen freshness, C compilation, and manifest consistency with
+runtime usage.
 
 ## Build and test
-
-```
-make                  # builds libsapling.a
-make test             # full native test suite
-make asan             # AddressSanitizer + UBSan
-make tsan             # ThreadSanitizer (SAPLING_THREADED)
-make bench-run        # sorted-load micro-benchmarks
-make bench-ci         # baseline-backed regression guardrails
-make schema-check     # WIT + codegen + manifest validation
-make nomalloc-check   # compile-time check: no malloc in arena-migrated files
-make wasm-lib         # builds libsapling_wasm.a (needs WASI sysroot)
-make wasm-check       # Wasm smoke test
-```
-
-Runner-specific targets follow the pattern `make runner-<subsystem>-test`. Phase
-gates roll up dependencies: `make phasea-check`, `make phaseb-check`,
-`make phasec-check`. See the Makefile for the full target list.
 
 The compiler matrix is clang (primary) and gcc (secondary), C11 strict with
 `-Wall -Wextra -Werror`. Sanitizer coverage includes ASan/UBSan by default and
 TSan for threaded builds.
 
-## Project layout
-
-```
-include/sapling/       Public API headers
-src/sapling/           Core engine (B+ tree, arena, seq, text, bept, thatch)
-src/runner/            Host runner (phases A–F)
-src/wasi/              Wasm integration (shim + runtime)
-src/common/            Shared utilities (fault injection)
-tests/unit/            Deterministic unit tests (~30 files)
-tests/integration/     Multi-subsystem scenario tests
-tests/stress/          Threaded contention and fault harnesses
-examples/native/       C-level worker examples
-schemas/wit/           Canonical WIT schema
-generated/             Code-generated C metadata
-tools/                 Schema validators and inspectors
-docs/                  Design documents and operational guides
-benchmarks/            Baseline performance data
-```
+Use the Makefile as the source of truth for `make` commands to use and for the
+expected project layout.
 
 ## Documentation
 

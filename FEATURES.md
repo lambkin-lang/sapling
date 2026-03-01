@@ -768,7 +768,7 @@ Because Lambkin favors Universal Wasm with linear memory over heavier options li
 
 ### 1. WIT Semantic Annotations (Liquid WIT) (done)
 Extend the WIT IDL with a pseudo-annotation DSL inside the comments (e.g., `/// @refine(value >= 0)`).
-- **Goal:** The custom `wit_schema_codegen.py` parser will read these annotations to automatically generate C-level assert checks, protective `SAP_INVALID` barriers at the Wasm boundary, and inputs for the deterministic `fault_harness`.
+- **Goal:** The custom `wit_codegen.c` parser will read these annotations to automatically generate C-level assert checks, protective `SAP_INVALID` barriers at the Wasm boundary, and inputs for the deterministic `fault_harness`.
 
 ### 2. Zero-Cost `atomic` Reads via Escape Analysis
 Because the Lambkin compiler can statically prove when an `atomic { ... }` block contains only reads and no cross-thread side-effects:

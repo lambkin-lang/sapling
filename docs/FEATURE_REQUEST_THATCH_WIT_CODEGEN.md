@@ -2,7 +2,7 @@
 
 ## Summary
 
-Extend `tools/wit_schema_codegen.py` to produce Thatch-native cursor accessors
+Extend `tools/wit_codegen.c` to produce Thatch-native cursor accessors
 for all WIT types, replacing the current `unknown_layout` placeholders with
 generated encode/write and decode/read functions that operate directly on
 ThatchRegion pages. This eliminates the gap between the WIT schema and the
