@@ -58,11 +58,6 @@ static DB *new_db(void)
         db_close(db);
         return NULL;
     }
-    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
-    {
-        db_close(db);
-        return NULL;
-    }
     return db;
 }
 

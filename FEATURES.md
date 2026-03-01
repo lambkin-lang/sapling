@@ -625,11 +625,12 @@ Phase C status (started):
     `make runner-multiwriter-stress`) and build gating entry point
     (`make runner-multiwriter-stress-build`) wired into phase-C checks;
     runtime stress execution has been stabilized and passes reliably.
-11. [Planned][P1] Remove manual BEPT initialization requirements by wiring
-    `sap_bept_subsystem_init(...)` into the standard DB/runner bootstrap path.
-12. [Planned][P1] Define BEPT timer-index checkpoint/restore semantics
-    (persist directly vs deterministic rebuild), then add regression coverage so
-    recovery behavior is explicit and stable.
+11. [Done][P1] Removed manual BEPT initialization requirements:
+    `db_open` now initializes BEPT by default, and
+    `sap_bept_subsystem_init(...)` is idempotent for repeated calls.
+12. [Done][P1] BEPT timer-index checkpoint/restore semantics defined and
+    implemented as deterministic rebuild/self-heal from DBI 4 source-of-truth,
+    with regression coverage in runner timer and recovery tests.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

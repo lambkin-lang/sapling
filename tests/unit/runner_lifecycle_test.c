@@ -87,13 +87,7 @@ static void timer_to_bept_key(int64_t due_ts, uint64_t seq, uint32_t out_key[4])
     out_key[3] = (uint32_t)(seq & 0xFFFFFFFF);
 }
 
-static DB *new_db(void) { 
-    DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); 
-    if (db) {
-        (void)sap_bept_subsystem_init((SapEnv *)db);
-    }
-    return db;
-}
+static DB *new_db(void) { return db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL); }
 
 static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *ctx)
 {

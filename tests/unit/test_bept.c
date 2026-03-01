@@ -194,8 +194,76 @@ int main(void) {
     rc = sap_bept_min(txn, k_min_out, 2, &v_min_out, &v_min_len_out);
     CHECK(rc == ERR_OK);
     CHECK(k_min_out[0] == 0 && k_min_out[1] == 0); // Should match smaller
+
+    /* Commit baseline and verify abort rollback semantics in a fresh txn. */
+    rc = sap_txn_commit(txn);
+    CHECK(rc == ERR_OK);
+
+    txn = sap_txn_begin(env, NULL, 0);
+    CHECK(txn != NULL);
+    {
+        uint32_t k_abort[2];
+        const char *abort_val = "abortv";
+        u64_to_key(0xABCDEF01u, k_abort);
+        rc = sap_bept_put(txn, k_abort, 2, abort_val, 6, 0, NULL);
+        CHECK(rc == ERR_OK);
+    }
+    sap_txn_abort(txn);
+
+    txn = sap_txn_begin(env, NULL, 0);
+    CHECK(txn != NULL);
+    {
+        uint32_t k_abort[2];
+        const void *vptr = NULL;
+        uint32_t vlen = 0u;
+        u64_to_key(0xABCDEF01u, k_abort);
+        rc = sap_bept_get(txn, k_abort, 2, &vptr, &vlen);
+        CHECK(rc == ERR_NOT_FOUND);
+    }
+    sap_txn_abort(txn);
+
+    /* 128-bit key support: min ordering and point lookups across 4-word keys. */
+    txn = sap_txn_begin(env, NULL, 0);
+    CHECK(txn != NULL);
+    {
+        static const uint32_t k128_a[4] = {0x7fffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu};
+        static const uint32_t k128_b[4] = {0x80000000u, 0x00000000u, 0x00000000u, 0x00000000u};
+        static const uint32_t k128_c[4] = {0x80000000u, 0x00000000u, 0x00000000u, 0x00000001u};
+        static const char va[] = "k128a";
+        static const char vb[] = "k128b";
+        static const char vc[] = "k128c";
+        uint32_t kmin128[4] = {0};
+        const void *vptr = NULL;
+        uint32_t vlen = 0u;
+
+        rc = sap_bept_clear(txn);
+        CHECK(rc == ERR_OK);
+
+        rc = sap_bept_put(txn, k128_c, 4, vc, (uint32_t)(sizeof(vc) - 1u), 0, NULL);
+        CHECK(rc == ERR_OK);
+        rc = sap_bept_put(txn, k128_a, 4, va, (uint32_t)(sizeof(va) - 1u), 0, NULL);
+        CHECK(rc == ERR_OK);
+        rc = sap_bept_put(txn, k128_b, 4, vb, (uint32_t)(sizeof(vb) - 1u), 0, NULL);
+        CHECK(rc == ERR_OK);
+
+        rc = sap_bept_min(txn, kmin128, 4, &vptr, &vlen);
+        CHECK(rc == ERR_OK);
+        CHECK(memcmp(kmin128, k128_a, sizeof(kmin128)) == 0);
+        CHECK(vlen == (uint32_t)(sizeof(va) - 1u));
+        CHECK(memcmp(vptr, va, vlen) == 0);
+
+        rc = sap_bept_get(txn, k128_b, 4, &vptr, &vlen);
+        CHECK(rc == ERR_OK);
+        CHECK(vlen == (uint32_t)(sizeof(vb) - 1u));
+        CHECK(memcmp(vptr, vb, vlen) == 0);
+    }
+    rc = sap_txn_commit(txn);
+    CHECK(rc == ERR_OK);
     
     printf("test_bept passed!\n");
+
+    sap_env_destroy(env);
+    sap_arena_destroy(arena);
 
     return 0;
 }

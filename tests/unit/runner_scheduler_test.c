@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: MIT
  */
 #include "runner/runner_v0.h"
-#include "sapling/bept.h"
 #include "runner/scheduler_v0.h"
 
 #include <stdint.h>
@@ -42,11 +41,6 @@ static DB *new_db(void)
         return NULL;
     }
     if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
-    {
-        db_close(db);
-        return NULL;
-    }
-    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         db_close(db);
         return NULL;

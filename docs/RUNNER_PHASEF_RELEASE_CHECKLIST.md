@@ -50,8 +50,9 @@ Note:
   - `sap_runner_dead_letter_v0_replay(...)`
 - Confirm BEPT timer-index bootstrap + recovery semantics are explicitly
   validated for this release:
-  - BEPT init path present (no manual ad hoc setup in production codepaths)
-  - checkpoint/restore behavior documented and tested against chosen contract
+  - BEPT init path present via `db_open` (no manual ad hoc setup in production)
+  - checkpoint/restore behavior documented and tested against the DBI4
+    source-of-truth rebuild contract
 
 ## 5) Operational docs and knobs
 

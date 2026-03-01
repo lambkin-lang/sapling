@@ -7,6 +7,7 @@
 
 #include "sapling/sapling.h"
 #include "sapling/corruption_stats.h"
+#include "sapling/bept.h"
 #include "sapling/freelist_check.h"
 #include "sapling/txn.h"
 #include "common/fault_inject.h"
@@ -4283,15 +4284,30 @@ int sap_btree_subsystem_init(SapEnv *env, keycmp_fn cmp, void *cmp_ctx)
 DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx)
 {
     SapEnv *env = sap_env_create(arena, page_size);
+    int rc;
     if (!env)
         return NULL;
 
-    if (sap_btree_subsystem_init(env, cmp, cmp_ctx) != ERR_OK)
+    rc = sap_btree_subsystem_init(env, cmp, cmp_ctx);
+    if (rc != ERR_OK)
     {
         /* Cleanup involves destroying env which frees subsystem state if registered?
            sap_env_destroy calls free(env). Subsystem states are void*, not managed.
            So we leak 'db' if init partially succeeded. 
            But this is a legacy wrapper. Ideally we fix leak. */
+        struct BTreeEnvState *db = sap_env_subsystem_state(env, SAP_SUBSYSTEM_DB);
+        if (db) {
+            if (db->pages) free(db->pages);
+            free(db);
+        }
+        sap_env_destroy(env);
+        return NULL;
+    }
+
+    /* Initialize BEPT by default so callers don't need ad hoc subsystem setup. */
+    rc = sap_bept_subsystem_init(env);
+    if (rc != ERR_OK)
+    {
         struct BTreeEnvState *db = sap_env_subsystem_state(env, SAP_SUBSYSTEM_DB);
         if (db) {
             if (db->pages) free(db->pages);

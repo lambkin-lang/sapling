@@ -30,6 +30,12 @@ void sap_runner_timer_v0_bept_key_encode(int64_t due_ts, uint64_t seq, uint32_t 
 void sap_runner_timer_v0_bept_key_decode(const uint32_t key[4], int64_t *due_ts_out,
                                          uint64_t *seq_out);
 
+/* Rebuild the runtime BEPT timer index from durable DBI timer rows. */
+int sap_runner_timer_v0_sync_index(DB *db);
+
+/* Return earliest due timestamp across all timers, or ERR_NOT_FOUND when empty. */
+int sap_runner_timer_v0_next_due(DB *db, int64_t *due_ts_out);
+
 int sap_runner_timer_v0_append(DB *db, int64_t due_ts, uint64_t seq, const uint8_t *payload,
                                uint32_t payload_len);
 

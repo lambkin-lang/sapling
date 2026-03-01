@@ -863,6 +863,7 @@ static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t se
 int sap_runner_v0_bootstrap_dbis(DB *db)
 {
     uint32_t i;
+    int rc;
 
     if (!db)
     {
@@ -880,7 +881,6 @@ int sap_runner_v0_bootstrap_dbis(DB *db)
     for (i = 1u; i < sap_wit_dbi_schema_count; i++)
     {
         const SapWitDbiSchema *entry = &sap_wit_dbi_schema[i];
-        int rc;
 
         if (entry->dbi != i)
         {
@@ -891,6 +891,11 @@ int sap_runner_v0_bootstrap_dbis(DB *db)
         {
             return rc;
         }
+    }
+    rc = sap_runner_timer_v0_sync_index(db);
+    if (rc != ERR_OK)
+    {
+        return rc;
     }
     return ERR_OK;
 }

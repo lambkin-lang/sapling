@@ -95,10 +95,13 @@ Retry behavior in the scaffold:
 Due timer frames are dispatched through the same `sap_runner_v0_run_step`
 path and deleted with key/value match guards.
 
-Current integration caveats:
-- BEPT subsystem initialization is explicit (`sap_bept_subsystem_init`).
-- `db_checkpoint`/`db_restore` currently serialize B+ tree pages; BEPT timer
-  index durability semantics are a tracked follow-up item.
+Current integration contract:
+- BEPT subsystem initialization is part of `db_open` and is idempotent.
+- DBI 4 (`timers`) is the durable source of truth.
+- Timer append/delete paths update DBI 4 and BEPT in one transaction.
+- Runner bootstrap (`sap_runner_v0_bootstrap_dbis`) rebuilds BEPT from DBI 4.
+- Timer reads (`next_due` / due-drain path) reconcile BEPT min entries against
+  DBI 4 and self-heal stale/missing index rows.
 
 ## Reliability counters
 

@@ -14,8 +14,8 @@ Scope:
 - `sap_runner_v0_bootstrap_dbis(db)`
 - `sap_runner_v0_ensure_schema_version(db, major, minor, bootstrap_if_missing)`
 
-2. Initialize BEPT subsystem before timer-path usage:
-- `sap_bept_subsystem_init((SapEnv *)db)`
+2. Bootstrap runner DBIs (includes timer-index sync from DBI 4 into BEPT):
+- `sap_runner_v0_bootstrap_dbis(db)`
 
 3. Initialize runner worker(s):
 - `sap_runner_v0_worker_init(...)`
@@ -81,7 +81,7 @@ Recommended production incident flow:
 1. checkpoint current state
 2. restore into staging environment
 3. validate inbox/dead-letter continuity and replay decisions
-4. validate timer-index behavior against the current BEPT durability contract
+4. validate timer-index behavior using the DBI4 source-of-truth contract
 5. only then apply production replay/remediation steps
 
 ## Shutdown

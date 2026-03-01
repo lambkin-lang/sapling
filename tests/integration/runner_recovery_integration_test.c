@@ -7,6 +7,8 @@
 #include "runner/dead_letter_v0.h"
 #include "runner/mailbox_v0.h"
 #include "runner/runner_v0.h"
+#include "runner/scheduler_v0.h"
+#include "runner/timer_v0.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,6 +36,15 @@ typedef struct
     uint32_t calls;
     uint8_t last_payload_tag;
 } DispatchCtx;
+
+typedef struct
+{
+    uint32_t calls;
+    int64_t due_ts[4];
+    uint64_t seq[4];
+    uint8_t payloads[4][8];
+    uint32_t payload_lens[4];
+} TimerDrainCtx;
 
 static void *test_alloc(void *ctx, uint32_t sz)
 {
@@ -224,6 +235,23 @@ static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *
     return ERR_OK;
 }
 
+static int collect_timer_due(int64_t due_ts, uint64_t seq, const uint8_t *payload,
+                             uint32_t payload_len, void *ctx)
+{
+    TimerDrainCtx *drain = (TimerDrainCtx *)ctx;
+
+    if (!drain || !payload || payload_len == 0u || payload_len > 8u || drain->calls >= 4u)
+    {
+        return ERR_INVALID;
+    }
+    drain->due_ts[drain->calls] = due_ts;
+    drain->seq[drain->calls] = seq;
+    memcpy(drain->payloads[drain->calls], payload, payload_len);
+    drain->payload_lens[drain->calls] = payload_len;
+    drain->calls++;
+    return ERR_OK;
+}
+
 static int test_runner_recovery_checkpoint_restore(void)
 {
     DB *db = new_db();
@@ -295,6 +323,58 @@ static int test_runner_recovery_checkpoint_restore(void)
     return 0;
 }
 
+static int test_timer_index_recovers_after_restore(void)
+{
+    DB *db = new_db();
+    MemBuf snap = {0};
+    TimerDrainCtx drain = {0};
+    uint32_t processed = 0u;
+    int64_t next_due = 0;
+    const uint8_t a[] = {'a'};
+    const uint8_t b[] = {'b'};
+
+    CHECK(db != NULL);
+    CHECK(sap_runner_v0_bootstrap_dbis(db) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 10, 1u, a, sizeof(a)) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 20, 1u, b, sizeof(b)) == ERR_OK);
+    CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_OK);
+    CHECK(snap.len > 0u);
+
+    CHECK(sap_runner_timer_v0_drain_due(db, 10, 1u, collect_timer_due, &drain, &processed) ==
+          ERR_OK);
+    CHECK(processed == 1u);
+    CHECK(drain.calls == 1u);
+    CHECK(drain.due_ts[0] == 10);
+    CHECK(drain.seq[0] == 1u);
+    CHECK(drain.payload_lens[0] == 1u);
+    CHECK(drain.payloads[0][0] == 'a');
+
+    snap.pos = 0u;
+    CHECK(db_restore(db, membuf_read, &snap) == ERR_OK);
+
+    CHECK(sap_runner_scheduler_v0_next_due(db, &next_due) == ERR_OK);
+    CHECK(next_due == 10);
+
+    memset(&drain, 0, sizeof(drain));
+    processed = 0u;
+    CHECK(sap_runner_timer_v0_drain_due(db, 20, 2u, collect_timer_due, &drain, &processed) ==
+          ERR_OK);
+    CHECK(processed == 2u);
+    CHECK(drain.calls == 2u);
+    CHECK(drain.due_ts[0] == 10);
+    CHECK(drain.seq[0] == 1u);
+    CHECK(drain.payload_lens[0] == 1u);
+    CHECK(drain.payloads[0][0] == 'a');
+    CHECK(drain.due_ts[1] == 20);
+    CHECK(drain.seq[1] == 1u);
+    CHECK(drain.payload_lens[1] == 1u);
+    CHECK(drain.payloads[1][0] == 'b');
+
+    free(snap.data);
+    db_close(db);
+    return 0;
+}
+
 int main(void)
 {
     SapArenaOptions g_alloc_opts = {
@@ -306,6 +386,10 @@ int main(void)
     sap_arena_init(&g_alloc, &g_alloc_opts);
 
     if (test_runner_recovery_checkpoint_restore() != 0)
+    {
+        return 1;
+    }
+    if (test_timer_index_recovers_after_restore() != 0)
     {
         return 1;
     }

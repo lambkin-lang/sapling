@@ -159,6 +159,10 @@ int sap_bept_subsystem_init(SapEnv *env) {
 
     if (!env) return ERR_INVALID;
 
+    if (sap_env_subsystem_state(env, BEPT_SUBSYSTEM_ID) != NULL) {
+        return ERR_OK;
+    }
+
     SapMemArena *arena = sap_env_get_arena(env);
     EnvState *state = NULL;
     uint32_t nodeno = 0;
@@ -365,6 +369,17 @@ int sap_bept_put(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words,
     }
 
     return insert_recursive(arena, state->root, key, key_len_words, new_leaf_node, diff_bit_val, &state->root);
+}
+
+int sap_bept_clear(SapTxnCtx *txn)
+{
+    if (!txn) return ERR_INVALID;
+
+    TxnState *state = (TxnState *)sap_txn_subsystem_state(txn, BEPT_SUBSYSTEM_ID);
+    if (!state) return ERR_INVALID;
+
+    state->root = NULL;
+    return ERR_OK;
 }
 
 int sap_bept_get(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words, 

@@ -46,8 +46,9 @@ sole safe state-sharing channel.
 └───────────────────────────────────────────────────┘
 ```
 
-Note: the runner's due-timer runtime index is currently BEPT-backed; DBI 4
-remains in schema metadata and compatibility contracts.
+Note: the runner's due-timer runtime index is BEPT-backed, with DBI 4 as the
+durable source of truth. Timer writes are dual-written (DBI 4 + BEPT), runner
+bootstrap rebuilds BEPT from DBI 4, and timer reads self-heal BEPT drift.
 
 ## Data structures
 
@@ -200,12 +201,11 @@ need attention under load.
    currently hardcodes `now_ms = 0` rather than reading a real clock source. TTL
    sweep correctness depends on this being wired to an actual time provider.
 
-2. **WIT codegen for complex types.** The code generator marks several WIT types
-   as `unknown_layout` in the generated C headers — notably `message-envelope`,
-   `lease-state`, and `worker-id`. These affect DBIs 1, 2, 3, 5, and 6. The
-   wire format (`wire_v0`) handles serialization correctly at runtime, but the
-   generated schema metadata does not yet produce usable C struct layouts for
-   these compound types.
+2. **WIT codegen hardening follow-through.** Complex WIT types now emit real C
+   layouts (no `unknown_layout` placeholders), with structural validators and
+   skip-pointer segment checks. Remaining work is maintenance: keep
+   schema/codegen drift checks and adversarial tests current as the schema
+   evolves.
 
 ## Pending work and known gaps
 
@@ -223,9 +223,9 @@ need attention under load.
 
 ### Test coverage gaps
 
-- **BEPT** has the thinnest test coverage of any data structure — 201 lines of
-  tests for 477 lines of implementation. Edge cases around deletion, word-
-  boundary keys, and transaction rollback are likely undertested.
+- **BEPT** coverage is stronger (including rollback and 128-bit key regression
+  tests) but still has targeted gaps around deletion-collapse corners,
+  word-boundary key patterns, and arena-pressure behavior.
 
 - **Arena allocator** tests cover basic allocation and custom callbacks but not
   exhaustion, fragmentation, or multi-backing-strategy scenarios (110 test lines
@@ -287,13 +287,12 @@ need attention under load.
   atomic blocks that span multiple data structure types without the runner
   needing to orchestrate them manually.
 
-- **BEPT timer integration hardening.** Runner timers are already BEPT-backed
-  using 128-bit composite keys (`due_ts`, `seq`) encoded as 4 x `uint32_t`
-  words. Remaining work is integration quality:
-  - wire BEPT subsystem init into standard bootstrap paths so callers do not
-    need manual `sap_bept_subsystem_init(...)`
-  - define timer-index durability for checkpoint/restore (persist BEPT state
-    directly or define a deterministic rebuild path from durable state)
+- **BEPT timer integration hardening.** Completed with a deterministic
+  persist-or-rebuild contract:
+  - BEPT init is wired into `db_open`, and init is idempotent
+  - timers are durably stored in DBI 4 and indexed in BEPT for fast due lookup
+  - bootstrap rebuilds BEPT from DBI 4 (`sap_runner_timer_v0_sync_index`)
+  - timer reads validate and self-heal BEPT index drift against DBI 4
 
 - **Wire format and Thatch convergence.** The runner wire format (`wire_v0`)
   defines its own encode/decode for message envelopes. Thatch provides a general
@@ -312,15 +311,15 @@ phase reference relate to the runner implementation track described in
 
 - [ ] Wire a real clock source into the WASI shim's `atomic_ctx.now_ms` for TTL
   sweep correctness
-- [ ] Harden BEPT timer integration: standardize subsystem initialization
+- [x] Harden BEPT timer integration: standardize subsystem initialization
   (remove manual call-site init requirements)
-- [ ] Define and test BEPT timer-index durability semantics for
-  `db_checkpoint`/`db_restore` (persist-or-rebuild contract)
-- [ ] Expand BEPT test coverage: deletion edge cases, word-boundary keys,
-  128-bit keys, transaction rollback, arena exhaustion
+- [x] Define and test BEPT timer-index durability semantics for
+  `db_checkpoint`/`db_restore` (deterministic DBI4 source-of-truth rebuild)
+- [ ] Expand BEPT test coverage further: deletion edge cases, word-boundary
+  keys, arena exhaustion
 - [ ] Expand arena allocator tests: backing-strategy switching, exhaustion
   behavior, multi-region fragmentation
-- [ ] Extend WIT codegen to produce usable C struct layouts for compound types
+- [x] Extend WIT codegen to produce usable C struct layouts for compound types
   (`message-envelope`, `lease-state`, `worker-id`) instead of `unknown_layout`
   placeholders
 
@@ -341,7 +340,7 @@ phase reference relate to the runner implementation track described in
   and Text
 - [ ] Extract a generalized transactional-store layer from the B+ tree `Txn`
   context
-- [ ] Add integration tests covering runner timer behavior through
+- [x] Add integration tests covering runner timer behavior through
   checkpoint/restore under the selected BEPT durability contract
 - [ ] Evaluate expressing wire payloads as Thatch regions for zero-allocation
   message traversal

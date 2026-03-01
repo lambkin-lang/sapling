@@ -6,7 +6,6 @@
 #include "generated/wit_schema_dbis.h"
 #include "runner/outbox_v0.h"
 #include "runner/runner_v0.h"
-#include "sapling/bept.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -44,11 +43,6 @@ static DB *new_db(void)
         return NULL;
     }
     if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
-    {
-        db_close(db);
-        return NULL;
-    }
-    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         db_close(db);
         return NULL;

@@ -5,6 +5,7 @@
  */
 #include "generated/wit_schema_dbis.h"
 #include "runner/runner_v0.h"
+#include "runner/scheduler_v0.h"
 #include "runner/timer_v0.h"
 #include "sapling/bept.h"
 
@@ -28,12 +29,6 @@ static DB *new_db(void)
     DB *db = db_open(g_alloc, SAPLING_PAGE_SIZE, NULL, NULL);
     if (!db)
     {
-        return NULL;
-    }
-    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
-    {
-        /* db_close destroys env, which is enough */
-        db_close(db);
         return NULL;
     }
     if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
@@ -77,6 +72,40 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
     rc = sap_bept_get(txn, key, 4, val_out, val_len_out);
     txn_abort(txn);
     return rc;
+}
+
+static int force_bept_min_only(DB *db, int64_t due_ts, uint64_t seq, const uint8_t *payload,
+                               uint32_t payload_len)
+{
+    Txn *txn;
+    uint32_t key[4];
+    int rc;
+
+    if (!db || !payload || payload_len == 0u)
+    {
+        return ERR_INVALID;
+    }
+    txn = txn_begin(db, NULL, 0u);
+    if (!txn)
+    {
+        return ERR_BUSY;
+    }
+
+    rc = sap_bept_clear(txn);
+    if (rc != ERR_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+
+    timer_to_bept_key(due_ts, seq, key);
+    rc = sap_bept_put(txn, key, 4u, payload, payload_len, 0u, NULL);
+    if (rc != ERR_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+    return txn_commit(txn);
 }
 
 typedef struct
@@ -244,6 +273,37 @@ static int test_timer_publisher_rejects_outbox_intent(void)
     return 0;
 }
 
+static int test_scheduler_self_heals_missing_earliest_timer(void)
+{
+    DB *db = new_db();
+    int64_t due = 0;
+    uint32_t processed = 0u;
+    DueCtx out = {0};
+    const uint8_t a[] = {'a'};
+    const uint8_t b[] = {'b'};
+
+    CHECK(db != NULL);
+    CHECK(sap_runner_timer_v0_append(db, 100, 1u, a, sizeof(a)) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 200, 1u, b, sizeof(b)) == ERR_OK);
+
+    /* Simulate restore drift: BEPT is missing the earliest DBI timer row. */
+    CHECK(force_bept_min_only(db, 200, 1u, b, sizeof(b)) == ERR_OK);
+
+    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_OK);
+    CHECK(due == 100);
+
+    CHECK(sap_runner_timer_v0_drain_due(db, 100, 1u, collect_due, &out, &processed) == ERR_OK);
+    CHECK(processed == 1u);
+    CHECK(out.calls == 1u);
+    CHECK(out.due_ts[0] == 100);
+    CHECK(out.seq[0] == 1u);
+    CHECK(out.payload_lens[0] == 1u);
+    CHECK(out.payloads[0][0] == 'a');
+
+    db_close(db);
+    return 0;
+}
+
 int main(void)
 {
     SapArenaOptions g_alloc_opts = {
@@ -264,6 +324,11 @@ int main(void)
         return rc;
     }
     rc = test_timer_publisher_rejects_outbox_intent();
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = test_scheduler_self_heals_missing_earliest_timer();
     if (rc != 0)
     {
         return rc;

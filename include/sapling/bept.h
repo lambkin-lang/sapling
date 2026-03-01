@@ -8,8 +8,13 @@
 extern "C" {
 #endif
 
-/* Initialize the generic BEPT subsystems (64 and 128) within the given environment. */
+/* Initialize the generic BEPT subsystem within the given environment.
+ * Idempotent: returns ERR_OK when BEPT is already initialized.
+ */
 int sap_bept_subsystem_init(SapEnv *env);
+
+/* Clear all BEPT entries in the current transaction context. */
+int sap_bept_clear(SapTxnCtx *txn);
 
 /* ------------------------------------------------------------------ */
 /* Generic BEPT Interface (Word-based Keys)                           */

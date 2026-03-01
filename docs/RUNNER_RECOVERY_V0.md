@@ -17,9 +17,11 @@ The integration test validates:
    reverted by `db_restore(...)`.
 3. After restore, runner dispatch can resume and process restored inbox frames
    correctly.
+4. Timer DBI rows are restored correctly and due-time ordering remains correct
+   even when BEPT runtime index state drifts across restore boundaries.
 
 ## Why this matters
 
 Runner reliability depends on durable queue semantics across process restarts
 or crash recovery. This check ensures checkpoint/restore preserves coordination
-state, not just application DBI data.
+state, including timer scheduling semantics, not just application DBI data.

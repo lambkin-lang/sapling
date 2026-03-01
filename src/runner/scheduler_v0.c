@@ -1,39 +1,16 @@
 #include "runner/scheduler_v0.h"
 #include "runner/timer_v0.h"
-#include "sapling/bept.h"
-#include "generated/wit_schema_dbis.h"
 
 #include <stddef.h>
 
 int sap_runner_scheduler_v0_next_due(DB *db, int64_t *due_ts_out)
 {
-    Txn *txn;
-    uint32_t bept_key[4];
-    int rc;
-
     if (!db || !due_ts_out)
     {
         return ERR_INVALID;
     }
     *due_ts_out = 0;
-
-    txn = txn_begin(db, NULL, TXN_RDONLY);
-    if (!txn)
-    {
-        return ERR_OOM;
-    }
-
-    /* Use BEPT Min to find earliest timer */
-    rc = sap_bept_min(txn, bept_key, 4, NULL, NULL);
-    if (rc != ERR_OK)
-    {
-        txn_abort(txn);
-        return rc;
-    }
-
-    sap_runner_timer_v0_bept_key_decode(bept_key, due_ts_out, NULL);
-    txn_abort(txn);
-    return ERR_OK;
+    return sap_runner_timer_v0_next_due(db, due_ts_out);
 }
 
 int sap_runner_scheduler_v0_compute_sleep_ms(int64_t now_ts, int64_t next_due_ts,
