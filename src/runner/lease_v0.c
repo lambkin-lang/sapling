@@ -6,9 +6,8 @@
 #include "runner/lease_v0.h"
 #include "generated/wit_schema_dbis.h"
 
+#include <limits.h>
 #include <string.h>
-
-static const uint8_t k_lease_magic[4] = {'L', 'S', 'E', '0'};
 
 static uint32_t rd32(const uint8_t *p)
 {
@@ -51,26 +50,70 @@ void sap_runner_lease_v0_encode(const SapRunnerLeaseV0 *lease,
         return;
     }
 
-    memcpy(out, k_lease_magic, sizeof(k_lease_magic));
-    wr64(out + 4, lease->owner_worker);
-    wr64(out + 12, (uint64_t)lease->deadline_ts);
-    wr32(out + 20, lease->attempts);
+    memset(out, 0, SAP_RUNNER_LEASE_V0_VALUE_SIZE);
+
+    /*
+     * dbi3-leases-value {
+     *   state: lease-state::leased(lease-info{owner, deadline-ts, attempts})
+     * }
+     */
+    out[0] = SAP_WIT_TAG_RECORD;
+    wr32(out + 1, 38u); /* [TAG_VARIANT][skip][case][lease-info-record] */
+
+    out[5] = SAP_WIT_TAG_VARIANT;
+    wr32(out + 6, 33u); /* [case_tag][lease-info-record] */
+    out[10] = SAP_WIT_LEASE_STATE_LEASED;
+
+    out[11] = SAP_WIT_TAG_RECORD;
+    wr32(out + 12, 27u); /* three s64 fields */
+
+    out[16] = SAP_WIT_TAG_S64;
+    wr64(out + 17, lease->owner_worker);
+
+    out[25] = SAP_WIT_TAG_S64;
+    wr64(out + 26, (uint64_t)lease->deadline_ts);
+
+    out[34] = SAP_WIT_TAG_S64;
+    wr64(out + 35, (uint64_t)lease->attempts);
 }
 
 int sap_runner_lease_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerLeaseV0 *lease_out)
 {
+    int64_t owner = 0;
+    int64_t attempts = 0;
+
     if (!raw || !lease_out || raw_len != SAP_RUNNER_LEASE_V0_VALUE_SIZE)
     {
         return ERR_INVALID;
     }
-    if (memcmp(raw, k_lease_magic, sizeof(k_lease_magic)) != 0)
+    if (raw[0] != SAP_WIT_TAG_RECORD || rd32(raw + 1) != 38u)
+    {
+        return ERR_CORRUPT;
+    }
+    if (raw[5] != SAP_WIT_TAG_VARIANT || rd32(raw + 6) != 33u ||
+        raw[10] != SAP_WIT_LEASE_STATE_LEASED)
+    {
+        return ERR_CORRUPT;
+    }
+    if (raw[11] != SAP_WIT_TAG_RECORD || rd32(raw + 12) != 27u)
+    {
+        return ERR_CORRUPT;
+    }
+    if (raw[16] != SAP_WIT_TAG_S64 || raw[25] != SAP_WIT_TAG_S64 || raw[34] != SAP_WIT_TAG_S64)
     {
         return ERR_CORRUPT;
     }
 
-    lease_out->owner_worker = rd64(raw + 4);
-    lease_out->deadline_ts = (int64_t)rd64(raw + 12);
-    lease_out->attempts = rd32(raw + 20);
+    owner = (int64_t)rd64(raw + 17);
+    attempts = (int64_t)rd64(raw + 35);
+    if (owner < 0 || attempts < 0 || attempts > (int64_t)UINT32_MAX)
+    {
+        return ERR_CORRUPT;
+    }
+
+    lease_out->owner_worker = (uint64_t)owner;
+    lease_out->deadline_ts = (int64_t)rd64(raw + 26);
+    lease_out->attempts = (uint32_t)attempts;
     return ERR_OK;
 }
 

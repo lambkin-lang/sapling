@@ -299,30 +299,34 @@ bept-bench-run: $(BENCH_BEPT_BIN)
 seq-fuzz: CFLAGS += -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
 seq-fuzz: LDFLAGS += -fsanitize=fuzzer,address,undefined
 seq-fuzz:
-	@mkdir -p $(dir $(SEQ_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(SEQ_FUZZ_CORPUS)
+	@mkdir -p $(dir $(SEQ_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(OBJ_DIR)/src/common $(SEQ_FUZZ_CORPUS)
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/sapling.c -o $(OBJ_DIR)/src/sapling/sapling_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/txn.c -o $(OBJ_DIR)/src/sapling/txn_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/txn_vec.c -o $(OBJ_DIR)/src/sapling/txn_vec_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/arena.c -o $(OBJ_DIR)/src/sapling/arena_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/bept.c -o $(OBJ_DIR)/src/sapling/bept_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/common/fault_inject.c -o $(OBJ_DIR)/src/common/fault_inject_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c tests/fuzz/fuzz_seq.c -o $(OBJ_DIR)/tests/fuzz/fuzz_seq.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $(OBJ_DIR)/src/sapling/seq_fuzz.o
-	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_seq.o $(OBJ_DIR)/src/sapling/seq_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o -o $(SEQ_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
+	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_seq.o $(OBJ_DIR)/src/sapling/seq_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/txn_vec_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o $(OBJ_DIR)/src/common/fault_inject_fuzz.o -o $(SEQ_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
 	$(SEQ_FUZZ_SYMBOLIZER_ENV) ./$(SEQ_FUZZ_BIN) -runs=$(SEQ_FUZZ_RUNS) -max_len=$(SEQ_FUZZ_MAX_LEN) $(SEQ_FUZZ_CORPUS) $(SEQ_FUZZ_INPUT_CORPUS)
 
 text-fuzz: CFLAGS += -O1 -g -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -DSAPLING_SEQ_TESTING
 text-fuzz: LDFLAGS += -fsanitize=fuzzer,address,undefined
 text-fuzz:
-	@mkdir -p $(dir $(TEXT_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(TEXT_FUZZ_CORPUS)
+	@mkdir -p $(dir $(TEXT_FUZZ_BIN)) $(OBJ_DIR)/tests/fuzz $(OBJ_DIR)/src/sapling $(OBJ_DIR)/src/common $(TEXT_FUZZ_CORPUS)
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/sapling.c -o $(OBJ_DIR)/src/sapling/sapling_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/txn.c -o $(OBJ_DIR)/src/sapling/txn_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/txn_vec.c -o $(OBJ_DIR)/src/sapling/txn_vec_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/arena.c -o $(OBJ_DIR)/src/sapling/arena_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/bept.c -o $(OBJ_DIR)/src/sapling/bept_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c src/common/fault_inject.c -o $(OBJ_DIR)/src/common/fault_inject_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c tests/fuzz/fuzz_text.c -o $(OBJ_DIR)/tests/fuzz/fuzz_text.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_SRC) -o $(OBJ_DIR)/src/sapling/text_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_LITERAL_SRC) -o $(OBJ_DIR)/src/sapling/text_literal_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_TREE_REG_SRC) -o $(OBJ_DIR)/src/sapling/text_tree_registry_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o
-	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_text.o $(OBJ_DIR)/src/sapling/text_fuzz.o $(OBJ_DIR)/src/sapling/text_literal_fuzz.o $(OBJ_DIR)/src/sapling/text_tree_registry_fuzz.o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o -o $(TEXT_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
+	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_text.o $(OBJ_DIR)/src/sapling/text_fuzz.o $(OBJ_DIR)/src/sapling/text_literal_fuzz.o $(OBJ_DIR)/src/sapling/text_tree_registry_fuzz.o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/txn_vec_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o $(OBJ_DIR)/src/common/fault_inject_fuzz.o -o $(TEXT_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
 	$(SEQ_FUZZ_SYMBOLIZER_ENV) ./$(TEXT_FUZZ_BIN) -runs=$(TEXT_FUZZ_RUNS) -max_len=$(TEXT_FUZZ_MAX_LEN) $(TEXT_FUZZ_CORPUS) $(TEXT_FUZZ_INPUT_CORPUS)
 
 bench-ci:
@@ -711,7 +715,7 @@ runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN
 
 $(RUNNER_LIFECYCLE_TSAN_TEST_BIN): tests/unit/runner_lifecycle_test.c $(C_SOURCES) $(WIT_GEN_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(filter-out $(SAPLING_SRC),$(filter src/common/%, $(C_SOURCES))) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
+	$(CC) $(CFLAGS) -DSAPLING_THREADED -O1 -fsanitize=thread $(INCLUDES) tests/unit/runner_lifecycle_test.c $(filter src/runner/%, $(C_SOURCES)) $(SAPLING_SRC) $(THATCH_SRC) $(filter-out $(SAPLING_SRC),$(filter src/common/%, $(C_SOURCES))) $(filter src/wasi/%, $(C_SOURCES)) $(WIT_GEN_SRC) -o $(RUNNER_LIFECYCLE_TSAN_TEST_BIN) -fsanitize=thread -lpthread
 
 test-integration: runner-integration-test
 

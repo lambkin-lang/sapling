@@ -11,7 +11,8 @@
 
 #include <stdint.h>
 
-#define SAP_RUNNER_LEASE_V0_VALUE_SIZE 24u
+/* Encoded as dbi3-leases-value with state=leased(lease-info). */
+#define SAP_RUNNER_LEASE_V0_VALUE_SIZE 43u
 
 typedef struct
 {

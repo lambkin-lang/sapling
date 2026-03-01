@@ -44,6 +44,7 @@ static int test_dedupe_encode_decode(void)
     SapRunnerDedupeV0 in = {0};
     SapRunnerDedupeV0 out = {0};
     uint8_t raw[SAP_RUNNER_DEDUPE_V0_VALUE_SIZE];
+    uint32_t raw_len = 0u;
     uint8_t checksum[] = {0x01, 0x02, 0x03, 0x04};
 
     in.accepted = 1;
@@ -51,8 +52,10 @@ static int test_dedupe_encode_decode(void)
     in.checksum_len = sizeof(checksum);
     memcpy(in.checksum, checksum, sizeof(checksum));
 
+    raw_len = sap_runner_dedupe_v0_encoded_len(&in);
+    CHECK(raw_len <= sizeof(raw));
     sap_runner_dedupe_v0_encode(&in, raw);
-    CHECK(sap_runner_dedupe_v0_decode(raw, sizeof(raw), &out) == ERR_OK);
+    CHECK(sap_runner_dedupe_v0_decode(raw, raw_len, &out) == ERR_OK);
 
     CHECK(out.accepted == 1);
     CHECK(out.last_seen_ts == 123456789LL);

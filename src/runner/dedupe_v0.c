@@ -8,6 +8,19 @@
 
 #include <string.h>
 
+static uint32_t dedupe_checksum_len(const SapRunnerDedupeV0 *dedupe)
+{
+    if (!dedupe)
+    {
+        return 0u;
+    }
+    if (dedupe->checksum_len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE)
+    {
+        return SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE;
+    }
+    return dedupe->checksum_len;
+}
+
 static uint32_t rd32(const uint8_t *p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -40,48 +53,104 @@ static void wr64(uint8_t *p, uint64_t v)
     p[7] = (uint8_t)((v >> 56) & 0xffu);
 }
 
+uint32_t sap_runner_dedupe_v0_encoded_len(const SapRunnerDedupeV0 *dedupe)
+{
+    return 20u + dedupe_checksum_len(dedupe);
+}
+
 void sap_runner_dedupe_v0_encode(const SapRunnerDedupeV0 *dedupe,
                                  uint8_t out[SAP_RUNNER_DEDUPE_V0_VALUE_SIZE])
 {
-    memset(out, 0, SAP_RUNNER_DEDUPE_V0_VALUE_SIZE);
-    out[0] = dedupe->accepted ? 1u : 0u;
-    wr64(out + 1, (uint64_t)dedupe->last_seen_ts);
-    wr32(out + 9, 17u); // checksum_offset: follows the fixed fields (1+8+4+4 = 17)
-    wr32(out + 13, dedupe->checksum_len);
-    if (dedupe->checksum_len > 0)
+    uint32_t csum_len;
+
+    if (!dedupe || !out)
     {
-        uint32_t len = dedupe->checksum_len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE
-                           ? SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE
-                           : dedupe->checksum_len;
-        memcpy(out + 17, dedupe->checksum, len);
+        return;
+    }
+
+    csum_len = dedupe_checksum_len(dedupe);
+    memset(out, 0, SAP_RUNNER_DEDUPE_V0_VALUE_SIZE);
+
+    /* Root record with skip pointer covering the remaining payload bytes. */
+    out[0] = SAP_WIT_TAG_RECORD;
+    wr32(out + 1, 15u + csum_len);
+
+    /* accepted: bool */
+    out[5] = dedupe->accepted ? SAP_WIT_TAG_BOOL_TRUE : SAP_WIT_TAG_BOOL_FALSE;
+
+    /* last-seen-ts: s64 */
+    out[6] = SAP_WIT_TAG_S64;
+    wr64(out + 7, (uint64_t)dedupe->last_seen_ts);
+
+    /* checksum: bytes */
+    out[15] = SAP_WIT_TAG_BYTES;
+    wr32(out + 16, csum_len);
+    if (csum_len > 0u)
+    {
+        memcpy(out + 20, dedupe->checksum, csum_len);
     }
 }
 
 int sap_runner_dedupe_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerDedupeV0 *dedupe_out)
 {
-    uint32_t offset;
-    uint32_t len;
+    uint32_t skip_len;
+    uint32_t payload_len;
+    uint8_t accepted_tag;
+    uint8_t s64_tag;
+    uint8_t bytes_tag;
 
-    if (!raw || !dedupe_out || raw_len < 17u)
+    if (!raw || !dedupe_out || raw_len < 20u)
     {
         return ERR_INVALID;
     }
+    if (raw[0] != SAP_WIT_TAG_RECORD)
+    {
+        return ERR_CORRUPT;
+    }
+    skip_len = rd32(raw + 1);
+    if (skip_len != raw_len - 5u || skip_len < 15u)
+    {
+        return ERR_CORRUPT;
+    }
 
     memset(dedupe_out, 0, sizeof(*dedupe_out));
-    dedupe_out->accepted = raw[0] != 0;
-    dedupe_out->last_seen_ts = (int64_t)rd64(raw + 1);
-    offset = rd32(raw + 9);
-    len = rd32(raw + 13);
-
-    if (len > 0)
+    accepted_tag = raw[5];
+    if (accepted_tag == SAP_WIT_TAG_BOOL_TRUE)
     {
-        if (offset + len > raw_len)
-        {
-            return ERR_CORRUPT;
-        }
+        dedupe_out->accepted = 1;
+    }
+    else if (accepted_tag == SAP_WIT_TAG_BOOL_FALSE)
+    {
+        dedupe_out->accepted = 0;
+    }
+    else
+    {
+        return ERR_CORRUPT;
+    }
+
+    s64_tag = raw[6];
+    if (s64_tag != SAP_WIT_TAG_S64)
+    {
+        return ERR_CORRUPT;
+    }
+    dedupe_out->last_seen_ts = (int64_t)rd64(raw + 7);
+
+    bytes_tag = raw[15];
+    if (bytes_tag != SAP_WIT_TAG_BYTES)
+    {
+        return ERR_CORRUPT;
+    }
+    payload_len = rd32(raw + 16);
+    if (payload_len != skip_len - 15u || 20u + payload_len != raw_len)
+    {
+        return ERR_CORRUPT;
+    }
+    if (payload_len > 0u)
+    {
         dedupe_out->checksum_len =
-            len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE ? SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE : len;
-        memcpy(dedupe_out->checksum, raw + offset, dedupe_out->checksum_len);
+            payload_len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE ? SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE
+                                                             : payload_len;
+        memcpy(dedupe_out->checksum, raw + 20, dedupe_out->checksum_len);
     }
 
     return ERR_OK;
@@ -106,16 +175,30 @@ int sap_runner_dedupe_v0_get(Txn *txn, const void *message_id, uint32_t message_
 int sap_runner_dedupe_v0_put(Txn *txn, const void *message_id, uint32_t message_id_len,
                              const SapRunnerDedupeV0 *dedupe)
 {
+    uint32_t raw_len;
     uint8_t raw[SAP_RUNNER_DEDUPE_V0_VALUE_SIZE];
+
+    if (!txn || !message_id || message_id_len == 0u || !dedupe)
+    {
+        return ERR_INVALID;
+    }
+    raw_len = sap_runner_dedupe_v0_encoded_len(dedupe);
     sap_runner_dedupe_v0_encode(dedupe, raw);
-    return txn_put_dbi(txn, SAP_WIT_DBI_DEDUPE, message_id, message_id_len, raw, sizeof(raw));
+    return txn_put_dbi(txn, SAP_WIT_DBI_DEDUPE, message_id, message_id_len, raw, raw_len);
 }
 
 int sap_runner_dedupe_v0_stage_put(SapRunnerTxStackV0 *stack, const void *message_id,
                                    uint32_t message_id_len, const SapRunnerDedupeV0 *dedupe)
 {
+    uint32_t raw_len;
     uint8_t raw[SAP_RUNNER_DEDUPE_V0_VALUE_SIZE];
+
+    if (!stack || !message_id || message_id_len == 0u || !dedupe)
+    {
+        return ERR_INVALID;
+    }
+    raw_len = sap_runner_dedupe_v0_encoded_len(dedupe);
     sap_runner_dedupe_v0_encode(dedupe, raw);
     return sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_DEDUPE, message_id,
-                                               message_id_len, raw, sizeof(raw));
+                                               message_id_len, raw, raw_len);
 }

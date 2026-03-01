@@ -40,7 +40,15 @@ int sap_runner_dedupe_v0_stage_put(SapRunnerTxStackV0 *stack, const void *messag
 
 /* --- Serialization --- */
 
-#define SAP_RUNNER_DEDUPE_V0_VALUE_SIZE (1u + 8u + 4u + SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE)
+/*
+ * Encoded DBI5 value uses WIT/Thatch record layout:
+ * [TAG_RECORD][skip:4][accepted:bool-tag][last-seen-ts:s64][checksum:bytes]
+ * Max bytes = 1 + 4 + 1 + (1 + 8) + (1 + 4 + checksum_max).
+ */
+#define SAP_RUNNER_DEDUPE_V0_VALUE_SIZE (20u + SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE)
+
+/* Returns the number of valid bytes emitted by sap_runner_dedupe_v0_encode(). */
+uint32_t sap_runner_dedupe_v0_encoded_len(const SapRunnerDedupeV0 *dedupe);
 
 void sap_runner_dedupe_v0_encode(const SapRunnerDedupeV0 *dedupe,
                                  uint8_t out[SAP_RUNNER_DEDUPE_V0_VALUE_SIZE]);
