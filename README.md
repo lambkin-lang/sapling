@@ -39,12 +39,15 @@ sole safe state-sharing channel.
 │  ┌─────────────────────────────────────────────┐  │
 │  │         Sapling (MVCC B+ Tree Store)        │  │
 │  │  DBI 0: app_state    DBI 3: leases          │  │
-│  │  DBI 1: inbox        DBI 4: timers          │  │
+│  │  DBI 1: inbox        DBI 4: timers (schema) │  │
 │  │  DBI 2: outbox       DBI 5: dedupe          │  │
 │  │                      DBI 6: dead_letter     │  │
 │  └─────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────┘
 ```
+
+Note: the runner's due-timer runtime index is currently BEPT-backed; DBI 4
+remains in schema metadata and compatibility contracts.
 
 ## Data structures
 
@@ -284,11 +287,13 @@ need attention under load.
   atomic blocks that span multiple data structure types without the runner
   needing to orchestrate them manually.
 
-- **BEPT and timer alignment.** BEPT uses big-endian word keys; the timer
-  subsystem in the runner encodes `(due_ts, msg_id)` keys for the B+ tree. If
-  BEPT were brought under the shared transaction machine, timer lookups could use
-  BEPT's native `clz`-based minimum queries instead of B+ tree cursor scans,
-  which would be a natural fit for the Wasm `i32.clz` instruction.
+- **BEPT timer integration hardening.** Runner timers are already BEPT-backed
+  using 128-bit composite keys (`due_ts`, `seq`) encoded as 4 x `uint32_t`
+  words. Remaining work is integration quality:
+  - wire BEPT subsystem init into standard bootstrap paths so callers do not
+    need manual `sap_bept_subsystem_init(...)`
+  - define timer-index durability for checkpoint/restore (persist BEPT state
+    directly or define a deterministic rebuild path from durable state)
 
 - **Wire format and Thatch convergence.** The runner wire format (`wire_v0`)
   defines its own encode/decode for message envelopes. Thatch provides a general
@@ -307,10 +312,12 @@ phase reference relate to the runner implementation track described in
 
 - [ ] Wire a real clock source into the WASI shim's `atomic_ctx.now_ms` for TTL
   sweep correctness
-- [ ] Resolve the memory-cleanup questions in `text.c` (lines 561, 600) with
-  explicit ownership contracts and tests
+- [ ] Harden BEPT timer integration: standardize subsystem initialization
+  (remove manual call-site init requirements)
+- [ ] Define and test BEPT timer-index durability semantics for
+  `db_checkpoint`/`db_restore` (persist-or-rebuild contract)
 - [ ] Expand BEPT test coverage: deletion edge cases, word-boundary keys,
-  transaction rollback, arena exhaustion
+  128-bit keys, transaction rollback, arena exhaustion
 - [ ] Expand arena allocator tests: backing-strategy switching, exhaustion
   behavior, multi-region fragmentation
 - [ ] Extend WIT codegen to produce usable C struct layouts for compound types
@@ -334,8 +341,8 @@ phase reference relate to the runner implementation track described in
   and Text
 - [ ] Extract a generalized transactional-store layer from the B+ tree `Txn`
   context
-- [ ] Evaluate BEPT as the timer-index backing structure (replacing B+ tree
-  cursor scans for due-time queries)
+- [ ] Add integration tests covering runner timer behavior through
+  checkpoint/restore under the selected BEPT durability contract
 - [ ] Evaluate expressing wire payloads as Thatch regions for zero-allocation
   message traversal
 - [ ] Add an approximate structural estimator for `txn_count_range`

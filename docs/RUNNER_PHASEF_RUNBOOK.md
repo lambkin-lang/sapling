@@ -5,7 +5,7 @@ coordination DB.
 
 Scope:
 - `src/runner/runner_v0.*` lifecycle/worker loop
-- DBI inbox/outbox/leases/timers/retry/dead-letter flows
+- DBI inbox/outbox/leases/retry/dead-letter flows + BEPT timer-index flow
 - reliability + replay + observability sink surfaces
 
 ## Startup
@@ -14,18 +14,21 @@ Scope:
 - `sap_runner_v0_bootstrap_dbis(db)`
 - `sap_runner_v0_ensure_schema_version(db, major, minor, bootstrap_if_missing)`
 
-2. Initialize runner worker(s):
+2. Initialize BEPT subsystem before timer-path usage:
+- `sap_bept_subsystem_init((SapEnv *)db)`
+
+3. Initialize runner worker(s):
 - `sap_runner_v0_worker_init(...)`
 - apply policy knobs before start:
   - `sap_runner_v0_worker_set_policy(...)`
   - `sap_runner_v0_worker_set_idle_policy(...)`
 
-3. Attach observability sinks before workload:
+4. Attach observability sinks before workload:
 - `sap_runner_v0_set_metrics_sink(...)`
 - `sap_runner_v0_set_log_sink(...)`
 - optional replay tracing: `sap_runner_v0_set_replay_hook(...)`
 
-4. Start loop:
+5. Start loop:
 - threaded: `sap_runner_v0_worker_start(...)` + `sap_runner_v0_worker_join(...)`
 - non-threaded host loop: repeated `sap_runner_v0_worker_tick(...)`
 
@@ -78,7 +81,8 @@ Recommended production incident flow:
 1. checkpoint current state
 2. restore into staging environment
 3. validate inbox/dead-letter continuity and replay decisions
-4. only then apply production replay/remediation steps
+4. validate timer-index behavior against the current BEPT durability contract
+5. only then apply production replay/remediation steps
 
 ## Shutdown
 

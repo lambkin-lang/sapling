@@ -87,12 +87,18 @@ Retry behavior in the scaffold:
 
 `sap_runner_v0_worker_tick` now also drains due timers after inbox polling
 (up to remaining `max_batch` capacity):
-- DBI: `timers` (DBI 4)
-- key encoding: `[due_ts:i64be][seq:u64be]` (16 bytes)
+- runtime index: BEPT subsystem (`sap_bept_*`)
+- key encoding: 128-bit composite key as 4 x `u32` words:
+  `[due_ts^SIGNBIT:u64][seq:u64]` in big-endian word order
 - value: serialized `LMSG` frame bytes
 
 Due timer frames are dispatched through the same `sap_runner_v0_run_step`
 path and deleted with key/value match guards.
+
+Current integration caveats:
+- BEPT subsystem initialization is explicit (`sap_bept_subsystem_init`).
+- `db_checkpoint`/`db_restore` currently serialize B+ tree pages; BEPT timer
+  index durability semantics are a tracked follow-up item.
 
 ## Reliability counters
 
@@ -158,7 +164,7 @@ per-step event records for postmortem reconstruction:
 
 Each event includes worker id, sequence (when applicable), step result code,
 and frame bytes for immediate capture by the callback. Timer events now carry
-the timer key sequence from DBI 4.
+the timer key sequence from the BEPT timer key (`(due_ts, seq)`).
 
 Replay hook frame-lifetime contract:
 - `event.frame` bytes are runner-owned and callback-scoped

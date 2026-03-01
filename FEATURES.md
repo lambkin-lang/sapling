@@ -330,7 +330,7 @@ Proposed baseline DBIs:
 - DBI 1: inbox (`(worker_id, seq)` -> message)
 - DBI 2: outbox (`(seq)` -> message/event)
 - DBI 3: leases (`msg_id` -> owner/deadline/attempts)
-- DBI 4: timers (`(due_ts, msg_id)` -> payload)
+- DBI 4: timers (schema slot; runtime due-timer index currently BEPT-backed)
 - DBI 5: dedupe/idempotency + retry budget counters
 - DBI 6: dead-letter (`(worker_id, seq)` -> failed frame + failure metadata)
 
@@ -557,8 +557,9 @@ Phase C status (started):
   with exact lease token guards
 - done: DBI 2 outbox append/drain API with conflict-safe delete-if-match and
   attempt-intent publisher adapter
-- done: DBI 4 timer append/due-drain API with due-time key ordering and
-  attempt-intent publisher adapter
+- done: timer append/due-drain API migrated to BEPT-backed due-time ordering
+  (128-bit `(due_ts, seq)` composite keys) with attempt-intent publisher
+  adapter
 - done: scheduler helper to derive earliest due timestamp and bounded idle
   sleep duration
 - done: worker-loop integration for timer-aware wake/sleep decisions and due
@@ -624,6 +625,11 @@ Phase C status (started):
     `make runner-multiwriter-stress`) and build gating entry point
     (`make runner-multiwriter-stress-build`) wired into phase-C checks;
     runtime stress execution has been stabilized and passes reliably.
+11. [Planned][P1] Remove manual BEPT initialization requirements by wiring
+    `sap_bept_subsystem_init(...)` into the standard DB/runner bootstrap path.
+12. [Planned][P1] Define BEPT timer-index checkpoint/restore semantics
+    (persist directly vs deterministic rebuild), then add regression coverage so
+    recovery behavior is explicit and stable.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)

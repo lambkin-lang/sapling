@@ -48,6 +48,10 @@ Note:
 - Confirm dead-letter tooling APIs still compile and pass:
   - `sap_runner_dead_letter_v0_drain(...)`
   - `sap_runner_dead_letter_v0_replay(...)`
+- Confirm BEPT timer-index bootstrap + recovery semantics are explicitly
+  validated for this release:
+  - BEPT init path present (no manual ad hoc setup in production codepaths)
+  - checkpoint/restore behavior documented and tested against chosen contract
 
 ## 5) Operational docs and knobs
 
