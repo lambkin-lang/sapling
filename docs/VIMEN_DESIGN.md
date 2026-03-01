@@ -114,25 +114,25 @@ release lifecycle provides deterministic resource management.
 ### Layers
 
 ```
-┌──────────────────────────────────────────────────┐
-│  Application / Worker Code                       │
-│  (edit operations, queries, undo)                │
-├──────────────────────────────────────────────────┤
-│  Overlay                                         │
-│  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │ Edit Sequence │  │ Index Structures         │  │
-│  │ (Seq of refs) │  │ (back-ptrs, search, ...) │  │
-│  └──────┬───────┘  └──────────┬───────────────┘  │
-│         │ cursor refs         │ cursor refs       │
-├─────────┼─────────────────────┼──────────────────┤
-│  Base Layer (sealed Thatch region)               │
-│  ┌───────────────────────────────────────────┐   │
-│  │ tag | data | skip | tag | data | ...      │   │
-│  │ (immutable, cursor-traversable)           │   │
-│  └───────────────────────────────────────────┘   │
-├──────────────────────────────────────────────────┤
-│  Arena (backing memory for both layers)          │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  Application / Worker Code                   │
+│  (edit operations, queries, undo)            │
+├──────────────────────────────────────────────┤
+│  Overlay                                     │
+│  ┌─────────────┐  ┌────────────────────────┐ │
+│  │Edit Sequence│  │Index Structures        │ │
+│  │(Seq of refs)│  │(back-ptrs, search, ...)│ │
+│  └─────┬───────┘  └──────────┬─────────────┘ │
+│        │ cursor refs         │ cursor refs   │
+├────────┼─────────────────────┼───────────────┤
+│  Base Layer (sealed Thatch region)           │
+│ ┌──────────────────────────────────────────┐ │
+│ │ tag | data | skip | tag | data | ...     │ │
+│ │ (immutable, cursor-traversable)          │ │
+│ └──────────────────────────────────────────┘ │
+├──────────────────────────────────────────────┤
+│  Arena (backing memory for both layers)      │
+└──────────────────────────────────────────────┘
 ```
 
 ### Base layer
@@ -187,15 +187,15 @@ serialized content — only structural references. They are cheap to build
          │
          ▼
   ┌─────────────┐
-  │  Base only   │  (sealed Thatch region, no overlay)
-  │  (read-only) │
+  │ Base only   │  (sealed Thatch region, no overlay)
+  │ (read-only) │
   └──────┬──────┘
          │  first edit
          ▼
-  ┌──────────────┐     interval snapshot
-  │  Base +      │ ──────────────────────► recovery log
-  │  Overlay     │
-  │  (editing)   │
+  ┌─────────────┐     interval snapshot
+  │ Base +      │ ──────────────────────► recovery log
+  │ Overlay     │
+  │ (editing)   │
   └──────┬──────┘
          │  commit
          ▼
@@ -363,9 +363,9 @@ Base span reference:
   Meaning: "copy bytes [start, end) from the sealed base region."
 
 Inline edit reference:
-  ┌───────────────────┬──────────────────┐
-  │ buffer_offset:u32 │ length:u32       │
-  └───────────────────┴──────────────────┘
+  ┌───────────────────┬─────────────────┐
+  │ buffer_offset:u32 │ length:u32      │
+  └───────────────────┴─────────────────┘
   Meaning: "copy `length` bytes starting at `buffer_offset` in the
             append buffer."
 ```
