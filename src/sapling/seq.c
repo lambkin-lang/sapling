@@ -39,11 +39,13 @@
 #include "sapling/seq.h"
 
 #include "sapling/txn.h"
+#include "sapling/txn_vec.h"
 #include "sapling/arena.h"
 
 #include <assert.h>
-#include <stdlib.h>
 #include <string.h>
+
+#include "sapling/nomalloc.h"
 
 /* ================================================================== */
 /* Internal types                                                       */
@@ -161,38 +163,38 @@ typedef struct
 struct SeqTxnState
 {
     SapTxnCtx *sap_txn;
-    void **new_nodes;
-    uint32_t new_cnt;
-    uint32_t new_cap;
-    void **old_nodes;
-    uint32_t old_cnt;
-    uint32_t old_cap;
-    ShadowedSeq *shadows;
-    uint32_t shadow_cnt;
-    uint32_t shadow_cap;
+    SapTxnVec new_nodes;  /* elem_size = sizeof(void*) */
+    SapTxnVec old_nodes;  /* elem_size = sizeof(void*) */
+    SapTxnVec shadows;    /* elem_size = sizeof(ShadowedSeq) */
 };
 
 static int seq_on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
 {
     (void)parent_state;
-    struct SeqTxnState *st = calloc(1, sizeof(struct SeqTxnState));
+    /* scratch-allocated; freed wholesale at txn end */
+    struct SeqTxnState *st = sap_txn_scratch_alloc(txn, (uint32_t)sizeof(struct SeqTxnState));
     if (!st)
         return ERR_OOM;
+    memset(st, 0, sizeof(*st));
     st->sap_txn = txn;
-    /* Pre-size arrays to reduce allocations */
-    st->new_cap = 64;
-    st->new_nodes = malloc(st->new_cap * sizeof(void *));
-    st->old_cap = 64;
-    st->old_nodes = malloc(st->old_cap * sizeof(void *));
-    st->shadow_cap = 16;
-    st->shadows = malloc(st->shadow_cap * sizeof(ShadowedSeq));
-    if (!st->new_nodes || !st->old_nodes || !st->shadows)
+
+    SapMemArena *arena = sap_txn_arena(txn);
+    int rc;
+    rc = sap_txn_vec_init(&st->new_nodes, arena, sizeof(void *), 64);
+    if (rc != ERR_OK)
+        return rc;
+    rc = sap_txn_vec_init(&st->old_nodes, arena, sizeof(void *), 64);
+    if (rc != ERR_OK)
     {
-        free(st->new_nodes);
-        free(st->old_nodes);
-        free(st->shadows);
-        free(st);
-        return ERR_OOM;
+        sap_txn_vec_destroy(&st->new_nodes);
+        return rc;
+    }
+    rc = sap_txn_vec_init(&st->shadows, arena, sizeof(ShadowedSeq), 16);
+    if (rc != ERR_OK)
+    {
+        sap_txn_vec_destroy(&st->new_nodes);
+        sap_txn_vec_destroy(&st->old_nodes);
+        return rc;
     }
     *state_out = st;
     return ERR_OK;
@@ -204,14 +206,16 @@ static int seq_on_commit(SapTxnCtx *txn, void *state)
     if (st)
     {
         SapMemArena *arena = sap_txn_arena(txn);
-        for (uint32_t i = 0; i < st->old_cnt; i++)
+        uint32_t old_cnt = sap_txn_vec_len(&st->old_nodes);
+        for (uint32_t i = 0; i < old_cnt; i++)
         {
-            sap_arena_free_node_ptr(arena, st->old_nodes[i], 0);
+            void *ptr = *(void **)sap_txn_vec_at(&st->old_nodes, i);
+            sap_arena_free_node_ptr(arena, ptr, 0);
         }
-        free(st->new_nodes);
-        free(st->old_nodes);
-        free(st->shadows);
-        free(st);
+        sap_txn_vec_destroy(&st->new_nodes);
+        sap_txn_vec_destroy(&st->old_nodes);
+        sap_txn_vec_destroy(&st->shadows);
+        /* scratch-allocated; freed wholesale at txn end */
     }
     return ERR_OK;
 }
@@ -222,18 +226,22 @@ static void seq_on_abort(SapTxnCtx *txn, void *state)
     if (st)
     {
         SapMemArena *arena = sap_txn_arena(txn);
-        for (uint32_t i = 0; i < st->new_cnt; i++)
+        uint32_t new_cnt = sap_txn_vec_len(&st->new_nodes);
+        for (uint32_t i = 0; i < new_cnt; i++)
         {
-            sap_arena_free_node_ptr(arena, st->new_nodes[i], 0);
+            void *ptr = *(void **)sap_txn_vec_at(&st->new_nodes, i);
+            sap_arena_free_node_ptr(arena, ptr, 0);
         }
-        for (uint32_t i = 0; i < st->shadow_cnt; i++)
+        uint32_t shadow_cnt = sap_txn_vec_len(&st->shadows);
+        for (uint32_t i = 0; i < shadow_cnt; i++)
         {
-            st->shadows[i].seq->root = st->shadows[i].old_root;
+            ShadowedSeq *sh = (ShadowedSeq *)sap_txn_vec_at(&st->shadows, i);
+            sh->seq->root = sh->old_root;
         }
-        free(st->new_nodes);
-        free(st->old_nodes);
-        free(st->shadows);
-        free(st);
+        sap_txn_vec_destroy(&st->new_nodes);
+        sap_txn_vec_destroy(&st->old_nodes);
+        sap_txn_vec_destroy(&st->shadows);
+        /* scratch-allocated; freed wholesale at txn end */
     }
 }
 
@@ -274,19 +282,11 @@ static void *seq_alloc_node(SapTxnCtx *txn, size_t bytes)
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
     if (st)
     {
-        if (st->new_cnt == st->new_cap)
+        if (sap_txn_vec_push(&st->new_nodes, &node_out) != ERR_OK)
         {
-            uint32_t cap = st->new_cap * 2;
-            void **arr = realloc(st->new_nodes, cap * sizeof(void *));
-            if (!arr)
-            {
-                sap_arena_free_node_ptr(arena, node_out, 0);
-                return NULL;
-            }
-            st->new_nodes = arr;
-            st->new_cap = cap;
+            sap_arena_free_node_ptr(arena, node_out, 0);
+            return NULL;
         }
-        st->new_nodes[st->new_cnt++] = node_out;
     }
     return node_out;
 }
@@ -298,33 +298,23 @@ static void seq_dealloc_node(SapTxnCtx *txn, void *ptr)
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
     if (st)
     {
-        for (uint32_t i = 0; i < st->new_cnt; i++)
+        uint32_t new_cnt = sap_txn_vec_len(&st->new_nodes);
+        for (uint32_t i = 0; i < new_cnt; i++)
         {
-            if (st->new_nodes[i] == ptr)
+            void *entry = *(void **)sap_txn_vec_at(&st->new_nodes, i);
+            if (entry == ptr)
             {
-                st->new_nodes[i] = st->new_nodes[st->new_cnt - 1];
-                st->new_cnt--;
+                sap_txn_vec_swap_remove(&st->new_nodes, i);
                 sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
                 return;
             }
         }
-        if (st->old_cnt == st->old_cap)
+        if (sap_txn_vec_push(&st->old_nodes, &ptr) != ERR_OK)
         {
-            uint32_t cap = st->old_cap * 2;
-            void **arr = realloc(st->old_nodes, cap * sizeof(void *));
-            if (arr)
-            {
-                st->old_nodes = arr;
-                st->old_cap = cap;
-            }
-            else
-            {
-                /* Exceeded arrays, warn and drop it inline: not COW safe */
-                sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
-                return;
-            }
+            /* Exceeded arrays, warn and drop it inline: not COW safe */
+            sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
+            return;
         }
-        st->old_nodes[st->old_cnt++] = ptr;
     }
     else
     {
@@ -341,26 +331,16 @@ static int seq_prepare_root(SapTxnCtx *txn, Seq *s)
         return ERR_INVALID;
 
     /* Check if already shadowed in this txn */
-    for (uint32_t i = 0; i < st->shadow_cnt; i++)
+    uint32_t shadow_cnt = sap_txn_vec_len(&st->shadows);
+    for (uint32_t i = 0; i < shadow_cnt; i++)
     {
-        if (st->shadows[i].seq == s)
+        ShadowedSeq *sh = (ShadowedSeq *)sap_txn_vec_at(&st->shadows, i);
+        if (sh->seq == s)
             return ERR_OK;
     }
 
-    if (st->shadow_cnt == st->shadow_cap)
-    {
-        uint32_t cap = st->shadow_cap ? st->shadow_cap * 2 : 8;
-        ShadowedSeq *arr = realloc(st->shadows, cap * sizeof(ShadowedSeq));
-        if (!arr)
-            return ERR_OOM;
-        st->shadows = arr;
-        st->shadow_cap = cap;
-    }
-
-    st->shadows[st->shadow_cnt].seq = s;
-    st->shadows[st->shadow_cnt].old_root = s->root;
-    st->shadow_cnt++;
-    return ERR_OK;
+    ShadowedSeq entry = { .seq = s, .old_root = s->root };
+    return sap_txn_vec_push(&st->shadows, &entry);
 }
 
 static int is_node_new(SapTxnCtx *txn, void *ptr)
@@ -370,9 +350,10 @@ static int is_node_new(SapTxnCtx *txn, void *ptr)
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
     if (!st)
         return 0;
-    for (uint32_t i = 0; i < st->new_cnt; i++)
+    uint32_t new_cnt = sap_txn_vec_len(&st->new_nodes);
+    for (uint32_t i = 0; i < new_cnt; i++)
     {
-        if (st->new_nodes[i] == ptr)
+        if (*(void **)sap_txn_vec_at(&st->new_nodes, i) == ptr)
             return 1;
     }
     return 0;

@@ -15,9 +15,8 @@ extern "C" {
 #define SAP_SUBSYSTEM_DB      0
 #define SAP_SUBSYSTEM_SEQ     1
 #define SAP_SUBSYSTEM_BEPT    2
-#define SAP_SUBSYSTEM_BEPT128 3
-#define SAP_SUBSYSTEM_THATCH  4
-#define SAP_SUBSYSTEM_HAMT    5
+#define SAP_SUBSYSTEM_THATCH  3
+#define SAP_SUBSYSTEM_HAMT    4
 
 typedef struct SapTxnCtx SapTxnCtx;
 

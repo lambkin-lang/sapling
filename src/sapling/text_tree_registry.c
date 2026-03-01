@@ -11,10 +11,12 @@
 
 #include "sapling/text_tree_registry.h"
 #include "sapling/seq.h"
+#include "sapling/txn_vec.h"
 
 #include <stdatomic.h>
-#include <stdlib.h>
 #include <string.h>
+
+#include "sapling/nomalloc.h"
 
 /* ===== Internal Types ===== */
 
@@ -25,9 +27,8 @@ typedef struct {
 
 struct TextTreeRegistry {
     SapEnv *env;
-    TextTreeEntry *entries;    /* malloc'd growable array */
-    uint32_t count;
-    uint32_t capacity;
+    SapTxnVec entries;         /* arena-backed; elem_size = sizeof(TextTreeEntry) */
+    uint32_t nodeno;           /* arena node number of this struct */
 };
 
 /* ===== Constants ===== */
@@ -41,19 +42,24 @@ TextTreeRegistry *text_tree_registry_new(SapEnv *env)
 {
     if (!env) return NULL;
 
-    TextTreeRegistry *reg = (TextTreeRegistry *)malloc(sizeof(TextTreeRegistry));
-    if (!reg) return NULL;
+    SapMemArena *arena = sap_env_get_arena(env);
+    TextTreeRegistry *reg = NULL;
+    uint32_t nodeno = 0;
+    if (sap_arena_alloc_node(arena, (uint32_t)sizeof(TextTreeRegistry),
+                             (void **)&reg, &nodeno) != ERR_OK)
+        return NULL;
+    memset(reg, 0, sizeof(*reg));
 
-    reg->entries = (TextTreeEntry *)malloc(TREE_INITIAL_CAP * sizeof(TextTreeEntry));
-    if (!reg->entries)
+    reg->env = env;
+    reg->nodeno = nodeno;
+
+    if (sap_txn_vec_init(&reg->entries, arena, sizeof(TextTreeEntry),
+                         TREE_INITIAL_CAP) != ERR_OK)
     {
-        free(reg);
+        sap_arena_free_node(arena, nodeno, (uint32_t)sizeof(TextTreeRegistry));
         return NULL;
     }
 
-    reg->env = env;
-    reg->count = 0;
-    reg->capacity = TREE_INITIAL_CAP;
     return reg;
 }
 
@@ -61,17 +67,21 @@ void text_tree_registry_free(TextTreeRegistry *reg)
 {
     if (!reg) return;
 
-    for (uint32_t i = 0; i < reg->count; i++)
+    /* Release every live Text before tearing down the backing storage */
+    for (uint32_t i = 0; i < sap_txn_vec_len(&reg->entries); i++)
     {
-        if (reg->entries[i].text)
+        TextTreeEntry *e = (TextTreeEntry *)sap_txn_vec_at(&reg->entries, i);
+        if (e && e->text)
         {
-            text_free(reg->env, reg->entries[i].text);
-            reg->entries[i].text = NULL;
+            text_free(reg->env, e->text);
+            e->text = NULL;
         }
     }
 
-    free(reg->entries);
-    free(reg);
+    sap_txn_vec_destroy(&reg->entries);
+    /* arena-allocated; free the struct node */
+    sap_arena_free_node(sap_env_get_arena(reg->env), reg->nodeno,
+                        (uint32_t)sizeof(TextTreeRegistry));
 }
 
 /* ===== Registration ===== */
@@ -82,34 +92,27 @@ int text_tree_registry_register(TextTreeRegistry *reg, const Text *text,
     if (!reg || !text || !id_out)
         return ERR_INVALID;
 
-    if (reg->count > TREE_MAX_ID)
+    uint32_t cur_len = sap_txn_vec_len(&reg->entries);
+    if (cur_len > TREE_MAX_ID)
         return ERR_INVALID;
-
-    /* Grow the entries array if needed */
-    if (reg->count >= reg->capacity)
-    {
-        uint32_t new_cap = reg->capacity * 2u;
-        if (new_cap < reg->capacity) /* overflow */
-            return ERR_OOM;
-        TextTreeEntry *new_entries =
-            (TextTreeEntry *)realloc(reg->entries, new_cap * sizeof(TextTreeEntry));
-        if (!new_entries)
-            return ERR_OOM;
-        reg->entries = new_entries;
-        reg->capacity = new_cap;
-    }
 
     /* COW clone — text_clone bumps the shared refcount */
     Text *clone = text_clone(reg->env, text);
     if (!clone)
         return ERR_OOM;
 
-    uint32_t id = reg->count;
-    reg->entries[id].text = clone;
-    atomic_init(&reg->entries[id].refs, 1u);
-    reg->count++;
+    TextTreeEntry entry;
+    entry.text = clone;
+    atomic_init(&entry.refs, 1u);
 
-    *id_out = id;
+    int rc = sap_txn_vec_push(&reg->entries, &entry);
+    if (rc != ERR_OK)
+    {
+        text_free(reg->env, clone);
+        return rc;
+    }
+
+    *id_out = cur_len;
     return ERR_OK;
 }
 
@@ -120,10 +123,11 @@ int text_tree_registry_get(const TextTreeRegistry *reg, uint32_t id,
 {
     if (!reg || !text_out)
         return ERR_INVALID;
-    if (id >= reg->count)
+    if (id >= sap_txn_vec_len(&reg->entries))
         return ERR_RANGE;
 
-    const TextTreeEntry *entry = &reg->entries[id];
+    const TextTreeEntry *entry =
+        (const TextTreeEntry *)sap_txn_vec_at(&reg->entries, id);
 
     /* Entry was already released (refs reached 0) */
     if (atomic_load(&entry->refs) == 0u)
@@ -139,10 +143,10 @@ int text_tree_registry_retain(TextTreeRegistry *reg, uint32_t id)
 {
     if (!reg)
         return ERR_INVALID;
-    if (id >= reg->count)
+    if (id >= sap_txn_vec_len(&reg->entries))
         return ERR_RANGE;
 
-    TextTreeEntry *entry = &reg->entries[id];
+    TextTreeEntry *entry = (TextTreeEntry *)sap_txn_vec_at(&reg->entries, id);
     uint32_t old = atomic_fetch_add(&entry->refs, 1u);
 
     /* Catch retain on an already-freed entry */
@@ -159,10 +163,10 @@ int text_tree_registry_release(TextTreeRegistry *reg, uint32_t id)
 {
     if (!reg)
         return ERR_INVALID;
-    if (id >= reg->count)
+    if (id >= sap_txn_vec_len(&reg->entries))
         return ERR_RANGE;
 
-    TextTreeEntry *entry = &reg->entries[id];
+    TextTreeEntry *entry = (TextTreeEntry *)sap_txn_vec_at(&reg->entries, id);
     uint32_t old = atomic_fetch_sub(&entry->refs, 1u);
 
     if (old == 0u)
@@ -187,7 +191,7 @@ int text_tree_registry_release(TextTreeRegistry *reg, uint32_t id)
 uint32_t text_tree_registry_count(const TextTreeRegistry *reg)
 {
     if (!reg) return 0;
-    return reg->count;
+    return sap_txn_vec_len(&reg->entries);
 }
 
 /* ===== Resolver Adapter ===== */

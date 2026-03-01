@@ -1,8 +1,10 @@
 #include "sapling/bept.h"
 #include "sapling/arena.h"
-#include <stdlib.h>
+#include "sapling/txn.h"
 #include <string.h>
 #include <assert.h>
+
+#include "sapling/nomalloc.h"
 
 /* Constants */
 enum {
@@ -101,8 +103,10 @@ static int find_diff_bit(const uint32_t *k1, uint32_t k1_len,
 /* ------------------------------------------------------------------ */
 
 static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out) {
-    TxnState *state = malloc(sizeof(TxnState));
+    /* scratch-allocated; freed wholesale at txn end */
+    TxnState *state = sap_txn_scratch_alloc(txn, (uint32_t)sizeof(TxnState));
     if (!state) return ERR_OOM;
+    memset(state, 0, sizeof(*state));
 
     state->txn = txn;
     state->env_state = (EnvState *)sap_env_subsystem_state(sap_txn_env(txn), BEPT_SUBSYSTEM_ID);
@@ -122,26 +126,27 @@ static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out) {
 static int on_commit(SapTxnCtx *txn, void *state) {
     (void)txn;
     TxnState *s = (TxnState *)state;
-    
+
     if (s->parent) {
         s->parent->root = s->root;
     } else {
         s->env_state->root = s->root;
     }
-    
-    free(s);
+
+    /* scratch-allocated; freed wholesale at txn end */
     return ERR_OK;
 }
 
 static void on_abort(SapTxnCtx *txn, void *state) {
     (void)txn;
-    TxnState *s = (TxnState *)state;
-    free(s);
+    (void)state;
+    /* scratch-allocated; freed wholesale at txn end */
 }
 
 static void on_env_destroy(void *env_state) {
     EnvState *state = (EnvState *)env_state;
-    free(state);
+    /* arena-allocated; free via arena node */
+    sap_arena_free_node_ptr(sap_env_get_arena(state->env), state, (uint32_t)sizeof(EnvState));
 }
 
 int sap_bept_subsystem_init(SapEnv *env) {
@@ -154,22 +159,26 @@ int sap_bept_subsystem_init(SapEnv *env) {
 
     if (!env) return ERR_INVALID;
 
-    EnvState *state = malloc(sizeof(EnvState));
-    if (!state) return ERR_OOM;
+    SapMemArena *arena = sap_env_get_arena(env);
+    EnvState *state = NULL;
+    uint32_t nodeno = 0;
+    int rc = sap_arena_alloc_node(arena, (uint32_t)sizeof(EnvState), (void **)&state, &nodeno);
+    if (rc != ERR_OK) return rc;
+    memset(state, 0, sizeof(*state));
 
     state->env = env;
     state->root = NULL;
 
     /* Using a single ID for the generic subsystem */
-    int rc = sap_env_register_subsystem(env, BEPT_SUBSYSTEM_ID, &callbacks);
+    rc = sap_env_register_subsystem(env, BEPT_SUBSYSTEM_ID, &callbacks);
     if (rc != ERR_OK) {
-        free(state);
+        sap_arena_free_node(arena, nodeno, (uint32_t)sizeof(EnvState));
         return rc;
     }
 
     rc = sap_env_set_subsystem_state(env, BEPT_SUBSYSTEM_ID, state);
     if (rc != ERR_OK) {
-        free(state);
+        sap_arena_free_node(arena, nodeno, (uint32_t)sizeof(EnvState));
         return rc;
     }
 

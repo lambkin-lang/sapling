@@ -173,6 +173,7 @@ make tsan             # ThreadSanitizer (SAPLING_THREADED)
 make bench-run        # sorted-load micro-benchmarks
 make bench-ci         # baseline-backed regression guardrails
 make schema-check     # WIT + codegen + manifest validation
+make nomalloc-check   # compile-time check: no malloc in arena-migrated files
 make wasm-lib         # builds libsapling_wasm.a (needs WASI sysroot)
 make wasm-check       # Wasm smoke test
 ```
@@ -277,26 +278,32 @@ need attention under load.
   `ERR_INVALID`, `ERR_CORRUPT`) at each call site. A diagnostic helper
   `err_to_string()` is available for logging.
 
-- **Allocator usage is asymmetric.** All companion structures (Seq, BEPT, Text)
-  use `sap_arena_alloc_node` for persistent nodes but fall back to raw
-  `malloc/free` for transaction-scoped metadata and scratch buffers. This is
-  intentional, but `text.c` has a case (line 359) where `malloc` is used for a
-  path scratch buffer in an arena-managed context without clear lifecycle
-  documentation. If the long-term goal is to run allocation-free on Wasm linear
-  memory, these `malloc` call sites need to be inventoried and migrated or
-  explicitly marked as host-only.
+- **~~Allocator usage is asymmetric.~~** Resolved. All companion subsystems
+  (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry) now allocate
+  exclusively through `SapMemArena`. Transaction-scoped metadata uses
+  `sap_txn_scratch_alloc`; growable arrays use the new `SapTxnVec`
+  (arena-backed growable array in `txn_vec.h`/`txn_vec.c`); env-scoped
+  structs use `sap_arena_alloc_node`. Two host-only `malloc` call sites
+  remain in `text.c` (deep-tree path buffer, `text_to_utf8_full` output
+  buffer) and are guarded by `#ifndef SAP_NO_MALLOC`. A `nomalloc.h` header
+  (`#pragma GCC poison malloc calloc realloc free`) enforces this at compile
+  time; run `make nomalloc-check` to verify.
 
-- **Memory cleanup questions in text.c.** Lines 561 and 600 contain inline
-  questions about whether arena-based cleanup occurs correctly on abort and
-  whether `text_free` can work outside a transaction context. These should be
-  resolved with explicit contracts.
+- **~~Memory cleanup questions in text.c.~~** Resolved. The inline questions
+  referenced at lines 561 and 600 no longer exist (line numbers drifted after
+  prior edits). The code at those locations (`text_insert_range` epilogue and
+  `text_shared_retain` in `text_clone`) is clean with correct arena-based
+  lifecycle management.
 
 ### Reuse and alignment opportunities
 
-- **Unified node allocator.** Seq, BEPT, and Text each integrate with the arena
-  independently. A single node-allocation interface (analogous to
-  `PageAllocator` for the B+ tree) would reduce duplication and make it easier to
-  track allocations across structures sharing the same Wasm linear memory.
+- **~~Unified node allocator.~~** Partially addressed. `SapTxnVec` provides a
+  shared arena-backed growable-array abstraction used by Seq, HAMT,
+  TextLiteral, and TextTreeRegistry. All subsystems now flow through
+  `sap_arena_alloc_node`/`sap_arena_alloc_page` for persistent data and
+  `sap_txn_scratch_alloc` for transaction-scoped metadata. A higher-level
+  `PageAllocator`-style interface for cross-structure allocation tracking
+  remains a future opportunity.
 
 - **Shared transaction machine.** The B+ tree owns the `Txn` context and MVCC
   machinery. Extracting a generalized transactional-store layer would let Seq,

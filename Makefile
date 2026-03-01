@@ -66,6 +66,7 @@ TEST_TEXT_TREE_REG_BIN := $(BIN_DIR)/test_text_tree_registry
 TEST_BEPT_BIN := $(BIN_DIR)/test_bept
 TEST_HAMT_BIN := $(BIN_DIR)/test_hamt
 TEST_ARENA_BIN := $(BIN_DIR)/test_arena
+TEST_TXN_VEC_BIN := $(BIN_DIR)/test_txn_vec
 TEST_THATCH_BIN := $(BIN_DIR)/test_thatch
 TEST_THATCH_JSON_BIN := $(BIN_DIR)/test_thatch_json
 BENCH_BIN = $(BIN_DIR)/bench_sapling
@@ -169,8 +170,8 @@ PHASE0_TIDY_FILES := $(filter-out generated/%, $(C_SOURCES))
 LINT_WARNING_SOURCES := $(filter src/%, $(C_SOURCES))
 LINT_TIDY_SOURCES := $(filter src/%, $(PHASE0_TIDY_FILES))
 
-SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c src/sapling/hamt.c src/sapling/err.c
-SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h include/sapling/hamt.h include/sapling/err.h
+SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/txn_vec.c src/sapling/bept.c src/sapling/hamt.c src/sapling/err.c
+SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/txn_vec.h include/sapling/bept.h include/sapling/hamt.h include/sapling/err.h
 SEQ_SRC := src/sapling/seq.c
 SEQ_HDR := include/sapling/seq.h
 TEXT_SRC := src/sapling/text.c
@@ -187,7 +188,7 @@ THATCH_JSON_HDR := include/sapling/thatch_json.h
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 
-CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o $(OBJ_DIR)/src/sapling/arena.o $(OBJ_DIR)/src/sapling/txn.o $(OBJ_DIR)/src/sapling/bept.o $(OBJ_DIR)/src/sapling/hamt.o
+CORE_OBJS := $(OBJ_DIR)/src/sapling/sapling.o $(OBJ_DIR)/src/sapling/arena.o $(OBJ_DIR)/src/sapling/txn.o $(OBJ_DIR)/src/sapling/txn_vec.o $(OBJ_DIR)/src/sapling/bept.o $(OBJ_DIR)/src/sapling/hamt.o
 SEQ_OBJ := $(OBJ_DIR)/src/sapling/seq.o
 TEXT_OBJ := $(OBJ_DIR)/src/sapling/text.o
 COMMON_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
@@ -195,7 +196,7 @@ RUNNER_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)
 WASI_OBJS := $(patsubst %.c,$(OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
 WIT_GEN_OBJ := $(OBJ_DIR)/$(WIT_GEN_DIR)/wit_schema_dbis.o
 THREADED_OBJ_DIR := $(BUILD_DIR)/obj_threaded
-THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/bept.o $(THREADED_OBJ_DIR)/src/sapling/hamt.o
+THREADED_CORE_OBJS := $(THREADED_OBJ_DIR)/src/sapling/sapling.o $(THREADED_OBJ_DIR)/src/sapling/arena.o $(THREADED_OBJ_DIR)/src/sapling/txn.o $(THREADED_OBJ_DIR)/src/sapling/txn_vec.o $(THREADED_OBJ_DIR)/src/sapling/bept.o $(THREADED_OBJ_DIR)/src/sapling/hamt.o
 THREADED_COMMON_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/common/%, $(C_SOURCES)))
 THREADED_RUNNER_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/runner/%, $(C_SOURCES)))
 THREADED_WASI_OBJS := $(patsubst %.c,$(THREADED_OBJ_DIR)/%.o,$(filter src/wasi/%, $(C_SOURCES)))
@@ -219,7 +220,7 @@ $(LIB): $(OBJ)
 
 
 test: CFLAGS += -O2 -g
-test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_TEXT_LITERAL_BIN) $(TEST_TEXT_TREE_REG_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
+test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_TEXT_LITERAL_BIN) $(TEST_TEXT_TREE_REG_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_TXN_VEC_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
 	./$(TEST_BIN)
 	./$(TEST_SEQ_BIN)
 	./$(TEST_TEXT_BIN)
@@ -228,6 +229,7 @@ test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_TEXT_LITERAL_BIN) $(TE
 	./$(TEST_BEPT_BIN)
 	./$(TEST_HAMT_BIN)
 	./$(TEST_ARENA_BIN)
+	./$(TEST_TXN_VEC_BIN)
 	./$(TEST_THATCH_BIN)
 	./$(TEST_THATCH_JSON_BIN)
 	./$(WASI_SHIM_TEST_BIN)
@@ -378,6 +380,13 @@ test-arena: $(TEST_ARENA_BIN)
 $(TEST_ARENA_BIN): tests/unit/test_arena.c src/sapling/arena.c include/sapling/arena.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_arena.c src/sapling/arena.c -o $@ $(LDFLAGS)
+
+test-txn-vec: $(TEST_TXN_VEC_BIN)
+	./$(TEST_TXN_VEC_BIN)
+
+$(TEST_TXN_VEC_BIN): tests/unit/test_txn_vec.c src/sapling/txn_vec.c src/sapling/arena.c src/sapling/err.c include/sapling/txn_vec.h include/sapling/arena.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_txn_vec.c src/sapling/txn_vec.c src/sapling/arena.c src/sapling/err.c -o $@ $(LDFLAGS)
 
 thatch-test: CFLAGS += -O2 -g
 thatch-test: $(TEST_THATCH_BIN)
@@ -659,6 +668,14 @@ phasea-check: phase0-check runner-wire-test runner-lifecycle-test runner-lifecyc
 phaseb-check: phasea-check runner-txctx-test runner-txstack-test runner-attempt-test runner-attempt-handler-test runner-integration-test
 
 phasec-check: phaseb-check runner-mailbox-test runner-dead-letter-test runner-outbox-test runner-timer-test runner-scheduler-test runner-intent-sink-test runner-ttl-sweep-test runner-native-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-recovery-test
+
+nomalloc-check:
+	@echo "Checking arena-migrated files compile with SAP_NO_MALLOC..."
+	$(CC) $(CFLAGS) -DSAP_NO_MALLOC $(INCLUDES) -fsyntax-only \
+	  src/sapling/bept.c src/sapling/hamt.c src/sapling/seq.c \
+	  src/sapling/text.c src/sapling/text_literal.c src/sapling/text_tree_registry.c \
+	  src/sapling/txn_vec.c
+	@echo "nomalloc-check PASSED"
 
 clean:
 	rm -rf $(BUILD_DIR) test_sapling test_text test_seq bench_sapling bench_seq bench_text fuzz_seq fuzz_text fault_harness runner_wire_test \

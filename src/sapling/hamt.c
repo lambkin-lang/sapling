@@ -19,8 +19,10 @@
 
 #include "sapling/hamt.h"
 #include "sapling/arena.h"
-#include <stdlib.h>
+#include "sapling/txn_vec.h"
 #include <string.h>
+
+#include "sapling/nomalloc.h"
 
 /* ===== Constants ===== */
 
@@ -113,9 +115,7 @@ typedef struct HamtTxnState
     uint32_t root_ref;
     uint32_t saved_root;
     struct HamtTxnState *parent;
-    uint32_t *new_refs;
-    uint32_t new_cnt;
-    uint32_t new_cap;
+    SapTxnVec new_refs; /* arena-backed; elem_size = sizeof(uint32_t) */
 } HamtTxnState;
 
 /* ===== Resolve Helper ===== */
@@ -181,17 +181,7 @@ static inline int leaf_key_eq(const HamtLeaf *leaf, const void *key, uint32_t ke
 
 static int hamt_track_ref(HamtTxnState *st, uint32_t ref)
 {
-    if (st->new_cnt == st->new_cap)
-    {
-        uint32_t cap = st->new_cap == 0 ? 64 : st->new_cap * 2;
-        uint32_t *arr = realloc(st->new_refs, cap * sizeof(uint32_t));
-        if (!arr)
-            return ERR_OOM;
-        st->new_refs = arr;
-        st->new_cap = cap;
-    }
-    st->new_refs[st->new_cnt++] = ref;
-    return ERR_OK;
+    return sap_txn_vec_push(&st->new_refs, &ref);
 }
 
 static int hamt_alloc_tracked(SapMemArena *arena, HamtTxnState *st, uint32_t size, void **out,
@@ -421,10 +411,16 @@ static int branch_with_removed(SapMemArena *arena, HamtTxnState *st, const HamtB
 
 static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
 {
+    /* scratch-allocated; freed wholesale at txn end */
     HamtTxnState *st = (HamtTxnState *)sap_txn_scratch_alloc(txn, (uint32_t)sizeof(HamtTxnState));
     if (!st)
         return ERR_OOM;
     memset(st, 0, sizeof(*st));
+
+    SapMemArena *arena = sap_txn_arena(txn);
+    int rc = sap_txn_vec_init(&st->new_refs, arena, sizeof(uint32_t), 0);
+    if (rc != ERR_OK)
+        return rc;
 
     HamtEnvState *env_st =
         (HamtEnvState *)sap_env_subsystem_state(sap_txn_env(txn), HAMT_SUBSYSTEM_ID);
@@ -453,28 +449,26 @@ static int on_commit(SapTxnCtx *txn, void *state)
 
     if (st->parent)
     {
-        /* Nested commit: atomically merge child allocations into parent.
-         * Pre-reserve capacity, then memcpy, to avoid partial merge. */
-        if (st->new_cnt > 0)
+        /* Nested commit: merge child allocations into parent */
+        uint32_t child_cnt = sap_txn_vec_len(&st->new_refs);
+        if (child_cnt > 0)
         {
-            uint32_t needed = st->parent->new_cnt + st->new_cnt;
-            if (needed < st->parent->new_cnt)
+            uint32_t parent_cnt = sap_txn_vec_len(&st->parent->new_refs);
+            uint32_t needed = parent_cnt + child_cnt;
+            if (needed < parent_cnt)
                 return ERR_OOM; /* overflow */
 
-            if (needed > st->parent->new_cap)
+            int rc = sap_txn_vec_reserve(&st->parent->new_refs, needed);
+            if (rc != ERR_OK)
+                return rc;
+
+            for (uint32_t i = 0; i < child_cnt; i++)
             {
-                uint32_t cap = st->parent->new_cap;
-                while (cap < needed)
-                    cap = cap == 0 ? 64 : cap * 2;
-                uint32_t *arr = realloc(st->parent->new_refs, cap * sizeof(uint32_t));
-                if (!arr)
-                    return ERR_OOM;
-                st->parent->new_refs = arr;
-                st->parent->new_cap = cap;
+                uint32_t *ref = (uint32_t *)sap_txn_vec_at(&st->new_refs, i);
+                rc = sap_txn_vec_push(&st->parent->new_refs, ref);
+                if (rc != ERR_OK)
+                    return rc;
             }
-            memcpy(st->parent->new_refs + st->parent->new_cnt, st->new_refs,
-                   st->new_cnt * sizeof(uint32_t));
-            st->parent->new_cnt = needed;
         }
         st->parent->root_ref = st->root_ref;
     }
@@ -485,7 +479,7 @@ static int on_commit(SapTxnCtx *txn, void *state)
         env_st->root_ref = st->root_ref;
     }
 
-    free(st->new_refs);
+    sap_txn_vec_destroy(&st->new_refs);
     return ERR_OK;
 }
 
@@ -496,19 +490,26 @@ static void on_abort(SapTxnCtx *txn, void *state)
         return;
     SapMemArena *arena = sap_txn_arena(txn);
 
-    for (uint32_t i = 0; i < st->new_cnt; i++)
+    uint32_t cnt = sap_txn_vec_len(&st->new_refs);
+    for (uint32_t i = 0; i < cnt; i++)
     {
-        void *node = sap_arena_resolve(arena, st->new_refs[i]);
+        uint32_t ref = *(uint32_t *)sap_txn_vec_at(&st->new_refs, i);
+        void *node = sap_arena_resolve(arena, ref);
         if (node)
         {
             uint32_t sz = node_alloc_size(node);
-            sap_arena_free_node(arena, st->new_refs[i], sz);
+            sap_arena_free_node(arena, ref, sz);
         }
     }
-    free(st->new_refs);
+    sap_txn_vec_destroy(&st->new_refs);
 }
 
-static void on_env_destroy(void *env_state) { free(env_state); }
+static void on_env_destroy(void *env_state)
+{
+    HamtEnvState *state = (HamtEnvState *)env_state;
+    /* arena-allocated; free via arena node */
+    sap_arena_free_node_ptr(sap_env_get_arena(state->env), state, (uint32_t)sizeof(HamtEnvState));
+}
 
 /* ===== Subsystem Init ===== */
 
@@ -524,24 +525,29 @@ int sap_hamt_subsystem_init(SapEnv *env)
     if (!env)
         return ERR_INVALID;
 
-    HamtEnvState *state = (HamtEnvState *)malloc(sizeof(HamtEnvState));
-    if (!state)
-        return ERR_OOM;
+    SapMemArena *arena = sap_env_get_arena(env);
+    HamtEnvState *state = NULL;
+    uint32_t nodeno = 0;
+    int rc = sap_arena_alloc_node(arena, (uint32_t)sizeof(HamtEnvState),
+                                  (void **)&state, &nodeno);
+    if (rc != ERR_OK)
+        return rc;
+    memset(state, 0, sizeof(*state));
 
     state->env = env;
     state->root_ref = HAMT_REF_NULL;
 
-    int rc = sap_env_register_subsystem(env, HAMT_SUBSYSTEM_ID, &callbacks);
+    rc = sap_env_register_subsystem(env, HAMT_SUBSYSTEM_ID, &callbacks);
     if (rc != ERR_OK)
     {
-        free(state);
+        sap_arena_free_node(arena, nodeno, (uint32_t)sizeof(HamtEnvState));
         return rc;
     }
 
     rc = sap_env_set_subsystem_state(env, HAMT_SUBSYSTEM_ID, state);
     if (rc != ERR_OK)
     {
-        free(state);
+        sap_arena_free_node(arena, nodeno, (uint32_t)sizeof(HamtEnvState));
         return rc;
     }
 

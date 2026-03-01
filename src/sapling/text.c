@@ -12,6 +12,8 @@
 
 #include <stdlib.h>
 
+#include "sapling/nomalloc.h"
+
 struct Text
 {
     struct TextShared *shared;
@@ -359,20 +361,27 @@ int text_expand_runtime_handle(TextHandle handle, TextEmitCodepointFn emit_fn, v
     ctx.emit_fn = emit_fn;
     ctx.emit_ctx = emit_ctx;
 
-    /* Use stack buffer for the common case (max_depth <= 16), malloc for deep trees */
+    /* Stack buffer covers the default max depth (64).
+     * Host-only malloc fallback for custom depths beyond that. */
     {
-        uint32_t path_stack[16];
+        uint32_t path_stack[TEXT_RUNTIME_DEFAULT_MAX_DEPTH];
+#ifndef SAP_NO_MALLOC
         int path_malloced = 0;
-        if (max_depth <= 16u)
+#endif
+        if (max_depth <= TEXT_RUNTIME_DEFAULT_MAX_DEPTH)
         {
             ctx.path = path_stack;
         }
         else
         {
+#ifndef SAP_NO_MALLOC
             ctx.path = (uint32_t *)malloc(max_depth * sizeof(uint32_t));
             if (!ctx.path)
                 return ERR_OOM;
             path_malloced = 1;
+#else
+            return ERR_OOM; /* no-malloc: custom depths beyond 64 not supported */
+#endif
         }
 
         ctx.path_len = 0u;
@@ -381,8 +390,10 @@ int text_expand_runtime_handle(TextHandle handle, TextEmitCodepointFn emit_fn, v
         ctx.visits = 0u;
 
         rc = text_runtime_expand_handle_inner(handle, 0u, &ctx);
+#ifndef SAP_NO_MALLOC
         if (path_malloced)
             free(ctx.path);
+#endif
     }
     return rc;
 }
@@ -1532,7 +1543,9 @@ int text_to_utf8_full(const Text *text,
     if (rc != ERR_OK)
         return rc;
 
-    /* Allocate output buffer (+ 1 for NUL terminator convenience) */
+#ifndef SAP_NO_MALLOC
+    /* Host-only: allocate output buffer (+ 1 for NUL terminator convenience).
+     * Wasm callers should use text_to_utf8_resolved with a pre-allocated buffer. */
     uint8_t *buf = (uint8_t *)malloc(utf8_len + 1u);
     if (!buf)
         return ERR_OOM;
@@ -1550,4 +1563,8 @@ int text_to_utf8_full(const Text *text,
     *utf8_out = buf;
     *utf8_len_out = written;
     return ERR_OK;
+#else
+    (void)utf8_len;
+    return ERR_INVALID; /* Use text_to_utf8_resolved with pre-allocated buffer */
+#endif
 }
