@@ -1,10 +1,5 @@
 # AGENTS.md
 
-Top-level agent rules for this repository.
-
-If there is a conflict between this file and higher-priority system/developer
-instructions, follow higher-priority instructions.
-
 ## Greenfield Project Policy
 
 This repository is a greenfield project in a very early stage.
@@ -35,7 +30,6 @@ Decision rubric (use explicitly in reasoning and plan reviews):
   the shared abstraction now.
 - If a narrow fix is likely to create rework, conceptual mismatch, or duplicate
   logic soon, do the broader structural change now.
-- If a proposed generalization is not connected to the roadmap, avoid it.
 
 Execution expectations:
 - Document cross-component implications (APIs, data model invariants, error
