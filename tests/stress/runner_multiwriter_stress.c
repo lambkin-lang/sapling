@@ -183,23 +183,23 @@ static int app_state_read_counter(DB *db, const uint8_t *key, uint32_t key_len, 
 
     if (!db || !key || key_len == 0u || !value_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *value_out = 0u;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_APP_STATE, key, key_len, &val, &val_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -207,12 +207,12 @@ static int app_state_read_counter(DB *db, const uint8_t *key, uint32_t key_len, 
     if (!val || val_len != 8u)
     {
         txn_abort(txn);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     *value_out = rd64be((const uint8_t *)val);
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int txstack_read_counter(SapRunnerTxStackV0 *stack, Txn *read_txn, const uint8_t *key,
@@ -224,27 +224,27 @@ static int txstack_read_counter(SapRunnerTxStackV0 *stack, Txn *read_txn, const 
 
     if (!stack || !read_txn || !key || key_len == 0u || !value_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_APP_STATE, key, key_len, &cur,
                                         &cur_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *value_out = 0u;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     if (!cur || cur_len != 8u)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     *value_out = rd64be((const uint8_t *)cur);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int txstack_key_exists(SapRunnerTxStackV0 *stack, Txn *read_txn, uint32_t dbi,
@@ -256,20 +256,20 @@ static int txstack_key_exists(SapRunnerTxStackV0 *stack, Txn *read_txn, uint32_t
 
     if (!stack || !read_txn || !key || key_len == 0u || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *exists_out = 0;
 
     rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, dbi, key, key_len, &cur, &cur_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -281,7 +281,7 @@ static int txstack_stage_counter(SapRunnerTxStackV0 *stack, const uint8_t *key, 
 
     if (!stack || !key || key_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     wr64be(raw, value);
@@ -300,7 +300,7 @@ static int encode_forward_frame(const SapRunnerMessageV0 *msg, uint32_t from_wor
     if (!msg || !msg->payload || msg->payload_len != 8u || !msg->message_id ||
         msg->message_id_len == 0u || !frame_out || frame_cap == 0u || !frame_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     flags = (uint8_t)((msg->flags | SAP_RUNNER_MESSAGE_FLAG_HAS_FROM_WORKER) &
@@ -322,13 +322,13 @@ static int encode_forward_frame(const SapRunnerMessageV0 *msg, uint32_t from_wor
     wire_rc = sap_runner_message_v0_encode(&next, frame_out, frame_cap, frame_len_out);
     if (wire_rc == SAP_RUNNER_WIRE_OK)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
     if (wire_rc == SAP_RUNNER_WIRE_E2BIG)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
-    return SAP_ERROR;
+    return ERR_CORRUPT;
 }
 
 static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *runner,
@@ -345,7 +345,7 @@ static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     (void)runner;
     if (!stack || !read_txn || !msg || !stage || !msg->payload || msg->payload_len != 8u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     order_id = rd64be(msg->payload);
@@ -354,27 +354,27 @@ static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
     rc = txstack_key_exists(stack, read_txn, SAP_WIT_DBI_DEDUPE, dedupe_key, sizeof(dedupe_key),
                             &seen);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     if (seen)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
 
     rc =
         txstack_read_counter(stack, read_txn, stage->counter_key, stage->counter_key_len, &counter);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     if (counter == UINT64_MAX)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
     rc = txstack_stage_counter(stack, stage->counter_key, stage->counter_key_len, counter + 1u);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -387,7 +387,7 @@ static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
         rc = encode_forward_frame(msg, stage->worker_id, stage->next_worker_id, frame,
                                   sizeof(frame), &frame_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
@@ -398,7 +398,7 @@ static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
         intent.message = frame;
         intent.message_len = frame_len;
         rc = sap_runner_txstack_v0_push_intent(stack, &intent);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
@@ -406,12 +406,12 @@ static int stress_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
 
     rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_DEDUPE, dedupe_key,
                                              sizeof(dedupe_key), k_done, sizeof(k_done));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int dispatcher_stop_requested(const DispatcherCtx *ctx)
@@ -438,17 +438,17 @@ static int find_worker_slot(const DispatcherCtx *ctx, uint32_t worker_id, uint32
 
     if (!ctx || !slot_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
         if (ctx->worker_ids[i] == worker_id)
         {
             *slot_out = i;
-            return SAP_OK;
+            return ERR_OK;
         }
     }
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 static int dispatch_outbox_frame(const uint8_t *frame, uint32_t frame_len, void *ctx)
@@ -462,20 +462,20 @@ static int dispatch_outbox_frame(const uint8_t *frame, uint32_t frame_len, void 
 
     if (!dispatch || !frame || frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (sap_runner_message_v0_decode(frame, frame_len, &msg) != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (msg.to_worker < 0 || msg.to_worker > INT32_MAX)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     to_worker = (uint32_t)msg.to_worker;
     rc = find_worker_slot(dispatch, to_worker, &slot);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -483,7 +483,7 @@ static int dispatch_outbox_frame(const uint8_t *frame, uint32_t frame_len, void 
     seq = dispatch->next_seq[slot];
     dispatch->next_seq[slot] = seq + 1u;
     rc = sap_runner_v0_inbox_put(dispatch->db, to_worker, seq, frame, frame_len);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         dispatch->forwarded++;
     }
@@ -515,12 +515,12 @@ static void *dispatcher_thread_main(void *arg)
             (void)pthread_mutex_unlock(&dispatch->db_gate->mutex);
         }
 
-        if (rc == SAP_BUSY || rc == SAP_CONFLICT)
+        if (rc == ERR_BUSY || rc == ERR_CONFLICT)
         {
             sleep_ms(STRESS_IDLE_SLEEP_MS);
             continue;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             fprintf(stderr, "runner-multiwriter-stress: dispatcher drain rc=%d drained=%u\n", rc,
                     drained);
@@ -542,7 +542,7 @@ static int seed_stage1_inbox(DB *db, uint32_t worker_id, uint32_t order_count)
 
     if (!db || worker_id == 0u || order_count == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     for (i = 0u; i < order_count; i++)
@@ -573,15 +573,15 @@ static int seed_stage1_inbox(DB *db, uint32_t worker_id, uint32_t order_count)
         if (sap_runner_message_v0_encode(&msg, frame, sizeof(frame), &frame_len) !=
             SAP_RUNNER_WIRE_OK)
         {
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
-        if (sap_runner_v0_inbox_put(db, worker_id, order_id, frame, frame_len) != SAP_OK)
+        if (sap_runner_v0_inbox_put(db, worker_id, order_id, frame, frame_len) != ERR_OK)
         {
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeout_ms)
@@ -595,7 +595,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
     pthread_t dispatch_thread;
     int dispatch_started = 0;
     int db_gate_inited = 0;
-    int rc = SAP_ERROR;
+    int rc = ERR_CORRUPT;
     uint32_t i;
 
     memset(workers, 0, sizeof(workers));
@@ -605,13 +605,13 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
     if (!db)
     {
         fprintf(stderr, "runner-multiwriter-stress: round=%u db_open failed\n", round_index);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
-    if (sap_runner_v0_db_gate_init(&db_gate) != SAP_OK)
+    if (sap_runner_v0_db_gate_init(&db_gate) != ERR_OK)
     {
         fprintf(stderr, "runner-multiwriter-stress: round=%u db gate init failed\n", round_index);
         db_close(db);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     db_gate_inited = 1;
 
@@ -649,7 +649,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
         cfg.bootstrap_schema_if_missing = 1;
 
         if (sap_runner_outbox_v0_publisher_init(&workers[i].outbox, db, outbox_initial_seq) !=
-            SAP_OK)
+            ERR_OK)
         {
             fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] outbox init failed\n",
                     round_index, i);
@@ -658,7 +658,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
 
         if (sap_runner_attempt_handler_v0_init(
                 &workers[i].handler, db, stress_atomic_apply, &workers[i].atomic,
-                sap_runner_outbox_v0_publish_intent, &workers[i].outbox) != SAP_OK)
+                sap_runner_outbox_v0_publish_intent, &workers[i].outbox) != ERR_OK)
         {
             fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] handler init failed\n",
                     round_index, i);
@@ -673,7 +673,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
 
         if (sap_runner_v0_worker_init(&workers[i].worker, &cfg,
                                       sap_runner_attempt_handler_v0_runner_handler,
-                                      &workers[i].handler, STRESS_MAX_BATCH) != SAP_OK)
+                                      &workers[i].handler, STRESS_MAX_BATCH) != ERR_OK)
         {
             fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] worker init failed\n",
                     round_index, i);
@@ -688,14 +688,14 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
     dispatch.db_gate = &db_gate;
     dispatch.forwarded = 0u;
     dispatch.stop_requested = 0;
-    dispatch.last_error = SAP_OK;
+    dispatch.last_error = ERR_OK;
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
         dispatch.worker_ids[i] = worker_ids[i];
         dispatch.next_seq[i] = 1u;
     }
 
-    if (seed_stage1_inbox(db, WORKER_STAGE1, order_count) != SAP_OK)
+    if (seed_stage1_inbox(db, WORKER_STAGE1, order_count) != ERR_OK)
     {
         fprintf(stderr, "runner-multiwriter-stress: round=%u seed failed\n", round_index);
         goto done;
@@ -703,7 +703,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
 
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
-        if (sap_runner_v0_worker_start(&workers[i].worker) != SAP_OK)
+        if (sap_runner_v0_worker_start(&workers[i].worker) != ERR_OK)
         {
             fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] start failed\n",
                     round_index, i);
@@ -727,7 +727,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
             uint64_t delivered = 0u;
 
             if (app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4),
-                                       &delivered) != SAP_OK)
+                                       &delivered) != ERR_OK)
             {
                 fprintf(stderr,
                         "runner-multiwriter-stress: round=%u failed to read stage4 counter\n",
@@ -738,7 +738,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
             {
                 break;
             }
-            if (dispatch.last_error != SAP_OK)
+            if (dispatch.last_error != ERR_OK)
             {
                 fprintf(
                     stderr,
@@ -756,7 +756,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
 
                 for (j = 0u; j < STRESS_WORKER_COUNT; j++)
                 {
-                    if (workers[j].worker.last_error != SAP_OK)
+                    if (workers[j].worker.last_error != ERR_OK)
                     {
                         fprintf(stderr,
                                 "runner-multiwriter-stress: round=%u worker[%u] died with "
@@ -779,7 +779,7 @@ static int run_round(uint32_t round_index, uint32_t order_count, uint32_t timeou
         }
     }
 
-    rc = SAP_OK;
+    rc = ERR_OK;
 
 done:
     dispatcher_request_stop(&dispatch);
@@ -793,11 +793,11 @@ done:
 
     if (dispatch_started)
     {
-        if (pthread_join(dispatch_thread, NULL) != 0 && rc == SAP_OK)
+        if (pthread_join(dispatch_thread, NULL) != 0 && rc == ERR_OK)
         {
             fprintf(stderr, "runner-multiwriter-stress: round=%u dispatcher join failed\n",
                     round_index);
-            rc = SAP_ERROR;
+            rc = ERR_CORRUPT;
         }
         dispatch_started = 0;
     }
@@ -806,13 +806,13 @@ done:
     {
         if (workers[i].started)
         {
-            if (sap_runner_v0_worker_join(&workers[i].worker) != SAP_OK && rc == SAP_OK)
+            if (sap_runner_v0_worker_join(&workers[i].worker) != ERR_OK && rc == ERR_OK)
             {
                 fprintf(stderr, "runner-multiwriter-stress: round=%u worker[%u] join failed\n",
                         round_index, i);
-                rc = SAP_ERROR;
+                rc = ERR_CORRUPT;
             }
-            if (workers[i].worker.last_error != SAP_OK)
+            if (workers[i].worker.last_error != ERR_OK)
             {
                 rc = workers[i].worker.last_error;
             }
@@ -820,7 +820,7 @@ done:
         }
     }
 
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         for (i = 0u; i < STRESS_WORKER_COUNT; i++)
         {
@@ -837,7 +837,7 @@ done:
         }
     }
 
-    if (rc == SAP_OK && dispatch.last_error != SAP_OK)
+    if (rc == ERR_OK && dispatch.last_error != ERR_OK)
     {
         fprintf(stderr, "runner-multiwriter-stress: round=%u dispatcher last_error=%d\n",
                 round_index, dispatch.last_error);
@@ -846,7 +846,7 @@ done:
 
     for (i = 0u; i < STRESS_WORKER_COUNT; i++)
     {
-        if (rc == SAP_OK && workers[i].inited && workers[i].worker.last_error != SAP_OK)
+        if (rc == ERR_OK && workers[i].inited && workers[i].worker.last_error != ERR_OK)
         {
             fprintf(stderr,
                     "runner-multiwriter-stress: round=%u worker[%u] last_error=%d (worker_id=%u)\n",
@@ -855,16 +855,16 @@ done:
         }
     }
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         uint64_t c1 = 0u;
         uint64_t c2 = 0u;
         uint64_t c3 = 0u;
         uint64_t c4 = 0u;
-        if (app_state_read_counter(db, k_counter_stage1, sizeof(k_counter_stage1), &c1) != SAP_OK ||
-            app_state_read_counter(db, k_counter_stage2, sizeof(k_counter_stage2), &c2) != SAP_OK ||
-            app_state_read_counter(db, k_counter_stage3, sizeof(k_counter_stage3), &c3) != SAP_OK ||
-            app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4), &c4) != SAP_OK ||
+        if (app_state_read_counter(db, k_counter_stage1, sizeof(k_counter_stage1), &c1) != ERR_OK ||
+            app_state_read_counter(db, k_counter_stage2, sizeof(k_counter_stage2), &c2) != ERR_OK ||
+            app_state_read_counter(db, k_counter_stage3, sizeof(k_counter_stage3), &c3) != ERR_OK ||
+            app_state_read_counter(db, k_counter_stage4, sizeof(k_counter_stage4), &c4) != ERR_OK ||
             c1 != (uint64_t)order_count || c2 != (uint64_t)order_count ||
             c3 != (uint64_t)order_count || c4 != (uint64_t)order_count)
         {
@@ -872,7 +872,7 @@ done:
                     "runner-multiwriter-stress: round=%u counter mismatch c1=%" PRIu64
                     " c2=%" PRIu64 " c3=%" PRIu64 " c4=%" PRIu64 " expected=%u\n",
                     round_index, c1, c2, c3, c4, order_count);
-            rc = SAP_CONFLICT;
+            rc = ERR_CONFLICT;
         }
     }
 
@@ -914,7 +914,7 @@ int main(void)
     for (round = 1u; round <= rounds; round++)
     {
         int rc = run_round(round, orders, timeout_ms);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             fprintf(stderr,
                     "runner-multiwriter-stress: FAILED round=%u/%u rc=%d orders=%u timeout_ms=%u\n",

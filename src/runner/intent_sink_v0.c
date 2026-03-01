@@ -12,20 +12,20 @@ int sap_runner_intent_sink_v0_init(SapRunnerIntentSinkV0 *sink, DB *db, uint64_t
 
     if (!sink || !db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_outbox_v0_publisher_init(&sink->outbox, db, outbox_initial_seq);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     rc = sap_runner_timer_v0_publisher_init(&sink->timers, db, timer_initial_seq);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_intent_sink_v0_publish(const uint8_t *intent_frame, uint32_t intent_frame_len,
@@ -37,12 +37,12 @@ int sap_runner_intent_sink_v0_publish(const uint8_t *intent_frame, uint32_t inte
 
     if (!sink || !intent_frame || intent_frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = sap_runner_intent_v0_decode(intent_frame, intent_frame_len, &intent);
     if (rc != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     if (intent.kind == SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT)
@@ -53,5 +53,5 @@ int sap_runner_intent_sink_v0_publish(const uint8_t *intent_frame, uint32_t inte
     {
         return sap_runner_timer_v0_publish_intent(intent_frame, intent_frame_len, &sink->timers);
     }
-    return SAP_ERROR;
+    return ERR_INVALID;
 }

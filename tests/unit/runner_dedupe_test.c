@@ -52,7 +52,7 @@ static int test_dedupe_encode_decode(void)
     memcpy(in.checksum, checksum, sizeof(checksum));
 
     sap_runner_dedupe_v0_encode(&in, raw);
-    CHECK(sap_runner_dedupe_v0_decode(raw, sizeof(raw), &out) == SAP_OK);
+    CHECK(sap_runner_dedupe_v0_decode(raw, sizeof(raw), &out) == ERR_OK);
 
     CHECK(out.accepted == 1);
     CHECK(out.last_seen_ts == 123456789LL);
@@ -72,7 +72,7 @@ static int test_dedupe_storage(void)
     int rc;
 
     CHECK(db != NULL);
-    CHECK(dbi_open(db, SAP_WIT_DBI_DEDUPE, NULL, NULL, 0u) == SAP_OK);
+    CHECK(dbi_open(db, SAP_WIT_DBI_DEDUPE, NULL, NULL, 0u) == ERR_OK);
 
     in.accepted = 1;
     in.last_seen_ts = 999;
@@ -80,13 +80,13 @@ static int test_dedupe_storage(void)
 
     txn = txn_begin(db, NULL, 0u);
     CHECK(txn != NULL);
-    CHECK(sap_runner_dedupe_v0_put(txn, mid, (uint32_t)strlen(mid), &in) == SAP_OK);
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(sap_runner_dedupe_v0_put(txn, mid, (uint32_t)strlen(mid), &in) == ERR_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(txn != NULL);
     rc = sap_runner_dedupe_v0_get(txn, mid, (uint32_t)strlen(mid), &out);
-    CHECK(rc == SAP_OK);
+    CHECK(rc == ERR_OK);
     CHECK(out.accepted == 1);
     CHECK(out.last_seen_ts == 999);
     txn_abort(txn);

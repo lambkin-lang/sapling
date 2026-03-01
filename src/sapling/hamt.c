@@ -186,30 +186,30 @@ static int hamt_track_ref(HamtTxnState *st, uint32_t ref)
         uint32_t cap = st->new_cap == 0 ? 64 : st->new_cap * 2;
         uint32_t *arr = realloc(st->new_refs, cap * sizeof(uint32_t));
         if (!arr)
-            return SAP_ERROR;
+            return ERR_OOM;
         st->new_refs = arr;
         st->new_cap = cap;
     }
     st->new_refs[st->new_cnt++] = ref;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int hamt_alloc_tracked(SapMemArena *arena, HamtTxnState *st, uint32_t size, void **out,
                               uint32_t *ref_out)
 {
     int rc = sap_arena_alloc_node(arena, size, out, ref_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     rc = hamt_track_ref(st, *ref_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         sap_arena_free_node(arena, *ref_out, size);
         *out = NULL;
         *ref_out = HAMT_REF_NULL;
-        return SAP_ERROR;
+        return ERR_OOM;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ===== Allocation Helpers (with overflow checks) ===== */
@@ -218,15 +218,15 @@ static int alloc_leaf(SapMemArena *arena, HamtTxnState *st, uint32_t hash, const
                       uint32_t key_len, const void *val, uint32_t val_len, uint32_t *ref_out)
 {
     if (key_len > UINT32_MAX - val_len)
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t data_len = key_len + val_len;
     if (data_len > UINT32_MAX - (uint32_t)sizeof(HamtLeaf))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t total = (uint32_t)sizeof(HamtLeaf) + data_len;
 
     HamtLeaf *leaf;
     int rc = hamt_alloc_tracked(arena, st, total, (void **)&leaf, ref_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     leaf->tag = HAMT_TAG_LEAF;
@@ -237,44 +237,44 @@ static int alloc_leaf(SapMemArena *arena, HamtTxnState *st, uint32_t hash, const
         memcpy(leaf->data, key, key_len);
     if (val && val_len > 0)
         memcpy(leaf->data + key_len, val, val_len);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int alloc_branch_raw(SapMemArena *arena, HamtTxnState *st, uint32_t bitmap,
                             const uint32_t *children, uint32_t child_count, uint32_t *ref_out)
 {
     if (child_count > UINT32_MAX / (uint32_t)sizeof(uint32_t))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t payload = child_count * (uint32_t)sizeof(uint32_t);
     if (payload > UINT32_MAX - (uint32_t)sizeof(HamtBranch))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t total = (uint32_t)sizeof(HamtBranch) + payload;
 
     HamtBranch *br;
     int rc = hamt_alloc_tracked(arena, st, total, (void **)&br, ref_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     br->tag = HAMT_TAG_BRANCH;
     br->bitmap = bitmap;
     if (child_count > 0 && children)
         memcpy(br->child_refs, children, payload);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int alloc_collision(SapMemArena *arena, HamtTxnState *st, uint32_t hash,
                            const uint32_t *leaf_refs, uint32_t count, uint32_t *ref_out)
 {
     if (count > UINT32_MAX / (uint32_t)sizeof(uint32_t))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t payload = count * (uint32_t)sizeof(uint32_t);
     if (payload > UINT32_MAX - (uint32_t)sizeof(HamtCollision))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t total = (uint32_t)sizeof(HamtCollision) + payload;
 
     HamtCollision *col;
     int rc = hamt_alloc_tracked(arena, st, total, (void **)&col, ref_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     col->tag = HAMT_TAG_COLLISION;
@@ -282,7 +282,7 @@ static int alloc_collision(SapMemArena *arena, HamtTxnState *st, uint32_t hash,
     col->count = count;
     if (count > 0 && leaf_refs)
         memcpy(col->leaf_refs, leaf_refs, payload);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ===== Branch Primitives ===== */
@@ -302,12 +302,12 @@ static int branch_with_inserted(SapMemArena *arena, HamtTxnState *st, const Hamt
 
     uint32_t payload = new_pop * (uint32_t)sizeof(uint32_t);
     if (payload > UINT32_MAX - (uint32_t)sizeof(HamtBranch))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t total = (uint32_t)sizeof(HamtBranch) + payload;
 
     HamtBranch *br;
     int rc = hamt_alloc_tracked(arena, st, total, (void **)&br, out_ref);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     br->tag = HAMT_TAG_BRANCH;
@@ -320,7 +320,7 @@ static int branch_with_inserted(SapMemArena *arena, HamtTxnState *st, const Hamt
     for (i = idx; i < old_pop; i++)
         br->child_refs[i + 1] = old->child_refs[i];
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /*
@@ -336,7 +336,7 @@ static int branch_with_replaced(SapMemArena *arena, HamtTxnState *st, const Hamt
     uint32_t total = branch_size(pop);
     HamtBranch *br;
     int rc = hamt_alloc_tracked(arena, st, total, (void **)&br, out_ref);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     br->tag = HAMT_TAG_BRANCH;
@@ -344,7 +344,7 @@ static int branch_with_replaced(SapMemArena *arena, HamtTxnState *st, const Hamt
     memcpy(br->child_refs, old->child_refs, pop * sizeof(uint32_t));
     br->child_refs[idx] = child_ref;
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /*
@@ -370,7 +370,7 @@ static int branch_with_removed(SapMemArena *arena, HamtTxnState *st, const HamtB
     {
         *collapsed = 1;
         *out_ref = HAMT_REF_NULL;
-        return SAP_OK;
+        return ERR_OK;
     }
 
     if (pop == 2)
@@ -378,7 +378,7 @@ static int branch_with_removed(SapMemArena *arena, HamtTxnState *st, const HamtB
         uint32_t survivor_ref = old->child_refs[1 - idx];
         void *survivor = hamt_resolve(arena, survivor_ref);
         if (!survivor)
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         uint32_t survivor_tag = *(uint32_t *)survivor;
 
         if (survivor_tag != HAMT_TAG_BRANCH)
@@ -386,7 +386,7 @@ static int branch_with_removed(SapMemArena *arena, HamtTxnState *st, const HamtB
             /* Safe to collapse: survivor is a leaf or collision */
             *collapsed = 1;
             *out_ref = survivor_ref;
-            return SAP_OK;
+            return ERR_OK;
         }
 
         /* Survivor is a branch: cannot collapse without breaking depth
@@ -401,7 +401,7 @@ static int branch_with_removed(SapMemArena *arena, HamtTxnState *st, const HamtB
 
     HamtBranch *br;
     int rc = hamt_alloc_tracked(arena, st, total, (void **)&br, out_ref);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     br->tag = HAMT_TAG_BRANCH;
@@ -414,7 +414,7 @@ static int branch_with_removed(SapMemArena *arena, HamtTxnState *st, const HamtB
             br->child_refs[j++] = old->child_refs[i];
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ===== Transaction Callbacks ===== */
@@ -423,7 +423,7 @@ static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
 {
     HamtTxnState *st = (HamtTxnState *)sap_txn_scratch_alloc(txn, (uint32_t)sizeof(HamtTxnState));
     if (!st)
-        return SAP_ERROR;
+        return ERR_OOM;
     memset(st, 0, sizeof(*st));
 
     HamtEnvState *env_st =
@@ -442,14 +442,14 @@ static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
     st->saved_root = st->root_ref;
 
     *state_out = st;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int on_commit(SapTxnCtx *txn, void *state)
 {
     HamtTxnState *st = (HamtTxnState *)state;
     if (!st)
-        return SAP_OK;
+        return ERR_OK;
 
     if (st->parent)
     {
@@ -459,7 +459,7 @@ static int on_commit(SapTxnCtx *txn, void *state)
         {
             uint32_t needed = st->parent->new_cnt + st->new_cnt;
             if (needed < st->parent->new_cnt)
-                return SAP_ERROR; /* overflow */
+                return ERR_OOM; /* overflow */
 
             if (needed > st->parent->new_cap)
             {
@@ -468,7 +468,7 @@ static int on_commit(SapTxnCtx *txn, void *state)
                     cap = cap == 0 ? 64 : cap * 2;
                 uint32_t *arr = realloc(st->parent->new_refs, cap * sizeof(uint32_t));
                 if (!arr)
-                    return SAP_ERROR;
+                    return ERR_OOM;
                 st->parent->new_refs = arr;
                 st->parent->new_cap = cap;
             }
@@ -486,7 +486,7 @@ static int on_commit(SapTxnCtx *txn, void *state)
     }
 
     free(st->new_refs);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void on_abort(SapTxnCtx *txn, void *state)
@@ -522,30 +522,30 @@ int sap_hamt_subsystem_init(SapEnv *env)
     };
 
     if (!env)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     HamtEnvState *state = (HamtEnvState *)malloc(sizeof(HamtEnvState));
     if (!state)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     state->env = env;
     state->root_ref = HAMT_REF_NULL;
 
     int rc = sap_env_register_subsystem(env, HAMT_SUBSYSTEM_ID, &callbacks);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         free(state);
         return rc;
     }
 
     rc = sap_env_set_subsystem_state(env, HAMT_SUBSYSTEM_ID, state);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         free(state);
         return rc;
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ===== Build Branch Chain ===== */
@@ -586,13 +586,13 @@ static int make_branch_pair(SapMemArena *arena, HamtTxnState *st, uint32_t depth
     if (depth + 1 >= HAMT_MAX_DEPTH)
     {
         /* All 32 bits consumed but hashes differ — impossible for truly
-         * different hashes.  Defensive: treat as error. */
-        return SAP_ERROR;
+         * different hashes.  Defensive: treat as corruption. */
+        return ERR_CORRUPT;
     }
 
     uint32_t sub_ref;
     int rc = make_branch_pair(arena, st, depth + 1, hash_a, ref_a, hash_b, ref_b, &sub_ref);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     /* Wrap in single-child branch at current depth */
@@ -606,23 +606,23 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                  uint32_t val_len, unsigned flags)
 {
     if (!txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (sap_txn_flags(txn) & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     if (flags & ~(unsigned)SAP_NOOVERWRITE)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (key_len > 0 && !key)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (val_len > 0 && !val)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     HamtTxnState *st = (HamtTxnState *)sap_txn_subsystem_state(txn, HAMT_SUBSYSTEM_ID);
     if (!st)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     SapMemArena *arena = sap_txn_arena(txn);
     if (!arena)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     uint32_t hash = hamt_hash(key, key_len);
 
@@ -671,7 +671,7 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
     {
         /* Empty tree or empty branch slot: insert leaf */
         rc = alloc_leaf(arena, st, hash, key, key_len, val, val_len, &new_child_ref);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
 
         /* If we stopped at a branch with empty slot, insert into it */
@@ -687,7 +687,7 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                 /* Insert into this branch instead of replacing */
                 uint32_t new_br_ref;
                 rc = branch_with_inserted(arena, st, br, frag, new_child_ref, &new_br_ref);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
                 new_child_ref = new_br_ref;
                 depth--; /* consumed this path entry */
@@ -707,9 +707,9 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
             {
                 /* Same key: replace or reject */
                 if (flags & SAP_NOOVERWRITE)
-                    return SAP_EXISTS;
+                    return ERR_EXISTS;
                 rc = alloc_leaf(arena, st, hash, key, key_len, val, val_len, &new_child_ref);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
             }
             else if (existing->hash != hash)
@@ -717,11 +717,11 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                 /* Different hash: build branch chain */
                 uint32_t new_leaf_ref;
                 rc = alloc_leaf(arena, st, hash, key, key_len, val, val_len, &new_leaf_ref);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
                 rc = make_branch_pair(arena, st, (uint32_t)depth, existing->hash, cur, hash,
                                       new_leaf_ref, &new_child_ref);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
             }
             else
@@ -729,11 +729,11 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                 /* Same hash, different key: create collision */
                 uint32_t new_leaf_ref;
                 rc = alloc_leaf(arena, st, hash, key, key_len, val, val_len, &new_leaf_ref);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
                 uint32_t entries[2] = {cur, new_leaf_ref};
                 rc = alloc_collision(arena, st, hash, entries, 2, &new_child_ref);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
             }
         }
@@ -749,15 +749,15 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                 if (leaf_key_eq(entry, key, key_len))
                 {
                     if (flags & SAP_NOOVERWRITE)
-                        return SAP_EXISTS;
+                        return ERR_EXISTS;
                     /* Replace this entry */
                     uint32_t new_leaf_ref;
                     rc = alloc_leaf(arena, st, hash, key, key_len, val, val_len, &new_leaf_ref);
-                    if (rc != SAP_OK)
+                    if (rc != ERR_OK)
                         return rc;
                     rc = alloc_collision(arena, st, hash, col->leaf_refs, col->count,
                                          &new_child_ref);
-                    if (rc != SAP_OK)
+                    if (rc != ERR_OK)
                         return rc;
                     HamtCollision *new_col = (HamtCollision *)hamt_resolve(arena, new_child_ref);
                     new_col->leaf_refs[i] = new_leaf_ref;
@@ -768,10 +768,10 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
             /* Append new entry to collision */
             uint32_t new_leaf_ref;
             rc = alloc_leaf(arena, st, hash, key, key_len, val, val_len, &new_leaf_ref);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
                 return rc;
             rc = alloc_collision(arena, st, hash, NULL, col->count + 1, &new_child_ref);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
                 return rc;
             HamtCollision *new_col = (HamtCollision *)hamt_resolve(arena, new_child_ref);
             memcpy(new_col->leaf_refs, col->leaf_refs, col->count * sizeof(uint32_t));
@@ -781,7 +781,7 @@ int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
         {
             /* Branch reached at terminal position — shouldn't happen
              * since the descent loop would have continued */
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
     }
 
@@ -792,13 +792,13 @@ bottom_up:
         HamtBranch *br = (HamtBranch *)hamt_resolve(arena, path_refs[d]);
         uint32_t new_br_ref;
         rc = branch_with_replaced(arena, st, br, path_frags[d], new_child_ref, &new_br_ref);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
         new_child_ref = new_br_ref;
     }
 
     st->root_ref = new_child_ref;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ===== Get ===== */
@@ -807,17 +807,17 @@ int sap_hamt_get(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                  uint32_t *val_len_out)
 {
     if (!txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (key_len > 0 && !key)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     HamtTxnState *st = (HamtTxnState *)sap_txn_subsystem_state(txn, HAMT_SUBSYSTEM_ID);
     if (!st || st->root_ref == HAMT_REF_NULL)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     SapMemArena *arena = sap_txn_arena(txn);
     if (!arena)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     uint32_t hash = hamt_hash(key, key_len);
     uint32_t cur = st->root_ref;
@@ -833,25 +833,25 @@ int sap_hamt_get(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
             HamtLeaf *leaf = (HamtLeaf *)node;
             /* Short-circuit: hash first, then length, then memcmp */
             if (leaf->hash != hash)
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             if (!leaf_key_eq(leaf, key, key_len))
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             if (val_out)
                 *val_out = leaf->data + leaf->key_len;
             if (val_len_out)
                 *val_len_out = leaf->val_len;
-            return SAP_OK;
+            return ERR_OK;
         }
 
         if (tag == HAMT_TAG_BRANCH)
         {
             if (depth >= HAMT_MAX_DEPTH)
-                return SAP_ERROR;
+                return ERR_CORRUPT;
             HamtBranch *br = (HamtBranch *)node;
             uint32_t frag = hash_fragment(hash, depth);
             uint32_t bit = 1u << frag;
             if (!(br->bitmap & bit))
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             uint32_t idx = bitmap_index(br->bitmap, frag);
             cur = br->child_refs[idx];
             depth++;
@@ -871,16 +871,16 @@ int sap_hamt_get(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
                         *val_out = entry->data + entry->key_len;
                     if (val_len_out)
                         *val_len_out = entry->val_len;
-                    return SAP_OK;
+                    return ERR_OK;
                 }
             }
-            return SAP_NOTFOUND;
+            return ERR_NOT_FOUND;
         }
 
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 /* ===== Delete ===== */
@@ -888,21 +888,21 @@ int sap_hamt_get(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *
 int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
 {
     if (!txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (sap_txn_flags(txn) & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     if (key_len > 0 && !key)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     HamtTxnState *st = (HamtTxnState *)sap_txn_subsystem_state(txn, HAMT_SUBSYSTEM_ID);
     if (!st)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (st->root_ref == HAMT_REF_NULL)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     SapMemArena *arena = sap_txn_arena(txn);
     if (!arena)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     uint32_t hash = hamt_hash(key, key_len);
 
@@ -929,7 +929,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
         uint32_t bit = 1u << frag;
 
         if (!(br->bitmap & bit))
-            return SAP_NOTFOUND;
+            return ERR_NOT_FOUND;
 
         path_refs[depth] = cur;
         path_frags[depth] = frag;
@@ -939,7 +939,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
     }
 
     if (cur == HAMT_REF_NULL)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     uint32_t new_child_ref;
 
@@ -950,7 +950,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
     {
         HamtLeaf *leaf = (HamtLeaf *)node;
         if (leaf->hash != hash || !leaf_key_eq(leaf, key, key_len))
-            return SAP_NOTFOUND;
+            return ERR_NOT_FOUND;
         new_child_ref = HAMT_REF_NULL;
     }
     else if (tag == HAMT_TAG_COLLISION)
@@ -970,7 +970,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
         }
 
         if (found_idx == UINT32_MAX)
-            return SAP_NOTFOUND;
+            return ERR_NOT_FOUND;
 
         if (col->count == 2)
         {
@@ -981,7 +981,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
         {
             /* Shrink collision */
             rc = alloc_collision(arena, st, hash, NULL, col->count - 1, &new_child_ref);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
                 return rc;
             HamtCollision *new_col = (HamtCollision *)hamt_resolve(arena, new_child_ref);
             uint32_t j = 0;
@@ -994,7 +994,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
     }
     else
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     /* Bottom-up rebuild.
@@ -1010,7 +1010,7 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
         {
             int collapsed = 0;
             rc = branch_with_removed(arena, st, br, path_frags[d], &new_child_ref, &collapsed);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
                 return rc;
             /* If collapsed with a non-null survivor, next iteration
              * will take the replace path automatically. */
@@ -1019,12 +1019,12 @@ int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len)
         {
             uint32_t new_br_ref;
             rc = branch_with_replaced(arena, st, br, path_frags[d], new_child_ref, &new_br_ref);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
                 return rc;
             new_child_ref = new_br_ref;
         }
     }
 
     st->root_ref = new_child_ref;
-    return SAP_OK;
+    return ERR_OK;
 }

@@ -8,7 +8,7 @@ This document defines the timer scheduling helper scaffold:
 
 1. `sap_runner_scheduler_v0_next_due(...)`
 - reads the earliest due timestamp from DBI 4 timers
-- returns `SAP_NOTFOUND` when no timers are queued
+- returns `ERR_NOT_FOUND` when no timers are queued
 
 2. `sap_runner_scheduler_v0_compute_sleep_ms(...)`
 - computes bounded idle sleep from `(now_ts, next_due_ts, max_sleep_ms)`

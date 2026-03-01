@@ -21,16 +21,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
-/* ------------------------------------------------------------------ */
-/* Return codes                                                         */
-/* ------------------------------------------------------------------ */
-#define SEQ_OK    0 /* success                                         */
-#define SEQ_EMPTY 1 /* operation on empty sequence                     */
-#define SEQ_OOM   2 /* allocation failure                              */
-#define SEQ_RANGE 3 /* index out of range                              */
-#define SEQ_INVALID 4 /* invalid argument / unsupported aliasing       */
-/* After SEQ_OOM, a sequence may become invalid and return SEQ_INVALID. */
+#include <sapling/err.h>
 
 /* ------------------------------------------------------------------ */
 /* Opaque sequence handle                                               */
@@ -56,7 +47,7 @@ Seq *seq_new(SapEnv *env);
 
 /*
  * seq_is_valid — returns 1 when seq is usable, 0 otherwise.
- * A sequence may become invalid after SEQ_OOM from mutating operations.
+ * A sequence may become invalid after ERR_OOM from mutating operations.
  */
 int seq_is_valid(const Seq *seq);
 
@@ -69,7 +60,7 @@ void seq_free(SapEnv *env, Seq *seq);
 
 /*
  * seq_reset — reinitialize seq to an empty valid state natively.
- * Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID.
+ * Returns ERR_OK, ERR_OOM, or ERR_INVALID.
  */
 int seq_reset(SapTxnCtx *txn, Seq *seq);
 
@@ -84,21 +75,21 @@ size_t seq_length(const Seq *seq);
 /* Push / pop — amortised O(1)                                          */
 /* ------------------------------------------------------------------ */
 
-/* seq_push_front — prepend elem to seq. Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID. */
+/* seq_push_front — prepend elem to seq. Returns ERR_OK, ERR_OOM, or ERR_INVALID. */
 int seq_push_front(SapTxnCtx *txn, Seq *seq, uint32_t elem);
 
-/* seq_push_back — append elem to seq. Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID. */
+/* seq_push_back — append elem to seq. Returns ERR_OK, ERR_OOM, or ERR_INVALID. */
 int seq_push_back(SapTxnCtx *txn, Seq *seq, uint32_t elem);
 
 /*
  * seq_pop_front — remove and return the first element via *out.
- * Returns SEQ_OK, SEQ_EMPTY, or SEQ_INVALID.
+ * Returns ERR_OK, ERR_EMPTY, or ERR_INVALID.
  */
 int seq_pop_front(SapTxnCtx *txn, Seq *seq, uint32_t *out);
 
 /*
  * seq_pop_back — remove and return the last element via *out.
- * Returns SEQ_OK, SEQ_EMPTY, or SEQ_INVALID.
+ * Returns ERR_OK, ERR_EMPTY, or ERR_INVALID.
  */
 int seq_pop_back(SapTxnCtx *txn, Seq *seq, uint32_t *out);
 
@@ -111,8 +102,8 @@ int seq_pop_back(SapTxnCtx *txn, Seq *seq, uint32_t *out);
  * *src is cleared (becomes empty) after this call.
  * dest and src must be distinct objects.
  * dest and src must use the same allocator (function pointers and ctx).
- * Returns SEQ_OK, SEQ_OOM, or SEQ_INVALID.
- * On SEQ_OOM either sequence may become invalid.
+ * Returns ERR_OK, ERR_OOM, or ERR_INVALID.
+ * On ERR_OOM either sequence may become invalid.
  */
 int seq_concat(SapTxnCtx *txn, Seq *dest, Seq *src);
 
@@ -128,9 +119,9 @@ int seq_concat(SapTxnCtx *txn, Seq *dest, Seq *src);
  *   *right_out contains elements [idx, n)
  *   *seq is left empty.
  *
- * Returns SEQ_OK, SEQ_OOM, SEQ_RANGE (idx > seq_length(seq)), or SEQ_INVALID.
+ * Returns ERR_OK, ERR_OOM, ERR_RANGE (idx > seq_length(seq)), or ERR_INVALID.
  * On error neither *left_out nor *right_out is modified.
- * On SEQ_OOM, seq may become invalid.
+ * On ERR_OOM, seq may become invalid.
  */
 int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **right_out);
 
@@ -140,7 +131,7 @@ int seq_split_at(SapTxnCtx *txn, Seq *seq, size_t idx, Seq **left_out, Seq **rig
 
 /*
  * seq_get — store the element at position idx in *out.
- * Returns SEQ_OK, SEQ_RANGE, or SEQ_INVALID.
+ * Returns ERR_OK, ERR_RANGE, or ERR_INVALID.
  */
 int seq_get(const Seq *seq, size_t idx, uint32_t *out);
 

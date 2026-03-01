@@ -48,14 +48,14 @@ static void test_seq_cow_rollback(void)
 
     /* 1. Basic mutation and rollback */
     SapTxnCtx *txn1 = sap_txn_begin(env, NULL, 0);
-    CHECK(seq_push_back(txn1, s, 10) == SEQ_OK);
-    CHECK(seq_push_back(txn1, s, 20) == SEQ_OK);
-    CHECK(sap_txn_commit(txn1) == SAP_OK);
+    CHECK(seq_push_back(txn1, s, 10) == ERR_OK);
+    CHECK(seq_push_back(txn1, s, 20) == ERR_OK);
+    CHECK(sap_txn_commit(txn1) == ERR_OK);
 
     CHECK(seq_length(s) == 2);
 
     SapTxnCtx *txn2 = sap_txn_begin(env, NULL, 0);
-    CHECK(seq_push_back(txn2, s, 30) == SEQ_OK);
+    CHECK(seq_push_back(txn2, s, 30) == ERR_OK);
     CHECK(seq_length(s) == 3);
     uint32_t val = 0;
     seq_get(s, 2, &val);
@@ -75,11 +75,11 @@ static void test_seq_cow_rollback(void)
     /* 2. Concat and rollback */
     Seq *s2 = seq_new(env);
     SapTxnCtx *txn3 = sap_txn_begin(env, NULL, 0);
-    CHECK(seq_push_back(txn3, s2, 40) == SEQ_OK);
-    CHECK(sap_txn_commit(txn3) == SAP_OK);
+    CHECK(seq_push_back(txn3, s2, 40) == ERR_OK);
+    CHECK(sap_txn_commit(txn3) == ERR_OK);
 
     SapTxnCtx *txn4 = sap_txn_begin(env, NULL, 0);
-    CHECK(seq_concat(txn4, s, s2) == SEQ_OK);
+    CHECK(seq_concat(txn4, s, s2) == ERR_OK);
     CHECK(seq_length(s) == 3);
     CHECK(seq_length(s2) == 0);
     sap_txn_abort(txn4);
@@ -92,11 +92,11 @@ static void test_seq_cow_rollback(void)
 
     /* 3. Nested Transaction Rollback */
     SapTxnCtx *txn5 = sap_txn_begin(env, NULL, 0);
-    CHECK(seq_push_back(txn5, s, 50) == SEQ_OK);
+    CHECK(seq_push_back(txn5, s, 50) == ERR_OK);
 
     /* Nested txn */
     SapTxnCtx *txn6 = sap_txn_begin(env, txn5, 0);
-    CHECK(seq_push_back(txn6, s, 60) == SEQ_OK);
+    CHECK(seq_push_back(txn6, s, 60) == ERR_OK);
     CHECK(seq_length(s) == 4); /* [10, 20, 50, 60] */
     sap_txn_abort(txn6);
 

@@ -196,7 +196,7 @@ def generate_validator(record: WitRecord) -> list[str]:
     lines = [
         f"static inline int sap_wit_validate_{record.c_name}(const void *data, uint32_t len) {{",
         f"    if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */",
-        f"    if (len < sizeof(SapWit_{record.c_name})) return -1; /* SAP_INVALID_DATA */",
+        f"    if (len < sizeof(SapWit_{record.c_name})) return -1; /* ERR_CORRUPT */",
     ]
     if record.refine_rule:
         lines.append(f"    const SapWit_{record.c_name} *rec = (const SapWit_{record.c_name} *)data;")

@@ -147,17 +147,17 @@ static int build_order_status_key(uint64_t order_id, uint8_t *key_out, uint32_t 
 
     if (!key_out || key_cap == 0u || !key_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     n = snprintf((char *)key_out, (size_t)key_cap, "order:%" PRIu64 ":status", order_id);
     if (n < 0 || (uint32_t)n >= key_cap)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
 
     *key_len_out = (uint32_t)n;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int build_queue_key(const uint8_t *prefix, uint32_t prefix_len, uint64_t seq,
@@ -165,17 +165,17 @@ static int build_queue_key(const uint8_t *prefix, uint32_t prefix_len, uint64_t 
 {
     if (!prefix || prefix_len == 0u || !key_out || !key_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (prefix_len + 8u > key_cap)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
 
     memcpy(key_out, prefix, prefix_len);
     wr64be(key_out + prefix_len, seq);
     *key_len_out = prefix_len + 8u;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int txn_read_u64_default(Txn *txn, const uint8_t *key, uint32_t key_len, uint64_t default_v,
@@ -187,26 +187,26 @@ static int txn_read_u64_default(Txn *txn, const uint8_t *key, uint32_t key_len, 
 
     if (!txn || !key || key_len == 0u || !value_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = txn_get(txn, key, key_len, &val, &val_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *value_out = default_v;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     if (!val || val_len != 8u)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     *value_out = rd64be((const uint8_t *)val);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int txn_write_u64(Txn *txn, const uint8_t *key, uint32_t key_len, uint64_t value)
@@ -215,7 +215,7 @@ static int txn_write_u64(Txn *txn, const uint8_t *key, uint32_t key_len, uint64_
 
     if (!txn || !key || key_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     wr64be(raw, value);
@@ -234,11 +234,11 @@ static int pipeline_queue_pop(PipelineCtx *ctx, const uint8_t *prefix, uint32_t 
 
     if (!ctx || !prefix || prefix_len == 0u || !order_id_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = build_queue_key(prefix, prefix_len, seq, key, sizeof(key), &key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -249,17 +249,17 @@ static int pipeline_queue_pop(PipelineCtx *ctx, const uint8_t *prefix, uint32_t 
     if (!txn)
     {
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_get(txn, key, key_len, &val, &val_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -269,13 +269,13 @@ static int pipeline_queue_pop(PipelineCtx *ctx, const uint8_t *prefix, uint32_t 
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     *order_id_out = rd64be((const uint8_t *)val);
 
     rc = txn_del(txn, key, key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -299,11 +299,11 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
     if (!ctx || !stage || !stage->counter_key || stage->counter_key_len == 0u ||
         !stage->status_value || stage->status_value_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = build_order_status_key(order_id, status_key, sizeof(status_key), &status_key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -314,18 +314,18 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
     if (!txn)
     {
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_read_u64_default(txn, stage->counter_key, stage->counter_key_len, 0u, &counter);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
         return rc;
     }
     rc = txn_write_u64(txn, stage->counter_key, stage->counter_key_len, counter + 1u);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -338,7 +338,7 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
 
         rc = txn_read_u64_default(txn, k_key_inventory_available, sizeof(k_key_inventory_available),
                                   0u, &available);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -348,11 +348,11 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
         {
             txn_abort(txn);
             (void)pthread_mutex_unlock(&ctx->db_mu);
-            return SAP_CONFLICT;
+            return ERR_CONFLICT;
         }
         rc = txn_write_u64(txn, k_key_inventory_available, sizeof(k_key_inventory_available),
                            available - 1u);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -361,7 +361,7 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
     }
 
     rc = txn_put(txn, status_key, status_key_len, stage->status_value, stage->status_value_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -376,7 +376,7 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
 
         rc = build_queue_key(stage->out_prefix, stage->out_prefix_len, out_seq, out_key,
                              sizeof(out_key), &out_key_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -386,7 +386,7 @@ static int pipeline_stage_commit(PipelineCtx *ctx, const StageThreadCtx *stage, 
         wr64be(raw_order, order_id);
         rc = txn_put_flags(txn, out_key, out_key_len, raw_order, sizeof(raw_order), SAP_NOOVERWRITE,
                            NULL);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -407,7 +407,7 @@ static int pipeline_write_u64(PipelineCtx *ctx, const uint8_t *key, uint32_t key
 
     if (!ctx || !key || key_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     (void)pthread_mutex_lock(&ctx->db_mu);
@@ -416,11 +416,11 @@ static int pipeline_write_u64(PipelineCtx *ctx, const uint8_t *key, uint32_t key
     if (!txn)
     {
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_write_u64(txn, key, key_len, value);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -440,7 +440,7 @@ static int pipeline_read_u64(PipelineCtx *ctx, const uint8_t *key, uint32_t key_
 
     if (!ctx || !key || key_len == 0u || !value_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     (void)pthread_mutex_lock(&ctx->db_mu);
@@ -449,7 +449,7 @@ static int pipeline_read_u64(PipelineCtx *ctx, const uint8_t *key, uint32_t key_
     if (!txn)
     {
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = txn_read_u64_default(txn, key, key_len, 0u, value_out);
@@ -470,12 +470,12 @@ static int pipeline_read_status(PipelineCtx *ctx, uint64_t order_id, uint8_t *st
 
     if (!ctx || !status_out || status_cap == 0u || !status_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *status_len_out = 0u;
 
     rc = build_order_status_key(order_id, key, sizeof(key), &key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -486,11 +486,11 @@ static int pipeline_read_status(PipelineCtx *ctx, uint64_t order_id, uint8_t *st
     if (!txn)
     {
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = txn_get(txn, key, key_len, &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
@@ -500,7 +500,7 @@ static int pipeline_read_status(PipelineCtx *ctx, uint64_t order_id, uint8_t *st
     {
         txn_abort(txn);
         (void)pthread_mutex_unlock(&ctx->db_mu);
-        return SAP_FULL;
+        return ERR_FULL;
     }
 
     memcpy(status_out, val, val_len);
@@ -508,7 +508,7 @@ static int pipeline_read_status(PipelineCtx *ctx, uint64_t order_id, uint8_t *st
 
     txn_abort(txn);
     (void)pthread_mutex_unlock(&ctx->db_mu);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void *stage_thread_main(void *arg)
@@ -521,7 +521,7 @@ static void *stage_thread_main(void *arg)
         return NULL;
     }
 
-    stage->last_rc = SAP_OK;
+    stage->last_rc = ERR_OK;
     stage->processed = 0u;
 
     while (seq <= stage->pipeline->order_count)
@@ -538,17 +538,17 @@ static void *stage_thread_main(void *arg)
         {
             rc = pipeline_queue_pop(stage->pipeline, stage->in_prefix, stage->in_prefix_len, seq,
                                     &order_id);
-            if (rc == SAP_NOTFOUND)
+            if (rc == ERR_NOT_FOUND)
             {
                 sleep_ms(1u);
                 continue;
             }
-            if (rc == SAP_BUSY)
+            if (rc == ERR_BUSY)
             {
                 sleep_ms(1u);
                 continue;
             }
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
             {
                 stage->last_rc = rc;
                 pipeline_request_stop(stage->pipeline);
@@ -566,12 +566,12 @@ static void *stage_thread_main(void *arg)
         }
 
         rc = pipeline_stage_commit(stage->pipeline, stage, order_id, seq);
-        if (rc == SAP_BUSY)
+        if (rc == ERR_BUSY)
         {
             sleep_ms(1u);
             continue;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             stage->last_rc = rc;
             pipeline_request_stop(stage->pipeline);
@@ -596,27 +596,27 @@ static int verify_pipeline_state(PipelineCtx *pipeline, uint32_t order_count)
 
     if (!pipeline || order_count == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     if (pipeline_read_u64(pipeline, k_key_orders_received, sizeof(k_key_orders_received),
-                          &received) != SAP_OK ||
+                          &received) != ERR_OK ||
         pipeline_read_u64(pipeline, k_key_orders_paid, sizeof(k_key_orders_paid), &paid) !=
-            SAP_OK ||
+            ERR_OK ||
         pipeline_read_u64(pipeline, k_key_orders_reserved, sizeof(k_key_orders_reserved),
-                          &reserved) != SAP_OK ||
+                          &reserved) != ERR_OK ||
         pipeline_read_u64(pipeline, k_key_orders_shipped, sizeof(k_key_orders_shipped), &shipped) !=
-            SAP_OK ||
+            ERR_OK ||
         pipeline_read_u64(pipeline, k_key_inventory_available, sizeof(k_key_inventory_available),
-                          &inventory) != SAP_OK)
+                          &inventory) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     if (received != order_count || paid != order_count || reserved != order_count ||
         shipped != order_count || inventory != 0u)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     for (i = 0u; i < order_count; i++)
@@ -625,18 +625,18 @@ static int verify_pipeline_state(PipelineCtx *pipeline, uint32_t order_count)
         uint32_t status_len = 0u;
 
         if (pipeline_read_status(pipeline, (uint64_t)i + 1u, status, sizeof(status), &status_len) !=
-            SAP_OK)
+            ERR_OK)
         {
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         if (status_len != sizeof(k_status_shipped) ||
             memcmp(status, k_status_shipped, sizeof(k_status_shipped)) != 0)
         {
-            return SAP_CONFLICT;
+            return ERR_CONFLICT;
         }
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int main(void)
@@ -676,7 +676,7 @@ int main(void)
     pipeline.stop_requested = 0;
 
     if (pipeline_write_u64(&pipeline, k_key_inventory_available, sizeof(k_key_inventory_available),
-                           PIPELINE_ORDER_COUNT) != SAP_OK)
+                           PIPELINE_ORDER_COUNT) != ERR_OK)
     {
         fprintf(stderr, "runner-threaded-pipeline-example: inventory init failed\n");
         goto done;
@@ -694,7 +694,7 @@ int main(void)
     stages[0].status_value_len = sizeof(k_status_accepted);
     stages[0].compute_delay_ms = 1u;
     stages[0].adjust_inventory = 0;
-    stages[0].last_rc = SAP_OK;
+    stages[0].last_rc = ERR_OK;
 
     stages[1].pipeline = &pipeline;
     stages[1].name = "payment";
@@ -708,7 +708,7 @@ int main(void)
     stages[1].status_value_len = sizeof(k_status_paid);
     stages[1].compute_delay_ms = 2u;
     stages[1].adjust_inventory = 0;
-    stages[1].last_rc = SAP_OK;
+    stages[1].last_rc = ERR_OK;
 
     stages[2].pipeline = &pipeline;
     stages[2].name = "inventory";
@@ -722,7 +722,7 @@ int main(void)
     stages[2].status_value_len = sizeof(k_status_reserved);
     stages[2].compute_delay_ms = 2u;
     stages[2].adjust_inventory = 1;
-    stages[2].last_rc = SAP_OK;
+    stages[2].last_rc = ERR_OK;
 
     stages[3].pipeline = &pipeline;
     stages[3].name = "shipping";
@@ -736,7 +736,7 @@ int main(void)
     stages[3].status_value_len = sizeof(k_status_shipped);
     stages[3].compute_delay_ms = 1u;
     stages[3].adjust_inventory = 0;
-    stages[3].last_rc = SAP_OK;
+    stages[3].last_rc = ERR_OK;
 
     for (i = 0u; i < 4u; i++)
     {
@@ -755,7 +755,7 @@ int main(void)
         uint64_t shipped = 0u;
 
         if (pipeline_read_u64(&pipeline, k_key_orders_shipped, sizeof(k_key_orders_shipped),
-                              &shipped) != SAP_OK)
+                              &shipped) != ERR_OK)
         {
             fprintf(stderr, "runner-threaded-pipeline-example: shipped counter read failed\n");
             pipeline_request_stop(&pipeline);
@@ -795,7 +795,7 @@ int main(void)
 
     for (i = 0u; i < 4u; i++)
     {
-        if (stages[i].last_rc != SAP_OK)
+        if (stages[i].last_rc != ERR_OK)
         {
             fprintf(stderr, "runner-threaded-pipeline-example: stage %s failed rc=%d\n",
                     stages[i].name ? stages[i].name : "stage", stages[i].last_rc);
@@ -812,7 +812,7 @@ int main(void)
         }
     }
 
-    if (verify_pipeline_state(&pipeline, PIPELINE_ORDER_COUNT) != SAP_OK)
+    if (verify_pipeline_state(&pipeline, PIPELINE_ORDER_COUNT) != ERR_OK)
     {
         fprintf(stderr, "runner-threaded-pipeline-example: final verification failed\n");
         goto done;

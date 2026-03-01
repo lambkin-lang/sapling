@@ -49,40 +49,40 @@ static int test_lease_logic(void)
     int rc;
 
     CHECK(db != NULL);
-    CHECK(dbi_open(db, SAP_WIT_DBI_LEASES, NULL, NULL, 0u) == SAP_OK);
+    CHECK(dbi_open(db, SAP_WIT_DBI_LEASES, NULL, NULL, 0u) == ERR_OK);
 
     sap_runner_txstack_v0_init(&stack);
     read_txn = txn_begin(db, NULL, TXN_RDONLY);
 
     // 1. Acquire new lease
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
     rc = sap_runner_lease_v0_stage_acquire(&stack, read_txn, key, klen, 123u, 1000, 5000, &lease);
-    CHECK(rc == SAP_OK);
+    CHECK(rc == ERR_OK);
     CHECK(lease.owner_worker == 123u);
     CHECK(lease.deadline_ts == 6000);
 
     // Commit the lease
     {
         Txn *wtxn = txn_begin(db, NULL, 0u);
-        CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == SAP_OK);
-        CHECK(txn_commit(wtxn) == SAP_OK);
+        CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == ERR_OK);
+        CHECK(txn_commit(wtxn) == ERR_OK);
     }
     sap_runner_txstack_v0_reset(&stack);
     txn_abort(read_txn);
 
     // 2. Try to acquire by different worker (should fail)
     read_txn = txn_begin(db, NULL, TXN_RDONLY);
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
     rc = sap_runner_lease_v0_stage_acquire(&stack, read_txn, key, klen, 456u, 2000, 5000, &lease);
-    CHECK(rc == SAP_BUSY);
+    CHECK(rc == ERR_BUSY);
     sap_runner_txstack_v0_reset(&stack);
     txn_abort(read_txn);
 
     // 3. Acquire after expiration
     read_txn = txn_begin(db, NULL, TXN_RDONLY);
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
     rc = sap_runner_lease_v0_stage_acquire(&stack, read_txn, key, klen, 456u, 7000, 5000, &lease);
-    CHECK(rc == SAP_OK);
+    CHECK(rc == ERR_OK);
     CHECK(lease.owner_worker == 456u);
     CHECK(lease.deadline_ts == 12000);
     CHECK(lease.attempts == 2u);

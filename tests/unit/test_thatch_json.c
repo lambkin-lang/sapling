@@ -57,7 +57,7 @@ static void teardown(void) {
 static int parse_ok(const char *json, ThatchRegion **r, ThatchVal *v) {
     uint32_t err_pos = 0;
     int rc = tj_parse(g_txn, json, (uint32_t)strlen(json), r, v, &err_pos);
-    if (rc != TJ_OK) {
+    if (rc != ERR_OK) {
         fprintf(stderr, "  parse failed at pos %u for: %s\n", err_pos, json);
     }
     return rc;
@@ -71,7 +71,7 @@ static void test_parse_null(void) {
     printf("--- parse null ---\n");
     setup();
     ThatchRegion *r; ThatchVal v;
-    CHECK(parse_ok("null", &r, &v) == TJ_OK);
+    CHECK(parse_ok("null", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_NULL);
     CHECK(tj_is_null(v));
     teardown();
@@ -82,16 +82,16 @@ static void test_parse_booleans(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("true", &r, &v) == TJ_OK);
+    CHECK(parse_ok("true", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_TRUE);
     CHECK(tj_is_bool(v));
     int b;
-    CHECK(tj_bool(v, &b) == TJ_OK);
+    CHECK(tj_bool(v, &b) == ERR_OK);
     CHECK(b == 1);
 
-    CHECK(parse_ok("false", &r, &v) == TJ_OK);
+    CHECK(parse_ok("false", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_FALSE);
-    CHECK(tj_bool(v, &b) == TJ_OK);
+    CHECK(tj_bool(v, &b) == ERR_OK);
     CHECK(b == 0);
     teardown();
 }
@@ -102,31 +102,31 @@ static void test_parse_integers(void) {
     ThatchRegion *r; ThatchVal v;
     int64_t iv;
 
-    CHECK(parse_ok("0", &r, &v) == TJ_OK);
+    CHECK(parse_ok("0", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_INT);
-    CHECK(tj_int(v, &iv) == TJ_OK);
+    CHECK(tj_int(v, &iv) == ERR_OK);
     CHECK(iv == 0);
 
-    CHECK(parse_ok("42", &r, &v) == TJ_OK);
-    CHECK(tj_int(v, &iv) == TJ_OK);
+    CHECK(parse_ok("42", &r, &v) == ERR_OK);
+    CHECK(tj_int(v, &iv) == ERR_OK);
     CHECK(iv == 42);
 
-    CHECK(parse_ok("-1", &r, &v) == TJ_OK);
-    CHECK(tj_int(v, &iv) == TJ_OK);
+    CHECK(parse_ok("-1", &r, &v) == ERR_OK);
+    CHECK(tj_int(v, &iv) == ERR_OK);
     CHECK(iv == -1);
 
-    CHECK(parse_ok("9223372036854775807", &r, &v) == TJ_OK); /* INT64_MAX */
-    CHECK(tj_int(v, &iv) == TJ_OK);
+    CHECK(parse_ok("9223372036854775807", &r, &v) == ERR_OK); /* INT64_MAX */
+    CHECK(tj_int(v, &iv) == ERR_OK);
     CHECK(iv == 9223372036854775807LL);
 
-    CHECK(parse_ok("-9223372036854775808", &r, &v) == TJ_OK); /* INT64_MIN */
-    CHECK(tj_int(v, &iv) == TJ_OK);
+    CHECK(parse_ok("-9223372036854775808", &r, &v) == ERR_OK); /* INT64_MIN */
+    CHECK(tj_int(v, &iv) == ERR_OK);
     CHECK(iv == (-9223372036854775807LL - 1));
 
     /* int→double promotion */
     double dv;
-    CHECK(parse_ok("42", &r, &v) == TJ_OK);
-    CHECK(tj_double(v, &dv) == TJ_OK);
+    CHECK(parse_ok("42", &r, &v) == ERR_OK);
+    CHECK(tj_double(v, &dv) == ERR_OK);
     CHECK(dv == 42.0);
     teardown();
 }
@@ -137,25 +137,25 @@ static void test_parse_doubles(void) {
     ThatchRegion *r; ThatchVal v;
     double dv;
 
-    CHECK(parse_ok("3.14", &r, &v) == TJ_OK);
+    CHECK(parse_ok("3.14", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_DOUBLE);
-    CHECK(tj_double(v, &dv) == TJ_OK);
+    CHECK(tj_double(v, &dv) == ERR_OK);
     CHECK(fabs(dv - 3.14) < 1e-12);
 
-    CHECK(parse_ok("-0.5", &r, &v) == TJ_OK);
-    CHECK(tj_double(v, &dv) == TJ_OK);
+    CHECK(parse_ok("-0.5", &r, &v) == ERR_OK);
+    CHECK(tj_double(v, &dv) == ERR_OK);
     CHECK(fabs(dv - (-0.5)) < 1e-12);
 
-    CHECK(parse_ok("1e10", &r, &v) == TJ_OK);
-    CHECK(tj_double(v, &dv) == TJ_OK);
+    CHECK(parse_ok("1e10", &r, &v) == ERR_OK);
+    CHECK(tj_double(v, &dv) == ERR_OK);
     CHECK(fabs(dv - 1e10) < 1e3);
 
-    CHECK(parse_ok("2.5E-3", &r, &v) == TJ_OK);
-    CHECK(tj_double(v, &dv) == TJ_OK);
+    CHECK(parse_ok("2.5E-3", &r, &v) == ERR_OK);
+    CHECK(tj_double(v, &dv) == ERR_OK);
     CHECK(fabs(dv - 0.0025) < 1e-12);
 
     /* Integer overflow → double */
-    CHECK(parse_ok("99999999999999999999", &r, &v) == TJ_OK);
+    CHECK(parse_ok("99999999999999999999", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_DOUBLE);
     teardown();
 }
@@ -166,43 +166,43 @@ static void test_parse_strings(void) {
     ThatchRegion *r; ThatchVal v;
     const char *s; uint32_t slen;
 
-    CHECK(parse_ok("\"hello\"", &r, &v) == TJ_OK);
+    CHECK(parse_ok("\"hello\"", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_STRING);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 5);
     CHECK(memcmp(s, "hello", 5) == 0);
 
     /* Empty string */
-    CHECK(parse_ok("\"\"", &r, &v) == TJ_OK);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(parse_ok("\"\"", &r, &v) == ERR_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 0);
 
     /* Escape sequences */
-    CHECK(parse_ok("\"a\\nb\\tc\"", &r, &v) == TJ_OK);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(parse_ok("\"a\\nb\\tc\"", &r, &v) == ERR_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 5);
     CHECK(s[0] == 'a' && s[1] == '\n' && s[2] == 'b' && s[3] == '\t' && s[4] == 'c');
 
-    CHECK(parse_ok("\"\\\"quoted\\\"\"", &r, &v) == TJ_OK);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(parse_ok("\"\\\"quoted\\\"\"", &r, &v) == ERR_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 8);
     CHECK(memcmp(s, "\"quoted\"", 8) == 0);
 
     /* Unicode escape: \u0041 = 'A' */
-    CHECK(parse_ok("\"\\u0041\"", &r, &v) == TJ_OK);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(parse_ok("\"\\u0041\"", &r, &v) == ERR_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 1);
     CHECK(s[0] == 'A');
 
     /* 2-byte UTF-8: \u00E9 = é (0xC3 0xA9) */
-    CHECK(parse_ok("\"\\u00e9\"", &r, &v) == TJ_OK);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(parse_ok("\"\\u00e9\"", &r, &v) == ERR_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 2);
     CHECK((uint8_t)s[0] == 0xC3 && (uint8_t)s[1] == 0xA9);
 
     /* Surrogate pair: \uD83D\uDE00 = 😀 (U+1F600, 4-byte UTF-8) */
-    CHECK(parse_ok("\"\\uD83D\\uDE00\"", &r, &v) == TJ_OK);
-    CHECK(tj_string(v, &s, &slen) == TJ_OK);
+    CHECK(parse_ok("\"\\uD83D\\uDE00\"", &r, &v) == ERR_OK);
+    CHECK(tj_string(v, &s, &slen) == ERR_OK);
     CHECK(slen == 4);
     CHECK((uint8_t)s[0] == 0xF0 && (uint8_t)s[1] == 0x9F &&
           (uint8_t)s[2] == 0x98 && (uint8_t)s[3] == 0x80);
@@ -215,36 +215,36 @@ static void test_parse_arrays(void) {
     ThatchRegion *r; ThatchVal v;
 
     /* Empty array */
-    CHECK(parse_ok("[]", &r, &v) == TJ_OK);
+    CHECK(parse_ok("[]", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_ARRAY);
     uint32_t len;
-    CHECK(tj_length(v, &len) == TJ_OK);
+    CHECK(tj_length(v, &len) == ERR_OK);
     CHECK(len == 0);
 
     /* Simple array */
-    CHECK(parse_ok("[1, 2, 3]", &r, &v) == TJ_OK);
-    CHECK(tj_length(v, &len) == TJ_OK);
+    CHECK(parse_ok("[1, 2, 3]", &r, &v) == ERR_OK);
+    CHECK(tj_length(v, &len) == ERR_OK);
     CHECK(len == 3);
 
     /* Mixed types */
-    CHECK(parse_ok("[null, true, 42, \"hi\"]", &r, &v) == TJ_OK);
-    CHECK(tj_length(v, &len) == TJ_OK);
+    CHECK(parse_ok("[null, true, 42, \"hi\"]", &r, &v) == ERR_OK);
+    CHECK(tj_length(v, &len) == ERR_OK);
     CHECK(len == 4);
 
     ThatchVal elem;
-    CHECK(tj_index(v, 0, &elem) == TJ_OK);
+    CHECK(tj_index(v, 0, &elem) == ERR_OK);
     CHECK(tj_is_null(elem));
-    CHECK(tj_index(v, 1, &elem) == TJ_OK);
-    int b; CHECK(tj_bool(elem, &b) == TJ_OK); CHECK(b == 1);
-    CHECK(tj_index(v, 2, &elem) == TJ_OK);
-    int64_t iv; CHECK(tj_int(elem, &iv) == TJ_OK); CHECK(iv == 42);
-    CHECK(tj_index(v, 3, &elem) == TJ_OK);
+    CHECK(tj_index(v, 1, &elem) == ERR_OK);
+    int b; CHECK(tj_bool(elem, &b) == ERR_OK); CHECK(b == 1);
+    CHECK(tj_index(v, 2, &elem) == ERR_OK);
+    int64_t iv; CHECK(tj_int(elem, &iv) == ERR_OK); CHECK(iv == 42);
+    CHECK(tj_index(v, 3, &elem) == ERR_OK);
     const char *s; uint32_t slen;
-    CHECK(tj_string(elem, &s, &slen) == TJ_OK);
+    CHECK(tj_string(elem, &s, &slen) == ERR_OK);
     CHECK(slen == 2 && memcmp(s, "hi", 2) == 0);
 
     /* Out of bounds */
-    CHECK(tj_index(v, 4, &elem) == TJ_NOT_FOUND);
+    CHECK(tj_index(v, 4, &elem) == ERR_NOT_FOUND);
     teardown();
 }
 
@@ -254,32 +254,32 @@ static void test_parse_objects(void) {
     ThatchRegion *r; ThatchVal v;
 
     /* Empty object */
-    CHECK(parse_ok("{}", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{}", &r, &v) == ERR_OK);
     CHECK(tj_type(v) == TJ_TYPE_OBJECT);
     uint32_t len;
-    CHECK(tj_length(v, &len) == TJ_OK);
+    CHECK(tj_length(v, &len) == ERR_OK);
     CHECK(len == 0);
 
     /* Simple object */
-    CHECK(parse_ok("{\"name\": \"Alice\", \"age\": 30}", &r, &v) == TJ_OK);
-    CHECK(tj_length(v, &len) == TJ_OK);
+    CHECK(parse_ok("{\"name\": \"Alice\", \"age\": 30}", &r, &v) == ERR_OK);
+    CHECK(tj_length(v, &len) == ERR_OK);
     CHECK(len == 2);
 
     ThatchVal name;
-    CHECK(tj_get_str(v, "name", &name) == TJ_OK);
+    CHECK(tj_get_str(v, "name", &name) == ERR_OK);
     const char *s; uint32_t slen;
-    CHECK(tj_string(name, &s, &slen) == TJ_OK);
+    CHECK(tj_string(name, &s, &slen) == ERR_OK);
     CHECK(slen == 5 && memcmp(s, "Alice", 5) == 0);
 
     ThatchVal age;
-    CHECK(tj_get_str(v, "age", &age) == TJ_OK);
+    CHECK(tj_get_str(v, "age", &age) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(age, &iv) == TJ_OK);
+    CHECK(tj_int(age, &iv) == ERR_OK);
     CHECK(iv == 30);
 
     /* Not found */
     ThatchVal missing;
-    CHECK(tj_get_str(v, "nope", &missing) == TJ_NOT_FOUND);
+    CHECK(tj_get_str(v, "nope", &missing) == ERR_NOT_FOUND);
     teardown();
 }
 
@@ -292,24 +292,24 @@ static void test_parse_nested(void) {
         "{\"users\": [{\"name\": \"Alice\", \"score\": 95},"
         " {\"name\": \"Bob\", \"score\": 87}],"
         " \"count\": 2}";
-    CHECK(parse_ok(json, &r, &v) == TJ_OK);
+    CHECK(parse_ok(json, &r, &v) == ERR_OK);
 
     /* Navigate to users[1].name */
     ThatchVal users, user1, name;
-    CHECK(tj_get_str(v, "users", &users) == TJ_OK);
+    CHECK(tj_get_str(v, "users", &users) == ERR_OK);
     CHECK(tj_is_array(users));
-    CHECK(tj_index(users, 1, &user1) == TJ_OK);
+    CHECK(tj_index(users, 1, &user1) == ERR_OK);
     CHECK(tj_is_object(user1));
-    CHECK(tj_get_str(user1, "name", &name) == TJ_OK);
+    CHECK(tj_get_str(user1, "name", &name) == ERR_OK);
     const char *s; uint32_t slen;
-    CHECK(tj_string(name, &s, &slen) == TJ_OK);
+    CHECK(tj_string(name, &s, &slen) == ERR_OK);
     CHECK(slen == 3 && memcmp(s, "Bob", 3) == 0);
 
     /* Navigate to count */
     ThatchVal count;
-    CHECK(tj_get_str(v, "count", &count) == TJ_OK);
+    CHECK(tj_get_str(v, "count", &count) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(count, &iv) == TJ_OK);
+    CHECK(tj_int(count, &iv) == ERR_OK);
     CHECK(iv == 2);
     teardown();
 }
@@ -323,12 +323,12 @@ static void test_parse_whitespace(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("  \t\n  42  \n  ", &r, &v) == TJ_OK);
+    CHECK(parse_ok("  \t\n  42  \n  ", &r, &v) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(v, &iv) == TJ_OK);
+    CHECK(tj_int(v, &iv) == ERR_OK);
     CHECK(iv == 42);
 
-    CHECK(parse_ok("{ \"a\" : [ 1 , 2 ] }", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{ \"a\" : [ 1 , 2 ] }", &r, &v) == ERR_OK);
     CHECK(tj_is_object(v));
     teardown();
 }
@@ -339,12 +339,12 @@ static void test_parse_errors(void) {
     ThatchRegion *r; ThatchVal v;
     uint32_t err_pos;
 
-    CHECK(tj_parse(g_txn, "", 0, &r, &v, &err_pos) == TJ_PARSE_ERROR);
-    CHECK(tj_parse(g_txn, "[", 1, &r, &v, &err_pos) == TJ_PARSE_ERROR);
-    CHECK(tj_parse(g_txn, "{\"a\"}", 5, &r, &v, &err_pos) == TJ_PARSE_ERROR);
-    CHECK(tj_parse(g_txn, "nul", 3, &r, &v, &err_pos) == TJ_PARSE_ERROR);
-    CHECK(tj_parse(g_txn, "tru", 3, &r, &v, &err_pos) == TJ_PARSE_ERROR);
-    CHECK(tj_parse(g_txn, "42 99", 5, &r, &v, &err_pos) == TJ_PARSE_ERROR);
+    CHECK(tj_parse(g_txn, "", 0, &r, &v, &err_pos) == ERR_PARSE);
+    CHECK(tj_parse(g_txn, "[", 1, &r, &v, &err_pos) == ERR_PARSE);
+    CHECK(tj_parse(g_txn, "{\"a\"}", 5, &r, &v, &err_pos) == ERR_PARSE);
+    CHECK(tj_parse(g_txn, "nul", 3, &r, &v, &err_pos) == ERR_PARSE);
+    CHECK(tj_parse(g_txn, "tru", 3, &r, &v, &err_pos) == ERR_PARSE);
+    CHECK(tj_parse(g_txn, "42 99", 5, &r, &v, &err_pos) == ERR_PARSE);
     CHECK(err_pos == 3); /* trailing 99 starts at pos 3 */
     teardown();
 }
@@ -358,32 +358,32 @@ static void test_type_errors(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("42", &r, &v) == TJ_OK);
+    CHECK(parse_ok("42", &r, &v) == ERR_OK);
 
     /* Can't use string ops on int */
     const char *s; uint32_t slen;
-    CHECK(tj_string(v, &s, &slen) == TJ_TYPE_ERROR);
+    CHECK(tj_string(v, &s, &slen) == ERR_TYPE);
 
     /* Can't use bool ops on int */
     int b;
-    CHECK(tj_bool(v, &b) == TJ_TYPE_ERROR);
+    CHECK(tj_bool(v, &b) == ERR_TYPE);
 
     /* Can't index into int */
     ThatchVal elem;
-    CHECK(tj_index(v, 0, &elem) == TJ_TYPE_ERROR);
+    CHECK(tj_index(v, 0, &elem) == ERR_TYPE);
 
     /* Can't get field from int */
-    CHECK(tj_get_str(v, "x", &elem) == TJ_TYPE_ERROR);
+    CHECK(tj_get_str(v, "x", &elem) == ERR_TYPE);
 
     /* Can't iterate int */
     TjIter iter;
-    CHECK(tj_iter_array(v, &iter) == TJ_TYPE_ERROR);
-    CHECK(tj_iter_object(v, &iter) == TJ_TYPE_ERROR);
+    CHECK(tj_iter_array(v, &iter) == ERR_TYPE);
+    CHECK(tj_iter_object(v, &iter) == ERR_TYPE);
 
     /* Can't get int from string */
-    CHECK(parse_ok("\"hello\"", &r, &v) == TJ_OK);
+    CHECK(parse_ok("\"hello\"", &r, &v) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(v, &iv) == TJ_TYPE_ERROR);
+    CHECK(tj_int(v, &iv) == ERR_TYPE);
     teardown();
 }
 
@@ -396,25 +396,25 @@ static void test_iter_array(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("[10, 20, 30]", &r, &v) == TJ_OK);
+    CHECK(parse_ok("[10, 20, 30]", &r, &v) == ERR_OK);
 
     TjIter iter;
-    CHECK(tj_iter_array(v, &iter) == TJ_OK);
+    CHECK(tj_iter_array(v, &iter) == ERR_OK);
 
     ThatchVal elem;
     int64_t iv;
-    CHECK(tj_iter_next(&iter, &elem) == TJ_OK);
-    CHECK(tj_int(elem, &iv) == TJ_OK); CHECK(iv == 10);
-    CHECK(tj_iter_next(&iter, &elem) == TJ_OK);
-    CHECK(tj_int(elem, &iv) == TJ_OK); CHECK(iv == 20);
-    CHECK(tj_iter_next(&iter, &elem) == TJ_OK);
-    CHECK(tj_int(elem, &iv) == TJ_OK); CHECK(iv == 30);
-    CHECK(tj_iter_next(&iter, &elem) == TJ_NOT_FOUND);
+    CHECK(tj_iter_next(&iter, &elem) == ERR_OK);
+    CHECK(tj_int(elem, &iv) == ERR_OK); CHECK(iv == 10);
+    CHECK(tj_iter_next(&iter, &elem) == ERR_OK);
+    CHECK(tj_int(elem, &iv) == ERR_OK); CHECK(iv == 20);
+    CHECK(tj_iter_next(&iter, &elem) == ERR_OK);
+    CHECK(tj_int(elem, &iv) == ERR_OK); CHECK(iv == 30);
+    CHECK(tj_iter_next(&iter, &elem) == ERR_NOT_FOUND);
 
     /* Iterate empty array */
-    CHECK(parse_ok("[]", &r, &v) == TJ_OK);
-    CHECK(tj_iter_array(v, &iter) == TJ_OK);
-    CHECK(tj_iter_next(&iter, &elem) == TJ_NOT_FOUND);
+    CHECK(parse_ok("[]", &r, &v) == ERR_OK);
+    CHECK(tj_iter_array(v, &iter) == ERR_OK);
+    CHECK(tj_iter_next(&iter, &elem) == ERR_NOT_FOUND);
     teardown();
 }
 
@@ -423,24 +423,24 @@ static void test_iter_object(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("{\"x\": 1, \"y\": 2}", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{\"x\": 1, \"y\": 2}", &r, &v) == ERR_OK);
 
     TjIter iter;
-    CHECK(tj_iter_object(v, &iter) == TJ_OK);
+    CHECK(tj_iter_object(v, &iter) == ERR_OK);
 
     const char *key; uint32_t klen;
     ThatchVal val;
     int64_t iv;
 
-    CHECK(tj_iter_next_kv(&iter, &key, &klen, &val) == TJ_OK);
+    CHECK(tj_iter_next_kv(&iter, &key, &klen, &val) == ERR_OK);
     CHECK(klen == 1 && key[0] == 'x');
-    CHECK(tj_int(val, &iv) == TJ_OK); CHECK(iv == 1);
+    CHECK(tj_int(val, &iv) == ERR_OK); CHECK(iv == 1);
 
-    CHECK(tj_iter_next_kv(&iter, &key, &klen, &val) == TJ_OK);
+    CHECK(tj_iter_next_kv(&iter, &key, &klen, &val) == ERR_OK);
     CHECK(klen == 1 && key[0] == 'y');
-    CHECK(tj_int(val, &iv) == TJ_OK); CHECK(iv == 2);
+    CHECK(tj_int(val, &iv) == ERR_OK); CHECK(iv == 2);
 
-    CHECK(tj_iter_next_kv(&iter, &key, &klen, &val) == TJ_NOT_FOUND);
+    CHECK(tj_iter_next_kv(&iter, &key, &klen, &val) == ERR_NOT_FOUND);
     teardown();
 }
 
@@ -453,11 +453,11 @@ static void test_path_identity(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("42", &r, &v) == TJ_OK);
+    CHECK(parse_ok("42", &r, &v) == ERR_OK);
     ThatchVal out;
-    CHECK(tj_path(v, ".", &out) == TJ_OK);
+    CHECK(tj_path(v, ".", &out) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(out, &iv) == TJ_OK); CHECK(iv == 42);
+    CHECK(tj_int(out, &iv) == ERR_OK); CHECK(iv == 42);
     teardown();
 }
 
@@ -466,11 +466,11 @@ static void test_path_field(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("{\"name\": \"Alice\"}", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{\"name\": \"Alice\"}", &r, &v) == ERR_OK);
     ThatchVal out;
-    CHECK(tj_path(v, ".name", &out) == TJ_OK);
+    CHECK(tj_path(v, ".name", &out) == ERR_OK);
     const char *s; uint32_t slen;
-    CHECK(tj_string(out, &s, &slen) == TJ_OK);
+    CHECK(tj_string(out, &s, &slen) == ERR_OK);
     CHECK(slen == 5 && memcmp(s, "Alice", 5) == 0);
     teardown();
 }
@@ -480,11 +480,11 @@ static void test_path_index(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("[10, 20, 30]", &r, &v) == TJ_OK);
+    CHECK(parse_ok("[10, 20, 30]", &r, &v) == ERR_OK);
     ThatchVal out;
-    CHECK(tj_path(v, ".[1]", &out) == TJ_OK);
+    CHECK(tj_path(v, ".[1]", &out) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(out, &iv) == TJ_OK); CHECK(iv == 20);
+    CHECK(tj_int(out, &iv) == ERR_OK); CHECK(iv == 20);
     teardown();
 }
 
@@ -495,17 +495,17 @@ static void test_path_chained(void) {
 
     const char *json =
         "{\"users\": [{\"name\": \"Alice\"}, {\"name\": \"Bob\"}]}";
-    CHECK(parse_ok(json, &r, &v) == TJ_OK);
+    CHECK(parse_ok(json, &r, &v) == ERR_OK);
 
     ThatchVal out;
-    CHECK(tj_path(v, ".users[1].name", &out) == TJ_OK);
+    CHECK(tj_path(v, ".users[1].name", &out) == ERR_OK);
     const char *s; uint32_t slen;
-    CHECK(tj_string(out, &s, &slen) == TJ_OK);
+    CHECK(tj_string(out, &s, &slen) == ERR_OK);
     CHECK(slen == 3 && memcmp(s, "Bob", 3) == 0);
 
     /* Also test the .[N] form after a dot */
-    CHECK(tj_path(v, ".users.[0].name", &out) == TJ_OK);
-    CHECK(tj_string(out, &s, &slen) == TJ_OK);
+    CHECK(tj_path(v, ".users.[0].name", &out) == ERR_OK);
+    CHECK(tj_string(out, &s, &slen) == ERR_OK);
     CHECK(slen == 5 && memcmp(s, "Alice", 5) == 0);
     teardown();
 }
@@ -515,11 +515,11 @@ static void test_path_quoted_key(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("{\"odd key\": 99}", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{\"odd key\": 99}", &r, &v) == ERR_OK);
     ThatchVal out;
-    CHECK(tj_path(v, ".[\"odd key\"]", &out) == TJ_OK);
+    CHECK(tj_path(v, ".[\"odd key\"]", &out) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(out, &iv) == TJ_OK); CHECK(iv == 99);
+    CHECK(tj_int(out, &iv) == ERR_OK); CHECK(iv == 99);
     teardown();
 }
 
@@ -528,10 +528,10 @@ static void test_path_not_found(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("{\"a\": 1}", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{\"a\": 1}", &r, &v) == ERR_OK);
     ThatchVal out;
-    CHECK(tj_path(v, ".b", &out) == TJ_NOT_FOUND);
-    CHECK(tj_path(v, ".a[0]", &out) == TJ_TYPE_ERROR); /* a is int, not array */
+    CHECK(tj_path(v, ".b", &out) == ERR_NOT_FOUND);
+    CHECK(tj_path(v, ".a[0]", &out) == ERR_TYPE); /* a is int, not array */
     teardown();
 }
 
@@ -540,11 +540,11 @@ static void test_path_errors(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("42", &r, &v) == TJ_OK);
+    CHECK(parse_ok("42", &r, &v) == ERR_OK);
     ThatchVal out;
-    CHECK(tj_path(v, "", &out) == TJ_PARSE_ERROR);   /* no leading dot */
-    CHECK(tj_path(v, "x", &out) == TJ_PARSE_ERROR);  /* no leading dot */
-    CHECK(tj_path(v, "..", &out) == TJ_PARSE_ERROR);  /* trailing dot */
+    CHECK(tj_path(v, "", &out) == ERR_PARSE);   /* no leading dot */
+    CHECK(tj_path(v, "x", &out) == ERR_PARSE);  /* no leading dot */
+    CHECK(tj_path(v, "..", &out) == ERR_PARSE);  /* trailing dot */
     teardown();
 }
 
@@ -562,8 +562,8 @@ static int jsonl_summer(ThatchVal val, ThatchRegion *region, uint32_t line_no, v
     JsonlCtx *jc = (JsonlCtx *)ctx;
     jc->count++;
     int64_t iv;
-    if (tj_int(val, &iv) == TJ_OK) jc->sum += iv;
-    return TJ_OK;
+    if (tj_int(val, &iv) == ERR_OK) jc->sum += iv;
+    return ERR_OK;
 }
 
 static void test_jsonl_basic(void) {
@@ -573,7 +573,7 @@ static void test_jsonl_basic(void) {
     const char *jsonl = "1\n2\n3\n";
     JsonlCtx ctx = {0, 0};
     CHECK(tj_parse_jsonl(g_txn, jsonl, (uint32_t)strlen(jsonl),
-                         jsonl_summer, &ctx) == TJ_OK);
+                         jsonl_summer, &ctx) == ERR_OK);
     CHECK(ctx.count == 3);
     CHECK(ctx.sum == 6);
     teardown();
@@ -586,7 +586,7 @@ static void test_jsonl_blank_lines(void) {
     const char *jsonl = "\n10\n\n\n20\n\n";
     JsonlCtx ctx = {0, 0};
     CHECK(tj_parse_jsonl(g_txn, jsonl, (uint32_t)strlen(jsonl),
-                         jsonl_summer, &ctx) == TJ_OK);
+                         jsonl_summer, &ctx) == ERR_OK);
     CHECK(ctx.count == 2);
     CHECK(ctx.sum == 30);
     teardown();
@@ -596,11 +596,11 @@ static int jsonl_field_reader(ThatchVal val, ThatchRegion *region, uint32_t line
     (void)region; (void)line_no;
     int64_t *sum = (int64_t *)ctx;
     ThatchVal score;
-    if (tj_get_str(val, "score", &score) == TJ_OK) {
+    if (tj_get_str(val, "score", &score) == ERR_OK) {
         int64_t iv;
-        if (tj_int(score, &iv) == TJ_OK) *sum += iv;
+        if (tj_int(score, &iv) == ERR_OK) *sum += iv;
     }
-    return TJ_OK;
+    return ERR_OK;
 }
 
 static void test_jsonl_objects(void) {
@@ -614,7 +614,7 @@ static void test_jsonl_objects(void) {
 
     int64_t sum = 0;
     CHECK(tj_parse_jsonl(g_txn, jsonl, (uint32_t)strlen(jsonl),
-                         jsonl_field_reader, &sum) == TJ_OK);
+                         jsonl_field_reader, &sum) == ERR_OK);
     CHECK(sum == 95 + 87 + 91);
     teardown();
 }
@@ -629,20 +629,20 @@ static void test_val_byte_size(void) {
     ThatchRegion *r; ThatchVal v;
     uint32_t sz;
 
-    CHECK(parse_ok("null", &r, &v) == TJ_OK);
-    CHECK(tj_val_byte_size(r, 0, &sz) == TJ_OK);
+    CHECK(parse_ok("null", &r, &v) == ERR_OK);
+    CHECK(tj_val_byte_size(r, 0, &sz) == ERR_OK);
     CHECK(sz == 1);
 
-    CHECK(parse_ok("42", &r, &v) == TJ_OK);
-    CHECK(tj_val_byte_size(r, 0, &sz) == TJ_OK);
+    CHECK(parse_ok("42", &r, &v) == ERR_OK);
+    CHECK(tj_val_byte_size(r, 0, &sz) == ERR_OK);
     CHECK(sz == 9); /* tag(1) + int64(8) */
 
-    CHECK(parse_ok("\"hi\"", &r, &v) == TJ_OK);
-    CHECK(tj_val_byte_size(r, 0, &sz) == TJ_OK);
+    CHECK(parse_ok("\"hi\"", &r, &v) == ERR_OK);
+    CHECK(tj_val_byte_size(r, 0, &sz) == ERR_OK);
     CHECK(sz == 1 + 4 + 2); /* tag + len + "hi" */
 
-    CHECK(parse_ok("[1,2]", &r, &v) == TJ_OK);
-    CHECK(tj_val_byte_size(r, 0, &sz) == TJ_OK);
+    CHECK(parse_ok("[1,2]", &r, &v) == ERR_OK);
+    CHECK(tj_val_byte_size(r, 0, &sz) == ERR_OK);
     CHECK(sz == thatch_region_used(r)); /* whole region is one array */
     teardown();
 }
@@ -664,13 +664,13 @@ static void test_deep_nesting(void) {
     off += snprintf(json + off, sizeof(json) - (size_t)off, "42");
     for (int i = 0; i < depth; i++) off += snprintf(json + off, sizeof(json) - (size_t)off, "}");
 
-    CHECK(parse_ok(json, &r, &v) == TJ_OK);
+    CHECK(parse_ok(json, &r, &v) == ERR_OK);
 
     /* Navigate with path */
     ThatchVal out;
-    CHECK(tj_path(v, ".a.a.a.a.a", &out) == TJ_OK);
+    CHECK(tj_path(v, ".a.a.a.a.a", &out) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(out, &iv) == TJ_OK);
+    CHECK(tj_int(out, &iv) == ERR_OK);
     CHECK(iv == 42);
     teardown();
 }
@@ -684,16 +684,16 @@ static void test_zero_copy_strings(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("{\"a\": \"hello\", \"b\": \"world\"}", &r, &v) == TJ_OK);
+    CHECK(parse_ok("{\"a\": \"hello\", \"b\": \"world\"}", &r, &v) == ERR_OK);
 
     ThatchVal va, vb;
-    CHECK(tj_get_str(v, "a", &va) == TJ_OK);
-    CHECK(tj_get_str(v, "b", &vb) == TJ_OK);
+    CHECK(tj_get_str(v, "a", &va) == ERR_OK);
+    CHECK(tj_get_str(v, "b", &vb) == ERR_OK);
 
     const char *sa, *sb;
     uint32_t la, lb;
-    CHECK(tj_string(va, &sa, &la) == TJ_OK);
-    CHECK(tj_string(vb, &sb, &lb) == TJ_OK);
+    CHECK(tj_string(va, &sa, &la) == ERR_OK);
+    CHECK(tj_string(vb, &sb, &lb) == ERR_OK);
 
     /* Both pointers should be into the same region page */
     CHECK(la == 5 && lb == 5);
@@ -703,7 +703,7 @@ static void test_zero_copy_strings(void) {
     /* The pointers should be stable — reading again gives the same address */
     const char *sa2;
     uint32_t la2;
-    CHECK(tj_string(va, &sa2, &la2) == TJ_OK);
+    CHECK(tj_string(va, &sa2, &la2) == ERR_OK);
     CHECK(sa == sa2);
     teardown();
 }
@@ -717,19 +717,19 @@ static void test_path_index_overflow(void) {
     setup();
     ThatchRegion *r; ThatchVal v;
 
-    CHECK(parse_ok("[10, 20, 30]", &r, &v) == TJ_OK);
+    CHECK(parse_ok("[10, 20, 30]", &r, &v) == ERR_OK);
 
     /* UINT32_MAX+1 = 4294967296 should be rejected, not wrap to 0 */
     ThatchVal out;
-    CHECK(tj_path(v, ".[4294967296]", &out) == TJ_PARSE_ERROR);
+    CHECK(tj_path(v, ".[4294967296]", &out) == ERR_PARSE);
 
     /* Just below the overflow boundary should work (as NOT_FOUND) */
-    CHECK(tj_path(v, ".[4294967295]", &out) == TJ_NOT_FOUND);
+    CHECK(tj_path(v, ".[4294967295]", &out) == ERR_NOT_FOUND);
 
     /* Normal index still works */
-    CHECK(tj_path(v, ".[0]", &out) == TJ_OK);
+    CHECK(tj_path(v, ".[0]", &out) == ERR_OK);
     int64_t iv;
-    CHECK(tj_int(out, &iv) == TJ_OK); CHECK(iv == 10);
+    CHECK(tj_int(out, &iv) == ERR_OK); CHECK(iv == 10);
     teardown();
 }
 
@@ -755,7 +755,7 @@ static void test_parse_failure_no_leak(void) {
     ThatchRegion *r; ThatchVal v; uint32_t err_pos;
     for (int i = 0; i < 20; i++) {
         int rc = tj_parse(g_txn, "{bad", 4, &r, &v, &err_pos);
-        CHECK(rc != TJ_OK);
+        CHECK(rc != ERR_OK);
     }
 
     /* Pages should be released, not accumulated */

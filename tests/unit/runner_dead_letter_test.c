@@ -42,11 +42,11 @@ static int ensure_runner_schema(DB *db)
 {
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_v0_ensure_schema_version(db, 0u, 0u, 1);
 }
@@ -83,27 +83,27 @@ static int inbox_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_ou
 
     if (!db || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &val, &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -119,7 +119,7 @@ static int inbox_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst
 
     if (!db || !dst || dst_cap == 0u || !len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *len_out = 0u;
 
@@ -127,10 +127,10 @@ static int inbox_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -138,12 +138,12 @@ static int inbox_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst
     if (!val || val_len > dst_cap)
     {
         txn_abort(txn);
-        return SAP_FULL;
+        return ERR_FULL;
     }
     memcpy(dst, val, val_len);
     *len_out = val_len;
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int lease_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_out)
@@ -156,27 +156,27 @@ static int lease_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_ou
 
     if (!db || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), &val, &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -192,7 +192,7 @@ static int dead_letter_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_
 
     if (!db || !dst || dst_cap == 0u || !len_out || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     *len_out = 0u;
@@ -201,15 +201,15 @@ static int dead_letter_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, SAP_WIT_DBI_DEAD_LETTER, key, sizeof(key), &val, &val_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -217,13 +217,13 @@ static int dead_letter_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_
     if (!val || val_len > dst_cap)
     {
         txn_abort(txn);
-        return SAP_FULL;
+        return ERR_FULL;
     }
     memcpy(dst, val, val_len);
     *len_out = val_len;
     *exists_out = 1;
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int dead_letter_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_out)
@@ -242,21 +242,21 @@ static int move_one_to_dead_letter(DB *db, uint64_t worker_id, uint64_t seq, uin
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     if (encode_message((uint32_t)worker_id, payload_tag, frame, sizeof(frame), &frame_len) !=
         SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_v0_inbox_put(db, worker_id, seq, frame, frame_len) != SAP_OK)
+    if (sap_runner_v0_inbox_put(db, worker_id, seq, frame, frame_len) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_mailbox_v0_claim(db, worker_id, seq, worker_id, 10, 20, &lease) != SAP_OK)
+    if (sap_runner_mailbox_v0_claim(db, worker_id, seq, worker_id, 10, 20, &lease) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_dead_letter_v0_move(db, worker_id, seq, &lease, failure_rc, attempts);
 }
@@ -271,17 +271,17 @@ static int test_move_to_dead_letter(void)
     SapRunnerMessageV0 decoded = {0};
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
-    CHECK(move_one_to_dead_letter(db, 7u, 1u, (uint8_t)'a', SAP_CONFLICT, 3u) == SAP_OK);
-    CHECK(inbox_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
+    CHECK(move_one_to_dead_letter(db, 7u, 1u, (uint8_t)'a', ERR_CONFLICT, 3u) == ERR_OK);
+    CHECK(inbox_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(lease_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
-    CHECK(dead_letter_get_copy(db, 7u, 1u, dlq_raw, sizeof(dlq_raw), &dlq_len, &exists) == SAP_OK);
+    CHECK(dead_letter_get_copy(db, 7u, 1u, dlq_raw, sizeof(dlq_raw), &dlq_len, &exists) == ERR_OK);
     CHECK(exists == 1);
-    CHECK(sap_runner_dead_letter_v0_decode(dlq_raw, dlq_len, &rec) == SAP_OK);
-    CHECK(rec.failure_rc == SAP_CONFLICT);
+    CHECK(sap_runner_dead_letter_v0_decode(dlq_raw, dlq_len, &rec) == ERR_OK);
+    CHECK(rec.failure_rc == ERR_CONFLICT);
     CHECK(rec.attempts == 3u);
     CHECK(sap_runner_message_v0_decode(rec.frame, rec.frame_len, &decoded) == SAP_RUNNER_WIRE_OK);
     CHECK(decoded.to_worker == 7);
@@ -302,20 +302,20 @@ static int test_move_rejects_stale_lease(void)
     int exists = 0;
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
     CHECK(encode_message(9u, (uint8_t)'b', frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 9u, 2u, frame, frame_len) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_claim(db, 9u, 2u, 9u, 10, 20, &lease1) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_claim(db, 9u, 2u, 10u, 30, 40, &lease2) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 9u, 2u, frame, frame_len) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 9u, 2u, 9u, 10, 20, &lease1) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 9u, 2u, 10u, 30, 40, &lease2) == ERR_OK);
 
-    CHECK(sap_runner_dead_letter_v0_move(db, 9u, 2u, &lease1, SAP_BUSY, 2u) == SAP_CONFLICT);
-    CHECK(inbox_exists(db, 9u, 2u, &exists) == SAP_OK);
+    CHECK(sap_runner_dead_letter_v0_move(db, 9u, 2u, &lease1, ERR_BUSY, 2u) == ERR_CONFLICT);
+    CHECK(inbox_exists(db, 9u, 2u, &exists) == ERR_OK);
     CHECK(exists == 1);
-    CHECK(dead_letter_exists(db, 9u, 2u, &exists) == SAP_OK);
+    CHECK(dead_letter_exists(db, 9u, 2u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
-    CHECK(sap_runner_dead_letter_v0_move(db, 9u, 2u, &lease2, SAP_BUSY, 2u) == SAP_OK);
-    CHECK(inbox_exists(db, 9u, 2u, &exists) == SAP_OK);
+    CHECK(sap_runner_dead_letter_v0_move(db, 9u, 2u, &lease2, ERR_BUSY, 2u) == ERR_OK);
+    CHECK(inbox_exists(db, 9u, 2u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -341,12 +341,12 @@ static int collect_dead_letter(uint64_t worker_id, uint64_t seq,
 
     if (!drain || !record || !record->frame || record->frame_len == 0u || drain->calls >= 4u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = sap_runner_message_v0_decode(record->frame, record->frame_len, &msg);
     if (rc != SAP_RUNNER_WIRE_OK || msg.payload_len < 2u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     drain->worker_id[drain->calls] = worker_id;
@@ -355,7 +355,7 @@ static int collect_dead_letter(uint64_t worker_id, uint64_t seq,
     drain->attempts[drain->calls] = record->attempts;
     drain->payload_tag[drain->calls] = msg.payload[1];
     drain->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int test_drain_dead_letter_records(void)
@@ -366,28 +366,28 @@ static int test_drain_dead_letter_records(void)
     int exists = 0;
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
-    CHECK(move_one_to_dead_letter(db, 3u, 10u, (uint8_t)'x', SAP_CONFLICT, 4u) == SAP_OK);
-    CHECK(move_one_to_dead_letter(db, 4u, 11u, (uint8_t)'y', SAP_BUSY, 2u) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
+    CHECK(move_one_to_dead_letter(db, 3u, 10u, (uint8_t)'x', ERR_CONFLICT, 4u) == ERR_OK);
+    CHECK(move_one_to_dead_letter(db, 4u, 11u, (uint8_t)'y', ERR_BUSY, 2u) == ERR_OK);
 
     CHECK(sap_runner_dead_letter_v0_drain(db, 8u, collect_dead_letter, &drain, &processed) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(processed == 2u);
     CHECK(drain.calls == 2u);
     CHECK(drain.worker_id[0] == 3u);
     CHECK(drain.seq[0] == 10u);
-    CHECK(drain.failure_rc[0] == SAP_CONFLICT);
+    CHECK(drain.failure_rc[0] == ERR_CONFLICT);
     CHECK(drain.attempts[0] == 4u);
     CHECK(drain.payload_tag[0] == (uint8_t)'x');
     CHECK(drain.worker_id[1] == 4u);
     CHECK(drain.seq[1] == 11u);
-    CHECK(drain.failure_rc[1] == SAP_BUSY);
+    CHECK(drain.failure_rc[1] == ERR_BUSY);
     CHECK(drain.attempts[1] == 2u);
     CHECK(drain.payload_tag[1] == (uint8_t)'y');
 
-    CHECK(dead_letter_exists(db, 3u, 10u, &exists) == SAP_OK);
+    CHECK(dead_letter_exists(db, 3u, 10u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(dead_letter_exists(db, 4u, 11u, &exists) == SAP_OK);
+    CHECK(dead_letter_exists(db, 4u, 11u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -403,25 +403,25 @@ static int test_replay_dead_letter_record(void)
     int exists = 0;
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
-    CHECK(move_one_to_dead_letter(db, 11u, 3u, (uint8_t)'r', SAP_BUSY, 5u) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
+    CHECK(move_one_to_dead_letter(db, 11u, 3u, (uint8_t)'r', ERR_BUSY, 5u) == ERR_OK);
 
-    CHECK(sap_runner_dead_letter_v0_replay(db, 11u, 3u, 30u) == SAP_OK);
-    CHECK(dead_letter_exists(db, 11u, 3u, &exists) == SAP_OK);
+    CHECK(sap_runner_dead_letter_v0_replay(db, 11u, 3u, 30u) == ERR_OK);
+    CHECK(dead_letter_exists(db, 11u, 3u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_exists(db, 11u, 30u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 11u, 30u, &exists) == ERR_OK);
     CHECK(exists == 1);
     CHECK(inbox_get_copy(db, 11u, 30u, inbox_frame, sizeof(inbox_frame), &inbox_frame_len) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(sap_runner_message_v0_decode(inbox_frame, inbox_frame_len, &msg) == SAP_RUNNER_WIRE_OK);
     CHECK(msg.to_worker == 11);
     CHECK(msg.payload_len == 2u);
     CHECK(msg.payload[1] == (uint8_t)'r');
 
-    CHECK(move_one_to_dead_letter(db, 11u, 4u, (uint8_t)'s', SAP_BUSY, 1u) == SAP_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 11u, 31u, inbox_frame, inbox_frame_len) == SAP_OK);
-    CHECK(sap_runner_dead_letter_v0_replay(db, 11u, 4u, 31u) == SAP_EXISTS);
-    CHECK(dead_letter_exists(db, 11u, 4u, &exists) == SAP_OK);
+    CHECK(move_one_to_dead_letter(db, 11u, 4u, (uint8_t)'s', ERR_BUSY, 1u) == ERR_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 11u, 31u, inbox_frame, inbox_frame_len) == ERR_OK);
+    CHECK(sap_runner_dead_letter_v0_replay(db, 11u, 4u, 31u) == ERR_EXISTS);
+    CHECK(dead_letter_exists(db, 11u, 4u, &exists) == ERR_OK);
     CHECK(exists == 1);
 
     db_close(db);

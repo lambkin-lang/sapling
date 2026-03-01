@@ -64,7 +64,7 @@ int sap_runner_dedupe_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerD
 
     if (!raw || !dedupe_out || raw_len < 17u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     memset(dedupe_out, 0, sizeof(*dedupe_out));
@@ -77,14 +77,14 @@ int sap_runner_dedupe_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerD
     {
         if (offset + len > raw_len)
         {
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         dedupe_out->checksum_len =
             len > SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE ? SAP_RUNNER_DEDUPE_V0_CHECKSUM_SIZE : len;
         memcpy(dedupe_out->checksum, raw + offset, dedupe_out->checksum_len);
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_dedupe_v0_get(Txn *txn, const void *message_id, uint32_t message_id_len,
@@ -95,7 +95,7 @@ int sap_runner_dedupe_v0_get(Txn *txn, const void *message_id, uint32_t message_
     int rc;
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_DEDUPE, message_id, message_id_len, &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }

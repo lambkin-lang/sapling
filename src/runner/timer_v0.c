@@ -37,16 +37,16 @@ static int copy_bytes(const uint8_t *src, uint32_t len, uint8_t **dst_out)
 
     if (!src || !dst_out || len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     dst = (uint8_t *)malloc((size_t)len);
     if (!dst)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     memcpy(dst, src, len);
     *dst_out = dst;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* Helper to convert timer (ts, seq) to BEPT-compatible ordered 128-bit key (4 x 32-bit words) */
@@ -84,11 +84,11 @@ int sap_runner_timer_v0_key_decode(const uint8_t *key, uint32_t key_len, int64_t
 {
     if (!key || key_len != SAP_RUNNER_TIMER_KEY_V0_SIZE || !due_ts_out || !seq_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *due_ts_out = (int64_t)rd64be(key);
     *seq_out = rd64be(key + 8);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int read_next_due_timer(DB *db, int64_t now_ts, uint8_t **key_out, uint32_t *key_len_out,
@@ -104,7 +104,7 @@ static int read_next_due_timer(DB *db, int64_t now_ts, uint8_t **key_out, uint32
 
     if (!db || !key_out || !key_len_out || !payload_out || !payload_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *key_out = NULL;
     *payload_out = NULL;
@@ -114,12 +114,12 @@ static int read_next_due_timer(DB *db, int64_t now_ts, uint8_t **key_out, uint32
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     /* Use BEPT Min to find earliest timer */
     rc = sap_bept_min(txn, bept_key, 4, &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         /* If empty tree, min returns NOTFOUND */
@@ -131,20 +131,20 @@ static int read_next_due_timer(DB *db, int64_t now_ts, uint8_t **key_out, uint32
     if (due_ts > now_ts)
     {
         txn_abort(txn);
-        return SAP_NOTFOUND; /* Not due yet */
+        return ERR_NOT_FOUND; /* Not due yet */
     }
 
     /* Construct key bytes for output */
     *key_out = (uint8_t*)malloc(SAP_RUNNER_TIMER_KEY_V0_SIZE);
     if (!*key_out) {
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     sap_runner_timer_v0_key_encode(due_ts, seq, *key_out);
     *key_len_out = SAP_RUNNER_TIMER_KEY_V0_SIZE;
 
     rc = copy_bytes((const uint8_t *)val, val_len, payload_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         free(*key_out);
         *key_out = NULL;
@@ -154,7 +154,7 @@ static int read_next_due_timer(DB *db, int64_t now_ts, uint8_t **key_out, uint32
     *payload_len_out = val_len;
 
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int delete_timer_if_match(DB *db, const uint8_t *key_bytes, uint32_t key_len,
@@ -170,22 +170,22 @@ static int delete_timer_if_match(DB *db, const uint8_t *key_bytes, uint32_t key_
 
     if (!db || !key_bytes || key_len != SAP_RUNNER_TIMER_KEY_V0_SIZE || !payload || payload_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_timer_v0_key_decode(key_bytes, key_len, &due_ts, &seq);
-    if (rc != SAP_OK) return rc;
+    if (rc != ERR_OK) return rc;
     
     sap_runner_timer_v0_bept_key_encode(due_ts, seq, bept_key);
 
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     
     rc = sap_bept_get(txn, bept_key, 4, (const void **)&current_val, &current_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc; /* Not found or error */
@@ -195,11 +195,11 @@ static int delete_timer_if_match(DB *db, const uint8_t *key_bytes, uint32_t key_
     if (current_len != payload_len || memcmp(current_val, payload, payload_len) != 0)
     {
         txn_abort(txn);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
     
     rc = sap_bept_del(txn, bept_key, 4);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -216,7 +216,7 @@ int sap_runner_timer_v0_append(DB *db, int64_t due_ts, uint64_t seq, const uint8
 
     if (!db || !payload || payload_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     uint32_t bept_key[4]; 
@@ -225,13 +225,13 @@ int sap_runner_timer_v0_append(DB *db, int64_t due_ts, uint64_t seq, const uint8
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     
     /* BEPT Put takes sap_uint128_t key */
     rc = sap_bept_put(txn, bept_key, 4, payload, payload_len, SAP_NOOVERWRITE, NULL);
     
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -253,11 +253,11 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
     }
     if (!db || !handler)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (max_items == 0u)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
 
     for (i = 0u; i < max_items; i++)
@@ -271,11 +271,11 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
         int rc;
 
         rc = read_next_due_timer(db, now_ts, &key, &key_len, &payload, &payload_len);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(payload);
@@ -283,7 +283,7 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
         }
 
         rc = sap_runner_timer_v0_key_decode(key, key_len, &due_ts, &seq);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(payload);
@@ -291,7 +291,7 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
         }
 
         rc = handler(due_ts, seq, payload, payload_len, ctx);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(payload);
@@ -301,7 +301,7 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
         rc = delete_timer_if_match(db, key, key_len, payload, payload_len);
         free(key);
         free(payload);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
@@ -312,7 +312,7 @@ int sap_runner_timer_v0_drain_due(DB *db, int64_t now_ts, uint32_t max_items,
     {
         *processed_out = processed;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_timer_v0_publisher_init(SapRunnerTimerV0Publisher *publisher, DB *db,
@@ -320,11 +320,11 @@ int sap_runner_timer_v0_publisher_init(SapRunnerTimerV0Publisher *publisher, DB 
 {
     if (!publisher || !db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     publisher->db = db;
     publisher->next_seq = initial_seq;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_timer_v0_publish_intent(const uint8_t *intent_frame, uint32_t intent_frame_len,
@@ -336,28 +336,28 @@ int sap_runner_timer_v0_publish_intent(const uint8_t *intent_frame, uint32_t int
 
     if (!publisher || !publisher->db || !intent_frame || intent_frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = sap_runner_intent_v0_decode(intent_frame, intent_frame_len, &intent);
     if (rc != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (intent.kind != SAP_RUNNER_INTENT_KIND_TIMER_ARM)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if ((intent.flags & SAP_RUNNER_INTENT_FLAG_HAS_DUE_TS) == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_timer_v0_append(publisher->db, intent.due_ts, publisher->next_seq,
                                     intent.message, intent.message_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     publisher->next_seq++;
-    return SAP_OK;
+    return ERR_OK;
 }

@@ -8,19 +8,7 @@
 #define SAPLING_H
 
 #include <stdint.h>
-
-/* ------------------------------------------------------------------ */
-/* Error codes                                                          */
-/* ------------------------------------------------------------------ */
-#define SAP_OK 0       /* success                                    */
-#define SAP_NOTFOUND 1 /* key not found                              */
-#define SAP_ERROR 2    /* general / allocation error                 */
-#define SAP_FULL 3     /* key+value too large for a single page      */
-#define SAP_READONLY 4 /* write attempted on a read-only transaction */
-#define SAP_BUSY 5     /* write txn active or metadata change blocked */
-#define SAP_EXISTS 6       /* key already exists (with SAP_NOOVERWRITE)  */
-#define SAP_CONFLICT 7     /* compare-and-swap value mismatch            */
-#define SAP_INVALID_DATA 8 /* invalid payload structure (layout/refinement) */
+#include <sapling/err.h>
 
 /* ------------------------------------------------------------------ */
 /* Compile-time tunables                                                */
@@ -59,8 +47,8 @@ typedef int (*keycmp_fn)(const void *a, uint32_t a_len, const void *b, uint32_t 
 /* ------------------------------------------------------------------ */
 /* Put flags (for txn_put_flags / txn_put_flags_dbi)                    */
 /* ------------------------------------------------------------------ */
-#define SAP_NOOVERWRITE 0x01u /* fail with SAP_EXISTS if key present */
-#define SAP_RESERVE 0x02u     /* inline reserve only; overflow => SAP_ERROR */
+#define SAP_NOOVERWRITE 0x01u /* fail with ERR_EXISTS if key present */
+#define SAP_RESERVE 0x02u     /* inline reserve only; overflow => ERR_INVALID */
 
 /* ------------------------------------------------------------------ */
 /* Opaque types                                                         */
@@ -91,7 +79,7 @@ DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx
  * Users constructing SapEnv manually (e.g. for multi-subsystem use)
  * should call this instead of db_open.
  *
- * Returns SAP_OK or error.
+ * Returns ERR_OK or error.
  */
 int sap_btree_subsystem_init(struct SapEnv *env, keycmp_fn cmp, void *cmp_ctx);
 
@@ -105,7 +93,7 @@ int db_restore(DB *db, sap_read_fn reader, void *ctx);
 /*                                                                      */
 /* DBI 0 is the default database (used by non-dbi functions).           */
 /* dbi_open/dbi_set_dupsort require no active read or write txns;        */
-/* otherwise they return SAP_BUSY.                                       */
+/* otherwise they return ERR_BUSY.                                       */
 /* ------------------------------------------------------------------ */
 #define DBI_DUPSORT 0x01u  /* sorted duplicate keys                    */
 #define DBI_TTL_META 0x02u /* protected DBI for TTL metadata rows        */
@@ -132,9 +120,9 @@ int dbi_stat(Txn *txn, uint32_t dbi, SapStat *stat);
 
 /* Watch notifications (prefix match, commit-time delivery)
  * db_watch/db_unwatch target DBI 0.
- * DBI-scoped variants reject DUPSORT DBIs and return SAP_BUSY if a
+ * DBI-scoped variants reject DUPSORT DBIs and return ERR_BUSY if a
  * write transaction is active.
- * Duplicate registrations return SAP_EXISTS.
+ * Duplicate registrations return ERR_EXISTS.
  */
 int db_watch(DB *db, const void *prefix, uint32_t prefix_len, sap_watch_fn cb, void *ctx);
 int db_unwatch(DB *db, const void *prefix, uint32_t prefix_len, sap_watch_fn cb, void *ctx);
@@ -152,7 +140,7 @@ int db_unwatch_dbi(DB *db, uint32_t dbi, const void *prefix, uint32_t prefix_len
 /* durable until the outermost transaction commits.                     */
 /* A child abort discards child changes without affecting the parent.   */
 /* Returns NULL on OOM or if a non-nested write txn is requested while  */
-/* another write txn is already active (SAP_BUSY condition).            */
+/* another write txn is already active (ERR_BUSY condition).            */
 /* ------------------------------------------------------------------ */
 Txn *txn_begin(DB *db, Txn *parent, unsigned int flags);
 int txn_commit(Txn *txn);
@@ -174,27 +162,27 @@ int txn_del(Txn *txn, const void *key, uint32_t key_len);
 /* ------------------------------------------------------------------ */
 /* Key/value operations (explicit DBI)                                  */
 /* ------------------------------------------------------------------ */
-/* Returns SAP_ERROR for decode failures (for example corrupt overflow
+/* Returns ERR_CORRUPT for decode failures (for example corrupt overflow
  * metadata or overflow page chains).
  */
 int txn_get_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void **val_out,
                 uint32_t *val_len_out);
 
 /* non-DUPSORT DBIs may spill large values to overflow pages (up to UINT16_MAX).
- * DUPSORT DBIs remain inline-only and return SAP_FULL when key+value cannot fit.
+ * DUPSORT DBIs remain inline-only and return ERR_FULL when key+value cannot fit.
  */
 int txn_put_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *val,
                 uint32_t val_len);
 
-/* SAP_RESERVE requires inline leaf storage and returns SAP_ERROR when the write
- * would require overflow storage. DUPSORT DBIs also return SAP_ERROR for reserve.
+/* SAP_RESERVE requires inline leaf storage and returns ERR_INVALID when the write
+ * would require overflow storage. DUPSORT DBIs also return ERR_INVALID for reserve.
  */
 int txn_put_flags_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *val,
                       uint32_t val_len, unsigned flags, void **reserved_out);
 
 /* Compare-and-swap put: replace only if current value matches expected.
- * Returns SAP_OK, SAP_NOTFOUND, SAP_CONFLICT, SAP_READONLY, or SAP_ERROR.
- * Not supported for DUPSORT DBIs (returns SAP_ERROR).
+ * Returns ERR_OK, ERR_NOT_FOUND, ERR_CONFLICT, ERR_READONLY, or ERR_INVALID.
+ * Not supported for DUPSORT DBIs (returns ERR_INVALID).
  */
 int txn_put_if(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *val,
                uint32_t val_len, const void *expected_val, uint32_t expected_len);
@@ -207,9 +195,9 @@ int txn_del_dup_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, c
 
 /* Bulk-load sorted entries.
  * keys/vals are arrays of pointers with matching lens arrays.
- * Returns SAP_EXISTS if duplicate keys are present for a non-DUPSORT DBI.
+ * Returns ERR_EXISTS if duplicate keys are present for a non-DUPSORT DBI.
  * non-DUPSORT rows may use overflow pages; DUPSORT rows remain inline-only and
- * return SAP_FULL when oversized.
+ * return ERR_FULL when oversized.
  */
 int txn_load_sorted(Txn *txn, uint32_t dbi, const void *const *keys, const uint32_t *key_lens,
                     const void *const *vals, const uint32_t *val_lens, uint32_t count);
@@ -234,7 +222,7 @@ int txn_del_range(Txn *txn, uint32_t dbi, const void *lo, uint32_t lo_len, const
  * On entry, *new_len is output capacity; callback sets produced byte count.
  * If callback reports more than inline capacity, Sapling retries once with the
  * reported size (up to UINT16_MAX), enabling overflow-value merge results.
- * Returns SAP_FULL if the callback keeps requesting larger output or exceeds
+ * Returns ERR_FULL if the callback keeps requesting larger output or exceeds
  * UINT16_MAX.
  */
 int txn_merge(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, const void *operand,
@@ -259,7 +247,7 @@ int txn_get_ttl_dbi(Txn *txn, uint32_t data_dbi, uint32_t ttl_dbi, const void *k
 
 /* Retrieve the TTL expiry of the current cursor key and evaluate. 
  * If expired and SAP_TTL_LAZY_DELETE is passed on a write txn, deletes the row
- * and returns SAP_NOTFOUND. Otherwise returns the data value.
+ * and returns ERR_NOT_FOUND. Otherwise returns the data value.
  */
 int cursor_get_ttl_dbi(Cursor *data_cur, uint32_t ttl_dbi, uint64_t now_ms,
                        const void **val_out, uint32_t *val_len_out, unsigned flags);
@@ -311,7 +299,7 @@ int cursor_get_key(Cursor *cursor, const void **key_out, uint32_t *key_len_out);
 /* ------------------------------------------------------------------ */
 /* cursor_put currently supports only flags==0 on non-DUPSORT DBIs.
  * Oversized replacements that cannot be represented for the key shape return
- * SAP_FULL without dropping the existing row.
+ * ERR_FULL without dropping the existing row.
  */
 int cursor_put(Cursor *cursor, const void *val, uint32_t val_len, unsigned flags);
 int cursor_del(Cursor *cursor);

@@ -77,14 +77,14 @@ static int guest_atomic_logic(void *ctx, SapHostV0 *host, const uint8_t *request
 
     /* 1. Read from application state (DBI 10) */
     rc = sap_host_v0_get(host, 10u, k_counter_key, sizeof(k_counter_key), &cur, &cur_len);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         if (cur_len == 8u)
         {
             count = rd64be((const uint8_t *)cur);
         }
     }
-    else if (rc != SAP_NOTFOUND)
+    else if (rc != ERR_NOT_FOUND)
     {
         return rc;
     }
@@ -94,20 +94,20 @@ static int guest_atomic_logic(void *ctx, SapHostV0 *host, const uint8_t *request
     wr64be(raw_count, count);
     rc = sap_host_v0_put(host, 10u, k_counter_key, sizeof(k_counter_key), raw_count,
                          sizeof(raw_count));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     /* 3. Emit a message in the same atomic block */
     rc = sap_host_v0_emit(host, request, request_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     printf("Guest logic: counter incremented to %" PRIu64 "\n", count);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* Host-side adapter that initializes SapHostV0 and calls the guest logic. */
@@ -161,7 +161,7 @@ int main(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    if (sap_runner_intent_sink_v0_init(&intent_sink, db, 1u, 1u) != SAP_OK)
+    if (sap_runner_intent_sink_v0_init(&intent_sink, db, 1u, 1u) != ERR_OK)
     {
         fprintf(stderr, "runner-host-api-example: intent sink init failed\n");
         goto done;
@@ -169,14 +169,14 @@ int main(void)
 
     if (sap_runner_attempt_handler_v0_init(&handler, db, host_atomic_adapter, NULL,
                                            sap_runner_intent_sink_v0_publish,
-                                           &intent_sink) != SAP_OK)
+                                           &intent_sink) != ERR_OK)
     {
         fprintf(stderr, "runner-host-api-example: attempt handler init failed\n");
         goto done;
     }
 
     if (sap_runner_v0_worker_init(&worker, &cfg, sap_runner_attempt_handler_v0_runner_handler,
-                                  &handler, 4u) != SAP_OK)
+                                  &handler, 4u) != ERR_OK)
     {
         fprintf(stderr, "runner-host-api-example: worker init failed\n");
         goto done;
@@ -195,7 +195,7 @@ int main(void)
     sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len);
 
     /* Run the worker */
-    if (sap_runner_v0_worker_tick(&worker, &processed) != SAP_OK || processed != 1u)
+    if (sap_runner_v0_worker_tick(&worker, &processed) != ERR_OK || processed != 1u)
     {
         fprintf(stderr, "runner-host-api-example: worker_tick failed\n");
         goto done;

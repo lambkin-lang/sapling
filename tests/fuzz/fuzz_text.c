@@ -6,6 +6,8 @@
  */
 
 #include "sapling/text.h"
+#include "sapling/text_literal.h"
+#include "sapling/text_tree_registry.h"
 #include "sapling/txn.h"
 #include "sapling/arena.h"
 
@@ -22,7 +24,7 @@ static void ensure_env(void) {
     SapArenaOptions opts = {0};
     opts.type = SAP_ARENA_BACKING_MALLOC;
     opts.page_size = 4096;
-    if (sap_arena_init(&g_arena, &opts) != SAP_OK) abort();
+    if (sap_arena_init(&g_arena, &opts) != ERR_OK) abort();
     g_env = sap_env_create(g_arena, 4096);
     if (!g_env) abort();
 }
@@ -179,8 +181,8 @@ static int model_sync_from_text(ModelVec *model, Text *text)
         return 0;
     for (size_t i = 0; i < len; i++)
     {
-        uint32_t got = 0;
-        if (text_get(text, i, &got) != SEQ_OK)
+        TextHandle got = 0;
+        if (text_get_handle(text, i, &got) != ERR_OK)
             return 0;
         model->data[i] = got;
     }
@@ -196,8 +198,8 @@ static int text_matches_model(Text *text, const ModelVec *model)
         return 0;
     for (size_t i = 0; i < model->len; i++)
     {
-        uint32_t got = 0;
-        if (text_get(text, i, &got) != SEQ_OK)
+        TextHandle got = 0;
+        if (text_get_handle(text, i, &got) != ERR_OK)
             return 0;
         if (got != model->data[i])
             return 0;
@@ -227,7 +229,7 @@ static int recover_after_oom(Text *text, ModelVec *model)
     // Recovery with txn:
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     if (!txn) return 0;
-    if (text_reset(txn, text) != SEQ_OK) {
+    if (text_reset(txn, text) != ERR_OK) {
         sap_txn_abort(txn);
         return 0;
     }
@@ -251,9 +253,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         return 0;
     }
 
+    TextLiteralTable *fuzz_lt = text_literal_table_new(g_env);
+    TextTreeRegistry *fuzz_reg = text_tree_registry_new(g_env);
+    if (!fuzz_lt || !fuzz_reg)
+    {
+        if (fuzz_lt) text_literal_table_free(fuzz_lt);
+        if (fuzz_reg) text_tree_registry_free(fuzz_reg);
+        text_free(g_env, text);
+        model_free(&model);
+        return 0;
+    }
+
     while (i < size)
     {
-        uint8_t op = data[i++] % 15u;
+        uint8_t op = data[i++] % 18u;
 
         switch (op)
         {
@@ -267,13 +280,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 sap_txn_commit(txn);
                 
                 i += 4;
-                if (rc == SEQ_OK)
+                if (rc == ERR_OK)
                 {
                     if ((op == 0 && !model_push_front(&model, cp)) ||
                         (op == 1 && !model_push_back(&model, cp)))
                         goto out;
                 }
-                else if (rc == SEQ_OOM)
+                else if (rc == ERR_OOM)
                 {
                     if (!recover_after_oom(text, &model))
                         goto out;
@@ -291,38 +304,38 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         case 2: /* pop_front */
         case 3: /* pop_back */
         {
-            uint32_t got = 0;
+            TextHandle got = 0;
             uint32_t exp = 0;
             SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
-            int rc = (op == 2) ? text_pop_front(txn, text, &got) : text_pop_back(txn, text, &got);
+            int rc = (op == 2) ? text_pop_front_handle(txn, text, &got) : text_pop_back_handle(txn, text, &got);
             sap_txn_commit(txn);
 
             if (model.len == 0)
             {
-                if (rc != SEQ_EMPTY)
+                if (rc != ERR_EMPTY)
                     __builtin_trap();
             }
             else
             {
                 int ok = (op == 2) ? model_pop_front(&model, &exp) : model_pop_back(&model, &exp);
-                if (rc != SEQ_OK || !ok || got != exp)
+                if (rc != ERR_OK || !ok || got != exp)
                     __builtin_trap();
             }
             break;
         }
         case 4: /* get */
         {
-            uint32_t got = 0;
+            TextHandle got = 0;
             if (model.len > 0 && i < size && (data[i++] & 1u))
             {
                 size_t idx = (size_t)((i < size) ? data[i++] : 0) % model.len;
-                if (text_get(text, idx, &got) != SEQ_OK || got != model.data[idx])
+                if (text_get_handle(text, idx, &got) != ERR_OK || got != model.data[idx])
                     __builtin_trap();
             }
             else
             {
                 size_t idx = model.len + ((i < size) ? (size_t)(data[i++] % 4u) : 1u);
-                if (text_get(text, idx, &got) != SEQ_RANGE)
+                if (text_get_handle(text, idx, &got) != ERR_RANGE)
                     __builtin_trap();
             }
             break;
@@ -337,9 +350,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 i += 4;
                 if (!txn) { goto out; }
                 rc = text_set(txn, text, idx, cp);
-                if (rc == SEQ_OK)
+                if (rc == ERR_OK)
                 {
-                    if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                    if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                     else if (!model_set(&model, idx, cp))
                         __builtin_trap();
                 }
@@ -348,12 +361,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     sap_txn_abort(txn);
                 }
 
-                if (rc == SEQ_OOM)
+                if (rc == ERR_OOM)
                 {
                     if (!recover_after_oom(text, &model))
                         goto out;
                 }
-                else if (rc != SEQ_OK)
+                else if (rc != ERR_OK)
                 {
                     __builtin_trap();
                 }
@@ -369,9 +382,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 i += 4;
                 if (!txn) { goto out; }
                 rc = text_insert(txn, text, idx, cp);
-                if (rc == SEQ_OK)
+                if (rc == ERR_OK)
                 {
-                    if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                    if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                     else if (!model_insert(&model, idx, cp))
                         __builtin_trap();
                 }
@@ -380,12 +393,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     sap_txn_abort(txn);
                 }
 
-                if (rc == SEQ_OOM)
+                if (rc == ERR_OOM)
                 {
                     if (!recover_after_oom(text, &model))
                         goto out;
                 }
-                else if (rc != SEQ_OK)
+                else if (rc != ERR_OK)
                 {
                     __builtin_trap();
                 }
@@ -399,15 +412,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             if (model.len > 0)
             {
                 size_t idx = (size_t)((i < size) ? data[i++] : 0u) % model.len;
-                uint32_t got = 0;
+                TextHandle got = 0;
                 uint32_t exp = 0;
                 int rc;
                 SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
                 if (!txn) { goto out; }
-                rc = text_delete(txn, text, idx, &got);
-                if (rc == SEQ_OK)
+                rc = text_delete_handle(txn, text, idx, &got);
+                if (rc == ERR_OK)
                 {
-                    if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                    if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                     else if (!model_delete(&model, idx, &exp) || got != exp)
                         __builtin_trap();
                 }
@@ -416,12 +429,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     sap_txn_abort(txn);
                 }
 
-                if (rc == SEQ_OOM)
+                if (rc == ERR_OOM)
                 {
                     if (!recover_after_oom(text, &model))
                         goto out;
                 }
-                else if (rc != SEQ_OK)
+                else if (rc != ERR_OK)
                 {
                     __builtin_trap();
                 }
@@ -437,15 +450,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
             if (!txn) { goto out; }
             rc = text_split_at(txn, text, idx, &l, &r);
-            if (rc == SEQ_OK)
+            if (rc == ERR_OK)
             {
                 if (!l || !r)
                     __builtin_trap();
                 if (text_length(text) != 0)
                     __builtin_trap();
-                if (text_concat(txn, text, l) != SEQ_OK || text_concat(txn, text, r) != SEQ_OK)
+                if (text_concat(txn, text, l) != ERR_OK || text_concat(txn, text, r) != ERR_OK)
                     __builtin_trap();
-                if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                 text_free(g_env, l);
                 text_free(g_env, r);
             }
@@ -454,12 +467,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 sap_txn_abort(txn);
             }
             
-            if (rc == SEQ_OOM)
+            if (rc == ERR_OOM)
             {
                 if (!recover_after_oom(text, &model))
                     goto out;
             }
-            else if (rc != SEQ_OK)
+            else if (rc != ERR_OK)
             {
                 __builtin_trap();
             }
@@ -470,7 +483,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             Text *chunk = text_new(g_env);
             ModelVec chunk_model;
             size_t count = 0;
-            int rc = SEQ_OK;
+            int rc = ERR_OK;
 
             model_init(&chunk_model);
             if (!chunk)
@@ -496,7 +509,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     break;
                 cp = normalize_codepoint(read_u32(&data[i]));
                 i += 4;
-                if (text_push_back(txn, chunk, cp) != SEQ_OK || !model_push_back(&chunk_model, cp))
+                if (text_push_back(txn, chunk, cp) != ERR_OK || !model_push_back(&chunk_model, cp))
                 {
                     sap_txn_abort(txn);
                     text_free(g_env, chunk);
@@ -506,9 +519,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             }
 
             rc = text_concat(txn, text, chunk);
-            if (rc == SEQ_OK)
+            if (rc == ERR_OK)
             {
-                if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                 else 
                 {
                     if (!model_concat(&model, &chunk_model))
@@ -523,12 +536,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             text_free(g_env, chunk);
             model_free(&chunk_model);
 
-            if (rc == SEQ_OOM)
+            if (rc == ERR_OOM)
             {
                 if (!recover_after_oom(text, &model))
                     goto out;
             }
-            else if (rc != SEQ_OK)
+            else if (rc != ERR_OK)
             {
                 __builtin_trap();
             }
@@ -541,9 +554,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
             if (!txn) { goto out; }
             rc = text_reset(txn, text);
-            if (rc == SEQ_OK)
+            if (rc == ERR_OK)
             {
-                if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                 else model.len = 0;
             }
             else
@@ -551,12 +564,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 sap_txn_abort(txn);
             }
 
-            if (rc == SEQ_OOM)
+            if (rc == ERR_OOM)
             {
                 if (!recover_after_oom(text, &model))
                     goto out;
             }
-            else if (rc != SEQ_OK)
+            else if (rc != ERR_OK)
             {
                 __builtin_trap();
             }
@@ -567,7 +580,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             size_t need = 0;
             size_t wrote = 0;
             int rc = text_utf8_length(text, &need);
-            if (rc != SEQ_OK)
+            if (rc != ERR_OK)
                 __builtin_trap();
             if (need > 0)
             {
@@ -579,20 +592,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     if (tmp) text_free(g_env, tmp);
                     goto out;
                 }
-                if (text_to_utf8(text, buf, need, &wrote) != SEQ_OK || wrote != need)
+                if (text_to_utf8(text, buf, need, &wrote) != ERR_OK || wrote != need)
                     __builtin_trap();
-                if (need > 1 && text_to_utf8(text, buf, need - 1, &wrote) != SEQ_RANGE)
+                if (need > 1 && text_to_utf8(text, buf, need - 1, &wrote) != ERR_RANGE)
                     __builtin_trap();
                 
                 SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
                 if (!txn) { free(buf); text_free(g_env, tmp); goto out; } 
                 
-                if (text_from_utf8(txn, tmp, buf, need) != SEQ_OK)
+                if (text_from_utf8(txn, tmp, buf, need) != ERR_OK)
                 {
                     sap_txn_abort(txn);
                     __builtin_trap();
                 }
-                if (sap_txn_commit(txn) != SEQ_OK)
+                if (sap_txn_commit(txn) != ERR_OK)
                 {
                     /* OOM during commit? Treat as out */
                     free(buf);
@@ -607,7 +620,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             }
             else
             {
-                if (text_to_utf8(text, NULL, 0, &wrote) != SEQ_OK || wrote != 0)
+                if (text_to_utf8(text, NULL, 0, &wrote) != ERR_OK || wrote != 0)
                     __builtin_trap();
             }
             break;
@@ -636,9 +649,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
             if (!txn) { model_free(&before); goto out; }
             rc = text_from_utf8(txn, text, blob, n);
-            if (rc == SEQ_OK)
+            if (rc == ERR_OK)
             {
-                if (sap_txn_commit(txn) != SEQ_OK) { rc = SEQ_OOM; }
+                if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
                 else if (!model_sync_from_text(&model, text))
                 {
                     model_free(&before);
@@ -650,12 +663,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 sap_txn_abort(txn);
             }
 
-            if (rc == SEQ_INVALID)
+            if (rc == ERR_INVALID)
             {
                 if (!model_equal(&model, &before))
                     __builtin_trap();
             }
-            else if (rc == SEQ_OOM)
+            else if (rc == ERR_OOM)
             {
                 if (!model_equal(&model, &before))
                     __builtin_trap();
@@ -665,7 +678,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     goto out;
                 }
             }
-            else if (rc != SEQ_OK)
+            else if (rc != ERR_OK)
             {
                 __builtin_trap();
             }
@@ -702,9 +715,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
             if (!txn) { text_free(g_env, clone); model_free(&clone_model); goto out; }
 
-            if (text_push_back(txn, clone, cp) == SEQ_OK)
+            if (text_push_back(txn, clone, cp) == ERR_OK)
             {
-                if (sap_txn_commit(txn) != SEQ_OK)
+                if (sap_txn_commit(txn) != ERR_OK)
                 {
                     /* clone OOM on commit */
                     goto out; /* technically clone is discarded anyway */
@@ -729,6 +742,122 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             model_free(&clone_model);
             break;
         }
+        case 15: /* text_from_utf8_bulk — bulk-load as single LITERAL handle */
+        {
+            size_t n = 0;
+            if (i < size)
+                n = (size_t)(data[i++] % 16u);
+            if (i + n > size)
+                n = size - i;
+
+            /* Build a valid UTF-8 slice from fuzz bytes by encoding codepoints */
+            uint8_t utf8_buf[64];
+            size_t utf8_len = 0;
+            for (size_t j = 0; j < n && utf8_len + 4 <= sizeof(utf8_buf); j++)
+            {
+                /* Use fuzz byte as ASCII to keep UTF-8 valid */
+                uint8_t ch = data[i + j] & 0x7Fu;
+                if (ch == 0) ch = 0x20u; /* avoid null */
+                utf8_buf[utf8_len++] = ch;
+            }
+            i += n;
+
+            if (utf8_len > 0)
+            {
+                SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
+                if (!txn) goto out;
+                int rc = text_from_utf8_bulk(txn, text, utf8_buf, utf8_len, fuzz_lt);
+                if (rc == ERR_OK)
+                {
+                    if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
+                    else if (!model_sync_from_text(&model, text))
+                        goto out;
+                }
+                else
+                {
+                    sap_txn_abort(txn);
+                }
+
+                if (rc == ERR_OOM)
+                {
+                    if (!recover_after_oom(text, &model))
+                        goto out;
+                }
+                else if (rc != ERR_OK)
+                {
+                    __builtin_trap();
+                }
+            }
+            break;
+        }
+        case 16: /* text_expand_handle_at — expand a LITERAL handle at a random index */
+        {
+            size_t len = text_length(text);
+            if (len > 0)
+            {
+                size_t idx = (i < size) ? (size_t)(data[i++]) % len : 0u;
+                SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
+                if (!txn) goto out;
+                int rc = text_expand_handle_at(txn, text, idx,
+                                               text_literal_table_resolve_fn, fuzz_lt);
+                if (rc == ERR_OK)
+                {
+                    if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
+                    else if (!model_sync_from_text(&model, text))
+                        goto out;
+                }
+                else
+                {
+                    sap_txn_abort(txn);
+                }
+
+                if (rc == ERR_OOM)
+                {
+                    if (!recover_after_oom(text, &model))
+                        goto out;
+                }
+                /* expand on a CODEPOINT handle is a no-op (ERR_OK), other errors OK */
+            }
+            break;
+        }
+        case 17: /* push a TREE handle referencing a previously registered text */
+        {
+            /* Register current text as a tree (COW clone) */
+            if (text_length(text) > 0)
+            {
+                uint32_t tree_id = 0;
+                int rc = text_tree_registry_register(fuzz_reg, text, &tree_id);
+                if (rc == ERR_OK)
+                {
+                    TextHandle h = text_handle_make(TEXT_HANDLE_TREE, tree_id);
+                    SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
+                    if (!txn) goto out;
+                    rc = text_push_back_handle(txn, text, h);
+                    if (rc == ERR_OK)
+                    {
+                        if (sap_txn_commit(txn) != ERR_OK) { rc = ERR_OOM; }
+                        else if (!model_sync_from_text(&model, text))
+                            goto out;
+                    }
+                    else
+                    {
+                        sap_txn_abort(txn);
+                    }
+
+                    if (rc == ERR_OOM)
+                    {
+                        if (!recover_after_oom(text, &model))
+                            goto out;
+                    }
+                    else if (rc != ERR_OK)
+                    {
+                        __builtin_trap();
+                    }
+                }
+                /* Registration OOM is non-fatal: just skip */
+            }
+            break;
+        }
         default: /* invalid code points are rejected */
         {
             uint32_t bad = (i < size && (data[i++] & 1u)) ? 0x110000u : 0xD800u;
@@ -739,7 +868,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             rc = text_push_back(txn, text, bad);
             sap_txn_abort(txn);
 
-            if (rc != SEQ_INVALID || model.len != before)
+            if (rc != ERR_INVALID || model.len != before)
                 __builtin_trap();
             break;
         }
@@ -750,6 +879,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     }
 
 out:
+    text_literal_table_free(fuzz_lt);
+    text_tree_registry_free(fuzz_reg);
     text_free(g_env, text);
     model_free(&model);
     return 0;

@@ -80,14 +80,14 @@ static int hex_digit(char c) {
 }
 
 static int jp_read_hex4(JParser *p, uint32_t *out) {
-    if (p->pos + 4 > p->len) return TJ_PARSE_ERROR;
+    if (p->pos + 4 > p->len) return ERR_PARSE;
     *out = 0;
     for (int i = 0; i < 4; i++) {
         int d = hex_digit(p->src[p->pos++]);
-        if (d < 0) return TJ_PARSE_ERROR;
+        if (d < 0) return ERR_PARSE;
         *out = (*out << 4) | (uint32_t)d;
     }
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* Encode a Unicode codepoint as UTF-8 into buf[].  Returns bytes written. */
@@ -130,7 +130,7 @@ static int utf8_encode(uint32_t cp, uint8_t buf[4]) {
  * backpatch the length.
  */
 static int jp_parse_string_impl(JParser *p, uint8_t tag) {
-    if (jp_peek(p) != '"') return TJ_PARSE_ERROR;
+    if (jp_peek(p) != '"') return ERR_PARSE;
     p->pos++; /* consume opening quote */
 
     int rc = thatch_write_tag(p->region, tag);
@@ -155,7 +155,7 @@ static int jp_parse_string_impl(JParser *p, uint8_t tag) {
 
         if (c == '\\') {
             p->pos++;
-            if (p->pos >= p->len) return TJ_PARSE_ERROR;
+            if (p->pos >= p->len) return ERR_PARSE;
             char esc = p->src[p->pos++];
             uint8_t byte = 0;
             switch (esc) {
@@ -176,38 +176,38 @@ static int jp_parse_string_impl(JParser *p, uint8_t tag) {
                         if (p->pos + 1 >= p->len ||
                             p->src[p->pos] != '\\' ||
                             p->src[p->pos + 1] != 'u')
-                            return TJ_PARSE_ERROR;
+                            return ERR_PARSE;
                         p->pos += 2; /* skip \u */
                         uint32_t lo = 0;
                         rc = jp_read_hex4(p, &lo);
                         if (rc) return rc;
                         if (lo < 0xDC00 || lo > 0xDFFF)
-                            return TJ_PARSE_ERROR;
+                            return ERR_PARSE;
                         cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
                     } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-                        return TJ_PARSE_ERROR; /* lone low surrogate */
+                        return ERR_PARSE; /* lone low surrogate */
                     }
                     uint8_t utf8[4];
                     int n = utf8_encode(cp, utf8);
-                    if (n <= 0) return TJ_PARSE_ERROR;
+                    if (n <= 0) return ERR_PARSE;
                     rc = thatch_write_data(p->region, utf8, (uint32_t)n);
                     if (rc) return rc;
                     continue;
                 }
-                default: return TJ_PARSE_ERROR;
+                default: return ERR_PARSE;
             }
             rc = thatch_write_data(p->region, &byte, 1);
             if (rc) return rc;
         } else if ((unsigned char)c < 0x20) {
             /* Control characters are not allowed unescaped in JSON */
-            return TJ_PARSE_ERROR;
+            return ERR_PARSE;
         } else {
             rc = thatch_write_data(p->region, &c, 1);
             if (rc) return rc;
             p->pos++;
         }
     }
-    return TJ_PARSE_ERROR; /* unterminated string */
+    return ERR_PARSE; /* unterminated string */
 }
 
 /* ---------- number parser ---------- */
@@ -220,14 +220,14 @@ static int jp_parse_number(JParser *p) {
     if (p->pos < p->len && p->src[p->pos] == '-') p->pos++;
 
     /* Integer part */
-    if (p->pos >= p->len) return TJ_PARSE_ERROR;
+    if (p->pos >= p->len) return ERR_PARSE;
     if (p->src[p->pos] == '0') {
         p->pos++;
     } else if (p->src[p->pos] >= '1' && p->src[p->pos] <= '9') {
         while (p->pos < p->len && p->src[p->pos] >= '0' && p->src[p->pos] <= '9')
             p->pos++;
     } else {
-        return TJ_PARSE_ERROR;
+        return ERR_PARSE;
     }
 
     /* Fractional part */
@@ -235,7 +235,7 @@ static int jp_parse_number(JParser *p) {
         is_float = 1;
         p->pos++;
         if (p->pos >= p->len || p->src[p->pos] < '0' || p->src[p->pos] > '9')
-            return TJ_PARSE_ERROR;
+            return ERR_PARSE;
         while (p->pos < p->len && p->src[p->pos] >= '0' && p->src[p->pos] <= '9')
             p->pos++;
     }
@@ -247,7 +247,7 @@ static int jp_parse_number(JParser *p) {
         if (p->pos < p->len && (p->src[p->pos] == '+' || p->src[p->pos] == '-'))
             p->pos++;
         if (p->pos >= p->len || p->src[p->pos] < '0' || p->src[p->pos] > '9')
-            return TJ_PARSE_ERROR;
+            return ERR_PARSE;
         while (p->pos < p->len && p->src[p->pos] >= '0' && p->src[p->pos] <= '9')
             p->pos++;
     }
@@ -283,17 +283,17 @@ static int jp_parse_number(JParser *p) {
     if (is_float) {
         /* Copy to NUL-terminated buffer for strtod */
         char buf[64];
-        if (num_len >= sizeof(buf)) return TJ_PARSE_ERROR;
+        if (num_len >= sizeof(buf)) return ERR_PARSE;
         memcpy(buf, p->src + start, num_len);
         buf[num_len] = '\0';
         char *end;
         double dval = strtod(buf, &end);
-        if ((uint32_t)(end - buf) != num_len) return TJ_PARSE_ERROR;
+        if ((uint32_t)(end - buf) != num_len) return ERR_PARSE;
         int rc = thatch_write_tag(p->region, TJ_TAG_DOUBLE);
         if (rc) return rc;
         return thatch_write_data(p->region, &dval, sizeof(dval));
     }
-    return TJ_PARSE_ERROR; /* unreachable */
+    return ERR_PARSE; /* unreachable */
 }
 
 /* ---------- array parser ---------- */
@@ -322,7 +322,7 @@ static int jp_parse_array(JParser *p) {
         int c = jp_peek(p);
         if (c == ',') { p->pos++; continue; }
         if (c == ']') { p->pos++; return thatch_commit_skip(p->region, skip_loc); }
-        return TJ_PARSE_ERROR;
+        return ERR_PARSE;
     }
 }
 
@@ -350,7 +350,7 @@ static int jp_parse_object(JParser *p) {
         if (rc) return rc;
 
         jp_skip_ws(p);
-        if (jp_peek(p) != ':') return TJ_PARSE_ERROR;
+        if (jp_peek(p) != ':') return ERR_PARSE;
         p->pos++;
 
         jp_skip_ws(p);
@@ -361,7 +361,7 @@ static int jp_parse_object(JParser *p) {
         int c = jp_peek(p);
         if (c == ',') { p->pos++; continue; }
         if (c == '}') { p->pos++; return thatch_commit_skip(p->region, skip_loc); }
-        return TJ_PARSE_ERROR;
+        return ERR_PARSE;
     }
 }
 
@@ -370,17 +370,17 @@ static int jp_parse_object(JParser *p) {
 static int jp_parse_value(JParser *p) {
     jp_skip_ws(p);
     int c = jp_peek(p);
-    if (c < 0) return TJ_PARSE_ERROR;
+    if (c < 0) return ERR_PARSE;
 
     switch (c) {
         case 'n':
-            if (!jp_match(p, "null", 4)) return TJ_PARSE_ERROR;
+            if (!jp_match(p, "null", 4)) return ERR_PARSE;
             return thatch_write_tag(p->region, TJ_TAG_NULL);
         case 't':
-            if (!jp_match(p, "true", 4)) return TJ_PARSE_ERROR;
+            if (!jp_match(p, "true", 4)) return ERR_PARSE;
             return thatch_write_tag(p->region, TJ_TAG_TRUE);
         case 'f':
-            if (!jp_match(p, "false", 5)) return TJ_PARSE_ERROR;
+            if (!jp_match(p, "false", 5)) return ERR_PARSE;
             return thatch_write_tag(p->region, TJ_TAG_FALSE);
         case '"':
             return jp_parse_string_impl(p, TJ_TAG_STRING);
@@ -391,7 +391,7 @@ static int jp_parse_value(JParser *p) {
         default:
             if (c == '-' || (c >= '0' && c <= '9'))
                 return jp_parse_number(p);
-            return TJ_PARSE_ERROR;
+            return ERR_PARSE;
     }
 }
 
@@ -402,7 +402,7 @@ static int jp_parse_value(JParser *p) {
 int tj_parse(SapTxnCtx *txn, const char *json, uint32_t len,
              ThatchRegion **region_out, ThatchVal *val_out,
              uint32_t *err_pos) {
-    if (!txn || !json || !region_out || !val_out) return TJ_INVALID;
+    if (!txn || !json || !region_out || !val_out) return ERR_INVALID;
 
     ThatchRegion *region = NULL;
     int rc = thatch_region_new(txn, &region);
@@ -421,18 +421,18 @@ int tj_parse(SapTxnCtx *txn, const char *json, uint32_t len,
     if (p.pos != p.len) {
         if (err_pos) *err_pos = p.pos;
         thatch_region_release(txn, region);
-        return TJ_PARSE_ERROR;
+        return ERR_PARSE;
     }
 
     *region_out = region;
     val_out->region = region;
     val_out->pos = 0;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 int tj_parse_jsonl(SapTxnCtx *txn, const char *jsonl, uint32_t len,
                    TjOnValue on_value, void *ctx) {
-    if (!txn || !jsonl || !on_value) return TJ_INVALID;
+    if (!txn || !jsonl || !on_value) return ERR_INVALID;
 
     uint32_t line_no = 0;
     uint32_t pos = 0;
@@ -466,7 +466,7 @@ int tj_parse_jsonl(SapTxnCtx *txn, const char *jsonl, uint32_t len,
         if (rc) return rc;
         line_no++;
     }
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -476,7 +476,7 @@ int tj_parse_jsonl(SapTxnCtx *txn, const char *jsonl, uint32_t len,
 TjType tj_type(ThatchVal val) {
     uint8_t tag = 0;
     ThatchCursor c = val.pos;
-    if (thatch_read_tag(val.region, &c, &tag) != THATCH_OK) return TJ_TYPE_INVALID;
+    if (thatch_read_tag(val.region, &c, &tag) != ERR_OK) return TJ_TYPE_INVALID;
     switch (tag) {
         case TJ_TAG_NULL:   return TJ_TYPE_NULL;
         case TJ_TAG_TRUE:   return TJ_TYPE_TRUE;
@@ -502,27 +502,27 @@ int tj_is_object(ThatchVal val) { return tj_type(val) == TJ_TYPE_OBJECT; }
 /* ================================================================== */
 
 int tj_bool(ThatchVal val, int *out) {
-    if (!out) return TJ_INVALID;
+    if (!out) return ERR_INVALID;
     TjType t = tj_type(val);
-    if (t == TJ_TYPE_TRUE)  { *out = 1; return TJ_OK; }
-    if (t == TJ_TYPE_FALSE) { *out = 0; return TJ_OK; }
-    return TJ_TYPE_ERROR;
+    if (t == TJ_TYPE_TRUE)  { *out = 1; return ERR_OK; }
+    if (t == TJ_TYPE_FALSE) { *out = 0; return ERR_OK; }
+    return ERR_TYPE;
 }
 
 int tj_int(ThatchVal val, int64_t *out) {
-    if (!out) return TJ_INVALID;
+    if (!out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
-    if (thatch_read_tag(val.region, &c, &tag) != THATCH_OK) return TJ_INVALID;
-    if (tag != TJ_TAG_INT) return TJ_TYPE_ERROR;
+    if (thatch_read_tag(val.region, &c, &tag) != ERR_OK) return ERR_INVALID;
+    if (tag != TJ_TAG_INT) return ERR_TYPE;
     return thatch_read_data(val.region, &c, sizeof(int64_t), out);
 }
 
 int tj_double(ThatchVal val, double *out) {
-    if (!out) return TJ_INVALID;
+    if (!out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
-    if (thatch_read_tag(val.region, &c, &tag) != THATCH_OK) return TJ_INVALID;
+    if (thatch_read_tag(val.region, &c, &tag) != ERR_OK) return ERR_INVALID;
     if (tag == TJ_TAG_DOUBLE) {
         return thatch_read_data(val.region, &c, sizeof(double), out);
     }
@@ -531,17 +531,17 @@ int tj_double(ThatchVal val, double *out) {
         int rc = thatch_read_data(val.region, &c, sizeof(int64_t), &iv);
         if (rc) return rc;
         *out = (double)iv;
-        return TJ_OK;
+        return ERR_OK;
     }
-    return TJ_TYPE_ERROR;
+    return ERR_TYPE;
 }
 
 int tj_string(ThatchVal val, const char **out, uint32_t *len_out) {
-    if (!out || !len_out) return TJ_INVALID;
+    if (!out || !len_out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
-    if (thatch_read_tag(val.region, &c, &tag) != THATCH_OK) return TJ_INVALID;
-    if (tag != TJ_TAG_STRING) return TJ_TYPE_ERROR;
+    if (thatch_read_tag(val.region, &c, &tag) != ERR_OK) return ERR_INVALID;
+    if (tag != TJ_TAG_STRING) return ERR_TYPE;
 
     uint32_t slen;
     int rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &slen);
@@ -553,7 +553,7 @@ int tj_string(ThatchVal val, const char **out, uint32_t *len_out) {
 
     *out = (const char *)ptr;
     *len_out = slen;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -562,7 +562,7 @@ int tj_string(ThatchVal val, const char **out, uint32_t *len_out) {
 
 int tj_val_byte_size(const ThatchRegion *region, ThatchCursor pos,
                      uint32_t *size_out) {
-    if (!region || !size_out) return TJ_INVALID;
+    if (!region || !size_out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = pos;
     int rc = thatch_read_tag(region, &c, &tag);
@@ -573,18 +573,18 @@ int tj_val_byte_size(const ThatchRegion *region, ThatchCursor pos,
         case TJ_TAG_TRUE:
         case TJ_TAG_FALSE:
             *size_out = 1;
-            return TJ_OK;
+            return ERR_OK;
         case TJ_TAG_INT:
         case TJ_TAG_DOUBLE:
             *size_out = 1 + 8;
-            return TJ_OK;
+            return ERR_OK;
         case TJ_TAG_STRING:
         case TJ_TAG_KEY: {
             uint32_t slen;
             rc = thatch_read_data(region, &c, sizeof(uint32_t), &slen);
             if (rc) return rc;
             *size_out = 1 + 4 + slen;
-            return TJ_OK;
+            return ERR_OK;
         }
         case TJ_TAG_ARRAY:
         case TJ_TAG_OBJECT: {
@@ -592,10 +592,10 @@ int tj_val_byte_size(const ThatchRegion *region, ThatchCursor pos,
             rc = thatch_read_data(region, &c, sizeof(uint32_t), &skip);
             if (rc) return rc;
             *size_out = 1 + 4 + skip;
-            return TJ_OK;
+            return ERR_OK;
         }
         default:
-            return TJ_INVALID;
+            return ERR_INVALID;
     }
 }
 
@@ -605,7 +605,7 @@ static int skip_value(const ThatchRegion *region, ThatchCursor *cursor) {
     int rc = tj_val_byte_size(region, *cursor, &sz);
     if (rc) return rc;
     *cursor += sz;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* Internal: advance cursor past one KEY tag (tag + len + bytes) */
@@ -614,13 +614,13 @@ static int skip_key(const ThatchRegion *region, ThatchCursor *cursor) {
     ThatchCursor c = *cursor;
     int rc = thatch_read_tag(region, &c, &tag);
     if (rc) return rc;
-    if (tag != TJ_TAG_KEY) return TJ_TYPE_ERROR;
+    if (tag != TJ_TAG_KEY) return ERR_TYPE;
     uint32_t klen;
     rc = thatch_read_data(region, &c, sizeof(uint32_t), &klen);
     if (rc) return rc;
     c += klen;
     *cursor = c;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -628,12 +628,12 @@ static int skip_key(const ThatchRegion *region, ThatchCursor *cursor) {
 /* ================================================================== */
 
 int tj_get(ThatchVal val, const char *key, uint32_t key_len, ThatchVal *out) {
-    if (!key || !out) return TJ_INVALID;
+    if (!key || !out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
     int rc = thatch_read_tag(val.region, &c, &tag);
     if (rc) return rc;
-    if (tag != TJ_TAG_OBJECT) return TJ_TYPE_ERROR;
+    if (tag != TJ_TAG_OBJECT) return ERR_TYPE;
 
     uint32_t skip;
     rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &skip);
@@ -647,7 +647,7 @@ int tj_get(ThatchVal val, const char *key, uint32_t key_len, ThatchVal *out) {
         ThatchCursor key_start = c;
         rc = thatch_read_tag(val.region, &c, &ktag);
         if (rc) return rc;
-        if (ktag != TJ_TAG_KEY) return TJ_INVALID;
+        if (ktag != TJ_TAG_KEY) return ERR_INVALID;
 
         uint32_t klen;
         rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &klen);
@@ -662,7 +662,7 @@ int tj_get(ThatchVal val, const char *key, uint32_t key_len, ThatchVal *out) {
         if (klen == key_len && memcmp(kptr, key, key_len) == 0) {
             out->region = val.region;
             out->pos = c;
-            return TJ_OK;
+            return ERR_OK;
         }
 
         /* Skip the value */
@@ -671,21 +671,21 @@ int tj_get(ThatchVal val, const char *key, uint32_t key_len, ThatchVal *out) {
         (void)key_start;
     }
 
-    return TJ_NOT_FOUND;
+    return ERR_NOT_FOUND;
 }
 
 int tj_get_str(ThatchVal val, const char *key, ThatchVal *out) {
-    if (!key) return TJ_INVALID;
+    if (!key) return ERR_INVALID;
     return tj_get(val, key, (uint32_t)strlen(key), out);
 }
 
 int tj_index(ThatchVal val, uint32_t index, ThatchVal *out) {
-    if (!out) return TJ_INVALID;
+    if (!out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
     int rc = thatch_read_tag(val.region, &c, &tag);
     if (rc) return rc;
-    if (tag != TJ_TAG_ARRAY) return TJ_TYPE_ERROR;
+    if (tag != TJ_TAG_ARRAY) return ERR_TYPE;
 
     uint32_t skip;
     rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &skip);
@@ -697,23 +697,23 @@ int tj_index(ThatchVal val, uint32_t index, ThatchVal *out) {
         if (i == index) {
             out->region = val.region;
             out->pos = c;
-            return TJ_OK;
+            return ERR_OK;
         }
         rc = skip_value(val.region, &c);
         if (rc) return rc;
     }
 
-    return TJ_NOT_FOUND;
+    return ERR_NOT_FOUND;
 }
 
 int tj_length(ThatchVal val, uint32_t *len_out) {
-    if (!len_out) return TJ_INVALID;
+    if (!len_out) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
     int rc = thatch_read_tag(val.region, &c, &tag);
     if (rc) return rc;
 
-    if (tag != TJ_TAG_ARRAY && tag != TJ_TAG_OBJECT) return TJ_TYPE_ERROR;
+    if (tag != TJ_TAG_ARRAY && tag != TJ_TAG_OBJECT) return ERR_TYPE;
 
     uint32_t skip;
     rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &skip);
@@ -733,7 +733,7 @@ int tj_length(ThatchVal val, uint32_t *len_out) {
     }
 
     *len_out = count;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -741,12 +741,12 @@ int tj_length(ThatchVal val, uint32_t *len_out) {
 /* ================================================================== */
 
 int tj_iter_array(ThatchVal val, TjIter *iter) {
-    if (!iter) return TJ_INVALID;
+    if (!iter) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
     int rc = thatch_read_tag(val.region, &c, &tag);
     if (rc) return rc;
-    if (tag != TJ_TAG_ARRAY) return TJ_TYPE_ERROR;
+    if (tag != TJ_TAG_ARRAY) return ERR_TYPE;
 
     uint32_t skip;
     rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &skip);
@@ -756,16 +756,16 @@ int tj_iter_array(ThatchVal val, TjIter *iter) {
     iter->pos = c;
     iter->end = c + skip;
     iter->index = 0;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 int tj_iter_object(ThatchVal val, TjIter *iter) {
-    if (!iter) return TJ_INVALID;
+    if (!iter) return ERR_INVALID;
     uint8_t tag;
     ThatchCursor c = val.pos;
     int rc = thatch_read_tag(val.region, &c, &tag);
     if (rc) return rc;
-    if (tag != TJ_TAG_OBJECT) return TJ_TYPE_ERROR;
+    if (tag != TJ_TAG_OBJECT) return ERR_TYPE;
 
     uint32_t skip;
     rc = thatch_read_data(val.region, &c, sizeof(uint32_t), &skip);
@@ -775,12 +775,12 @@ int tj_iter_object(ThatchVal val, TjIter *iter) {
     iter->pos = c;
     iter->end = c + skip;
     iter->index = 0;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 int tj_iter_next(TjIter *iter, ThatchVal *val_out) {
-    if (!iter || !val_out) return TJ_INVALID;
-    if (iter->pos >= iter->end) return TJ_NOT_FOUND;
+    if (!iter || !val_out) return ERR_INVALID;
+    if (iter->pos >= iter->end) return ERR_NOT_FOUND;
 
     val_out->region = iter->region;
     val_out->pos = iter->pos;
@@ -789,21 +789,21 @@ int tj_iter_next(TjIter *iter, ThatchVal *val_out) {
     if (rc) return rc;
 
     iter->index++;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 int tj_iter_next_kv(TjIter *iter,
                     const char **key_out, uint32_t *key_len_out,
                     ThatchVal *val_out) {
-    if (!iter || !key_out || !key_len_out || !val_out) return TJ_INVALID;
-    if (iter->pos >= iter->end) return TJ_NOT_FOUND;
+    if (!iter || !key_out || !key_len_out || !val_out) return ERR_INVALID;
+    if (iter->pos >= iter->end) return ERR_NOT_FOUND;
 
     /* Read key tag */
     uint8_t tag;
     ThatchCursor c = iter->pos;
     int rc = thatch_read_tag(iter->region, &c, &tag);
     if (rc) return rc;
-    if (tag != TJ_TAG_KEY) return TJ_INVALID;
+    if (tag != TJ_TAG_KEY) return ERR_INVALID;
 
     /* Read key length + zero-copy pointer */
     uint32_t klen;
@@ -827,7 +827,7 @@ int tj_iter_next_kv(TjIter *iter,
 
     iter->pos = c;
     iter->index++;
-    return TJ_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -853,20 +853,20 @@ int tj_iter_next_kv(TjIter *iter,
  *   .["odd key"]        → tj_get(val, "odd key", 7)
  */
 int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
-    if (!path || !out) return TJ_INVALID;
+    if (!path || !out) return ERR_INVALID;
     ThatchVal cur = val;
     const char *p = path;
 
-    if (*p != '.') return TJ_PARSE_ERROR;
+    if (*p != '.') return ERR_PARSE;
     p++;
 
     /* '.' alone is identity */
-    if (*p == '\0') { *out = cur; return TJ_OK; }
+    if (*p == '\0') { *out = cur; return ERR_OK; }
 
     while (*p != '\0') {
         if (*p == '.') {
             p++;
-            if (*p == '\0') return TJ_PARSE_ERROR; /* trailing dot */
+            if (*p == '\0') return ERR_PARSE; /* trailing dot */
         }
 
         if (*p == '[') {
@@ -876,10 +876,10 @@ int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
                 p++; /* consume opening quote */
                 const char *key_start = p;
                 while (*p && *p != '"') p++;
-                if (*p != '"') return TJ_PARSE_ERROR;
+                if (*p != '"') return ERR_PARSE;
                 uint32_t klen = (uint32_t)(p - key_start);
                 p++; /* consume closing quote */
-                if (*p != ']') return TJ_PARSE_ERROR;
+                if (*p != ']') return ERR_PARSE;
                 p++; /* consume ']' */
                 int rc = tj_get(cur, key_start, klen, &cur);
                 if (rc) return rc;
@@ -889,16 +889,16 @@ int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
                 while (*p >= '0' && *p <= '9') {
                     uint32_t digit = (uint32_t)(*p - '0');
                     if (idx > (UINT32_MAX - digit) / 10)
-                        return TJ_PARSE_ERROR; /* overflow */
+                        return ERR_PARSE; /* overflow */
                     idx = idx * 10 + digit;
                     p++;
                 }
-                if (*p != ']') return TJ_PARSE_ERROR;
+                if (*p != ']') return ERR_PARSE;
                 p++; /* consume ']' */
                 int rc = tj_index(cur, idx, &cur);
                 if (rc) return rc;
             } else {
-                return TJ_PARSE_ERROR;
+                return ERR_PARSE;
             }
         } else if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_') {
             /* Bare identifier: .field */
@@ -918,11 +918,11 @@ int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
                     while (*p >= '0' && *p <= '9') {
                         uint32_t digit = (uint32_t)(*p - '0');
                         if (idx > (UINT32_MAX - digit) / 10)
-                            return TJ_PARSE_ERROR; /* overflow */
+                            return ERR_PARSE; /* overflow */
                         idx = idx * 10 + digit;
                         p++;
                     }
-                    if (*p != ']') return TJ_PARSE_ERROR;
+                    if (*p != ']') return ERR_PARSE;
                     p++;
                     rc = tj_index(cur, idx, &cur);
                     if (rc) return rc;
@@ -930,22 +930,22 @@ int tj_path(ThatchVal val, const char *path, ThatchVal *out) {
                     p++;
                     const char *ks = p;
                     while (*p && *p != '"') p++;
-                    if (*p != '"') return TJ_PARSE_ERROR;
+                    if (*p != '"') return ERR_PARSE;
                     uint32_t kl = (uint32_t)(p - ks);
                     p++;
-                    if (*p != ']') return TJ_PARSE_ERROR;
+                    if (*p != ']') return ERR_PARSE;
                     p++;
                     rc = tj_get(cur, ks, kl, &cur);
                     if (rc) return rc;
                 } else {
-                    return TJ_PARSE_ERROR;
+                    return ERR_PARSE;
                 }
             }
         } else {
-            return TJ_PARSE_ERROR;
+            return ERR_PARSE;
         }
     }
 
     *out = cur;
-    return TJ_OK;
+    return ERR_OK;
 }

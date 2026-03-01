@@ -41,8 +41,8 @@ inspection/replay tooling.
 
 - `sap_runner_dead_letter_v0_drain(...)`
   - callback receives `(worker_id, seq, record)` per dead-letter entry
-  - callback returning non-`SAP_OK` aborts the drain and leaves remaining
+  - callback returning non-`ERR_OK` aborts the drain and leaves remaining
     records untouched
 - `sap_runner_dead_letter_v0_replay(...)`
   - requeues one dead-letter record back to inbox and removes it from DBI 6
-  - returns `SAP_EXISTS` if the destination inbox key already exists
+  - returns `ERR_EXISTS` if the destination inbox key already exists

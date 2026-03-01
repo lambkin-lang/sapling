@@ -26,7 +26,7 @@ The module captures optimistic-attempt state outside Sapling write transactions:
 
 4. `sap_runner_txctx_v0_validate_reads`:
 - re-checks each observed key in a short write txn
-- returns `SAP_CONFLICT` if any observed value/not-found state has changed
+- returns `ERR_CONFLICT` if any observed value/not-found state has changed
 
 5. `sap_runner_txctx_v0_apply_writes`:
 - applies staged writes in the caller-provided write txn

@@ -26,7 +26,7 @@ typedef struct SapTxnCtx SapTxnCtx;
  * subsystem_ctx is the per-subsystem state (like TxnDBs array).
  */
 typedef struct {
-    /* Called when a transaction starts. Returns SAP_OK or error. Sets *state_out. */
+    /* Called when a transaction starts. Returns ERR_OK or error. Sets *state_out. */
     int (*on_begin)(SapTxnCtx *txn, void *parent_state, void **state_out);
 
     /* Called when the transaction commits. The subsystem should merge its state

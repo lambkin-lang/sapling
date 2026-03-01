@@ -35,7 +35,7 @@ static void make_env(SapMemArena **arena_out, SapEnv **env_out) {
     CHECK(sap_arena_init(arena_out, &opts) == 0);
     *env_out = sap_env_create(*arena_out, SAPLING_PAGE_SIZE);
     CHECK(*env_out != NULL);
-    CHECK(sap_thatch_subsystem_init(*env_out) == SAP_OK);
+    CHECK(sap_thatch_subsystem_init(*env_out) == ERR_OK);
 }
 
 /* ------------------------------------------------------------------ */
@@ -51,7 +51,7 @@ static void test_subsystem_init_and_region_alloc(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
     CHECK(region != NULL);
 
     sap_txn_abort(txn);
@@ -72,23 +72,23 @@ static void test_write_read_tag(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
-    CHECK(thatch_write_tag(region, 0x42) == THATCH_OK);
-    CHECK(thatch_write_tag(region, 0xFF) == THATCH_OK);
+    CHECK(thatch_write_tag(region, 0x42) == ERR_OK);
+    CHECK(thatch_write_tag(region, 0xFF) == ERR_OK);
 
     ThatchCursor cursor = 0;
     uint8_t tag = 0;
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == 0x42);
     CHECK(cursor == 1);
 
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == 0xFF);
     CHECK(cursor == 2);
 
     /* Reading past end should return BOUNDS */
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_BOUNDS);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_RANGE);
 
     sap_txn_abort(txn);
     sap_env_destroy(env);
@@ -108,15 +108,15 @@ static void test_write_read_data(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     const char *msg = "hello thatch";
     uint32_t len = (uint32_t)strlen(msg);
-    CHECK(thatch_write_data(region, msg, len) == THATCH_OK);
+    CHECK(thatch_write_data(region, msg, len) == ERR_OK);
 
     char buf[32] = {0};
     ThatchCursor cursor = 0;
-    CHECK(thatch_read_data(region, &cursor, len, buf) == THATCH_OK);
+    CHECK(thatch_read_data(region, &cursor, len, buf) == ERR_OK);
     CHECK(memcmp(buf, msg, len) == 0);
     CHECK(cursor == len);
 
@@ -138,7 +138,7 @@ static void test_skip_pointer_backpatch(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     /* Simulate serializing: { "key": 42 }
      * Layout: [tag:OBJ][skip:4bytes][tag:KEY][data:"key"][tag:NUM][data:42]
@@ -148,53 +148,53 @@ static void test_skip_pointer_backpatch(void) {
     #define TAG_NUM 3
 
     /* Write the object tag */
-    CHECK(thatch_write_tag(region, TAG_OBJ) == THATCH_OK);
+    CHECK(thatch_write_tag(region, TAG_OBJ) == ERR_OK);
 
     /* Reserve the skip pointer */
     ThatchCursor skip_loc = 0;
-    CHECK(thatch_reserve_skip(region, &skip_loc) == THATCH_OK);
+    CHECK(thatch_reserve_skip(region, &skip_loc) == ERR_OK);
 
     /* Write the contents of the object */
-    CHECK(thatch_write_tag(region, TAG_KEY) == THATCH_OK);
+    CHECK(thatch_write_tag(region, TAG_KEY) == ERR_OK);
     const char *key = "key";
-    CHECK(thatch_write_data(region, key, 3) == THATCH_OK);
-    CHECK(thatch_write_tag(region, TAG_NUM) == THATCH_OK);
+    CHECK(thatch_write_data(region, key, 3) == ERR_OK);
+    CHECK(thatch_write_tag(region, TAG_NUM) == ERR_OK);
     uint32_t val = 42;
-    CHECK(thatch_write_data(region, &val, sizeof(val)) == THATCH_OK);
+    CHECK(thatch_write_data(region, &val, sizeof(val)) == ERR_OK);
 
     /* Backpatch the skip pointer */
-    CHECK(thatch_commit_skip(region, skip_loc) == THATCH_OK);
+    CHECK(thatch_commit_skip(region, skip_loc) == ERR_OK);
 
     /* --- Read it back --- */
     ThatchCursor cursor = 0;
     uint8_t tag = 0;
 
     /* Read the object tag */
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == TAG_OBJ);
 
     /* Read the skip length */
     uint32_t skip_len = 0;
-    CHECK(thatch_read_skip_len(region, &cursor, &skip_len) == THATCH_OK);
+    CHECK(thatch_read_skip_len(region, &cursor, &skip_len) == ERR_OK);
     /* skip_len should cover: tag(1) + "key"(3) + tag(1) + uint32(4) = 9 */
     CHECK(skip_len == 9);
 
     /* Use O(1) bypass to skip past the entire object contents */
     ThatchCursor after_skip = cursor + skip_len;
-    CHECK(thatch_advance_cursor(region, &cursor, skip_len) == THATCH_OK);
+    CHECK(thatch_advance_cursor(region, &cursor, skip_len) == ERR_OK);
     CHECK(cursor == after_skip);
 
     /* Also verify we can read the contents sequentially */
     cursor = skip_loc + sizeof(uint32_t); /* reset to after skip slot */
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == TAG_KEY);
     char keybuf[4] = {0};
-    CHECK(thatch_read_data(region, &cursor, 3, keybuf) == THATCH_OK);
+    CHECK(thatch_read_data(region, &cursor, 3, keybuf) == ERR_OK);
     CHECK(memcmp(keybuf, "key", 3) == 0);
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == TAG_NUM);
     uint32_t readval = 0;
-    CHECK(thatch_read_data(region, &cursor, sizeof(uint32_t), &readval) == THATCH_OK);
+    CHECK(thatch_read_data(region, &cursor, sizeof(uint32_t), &readval) == ERR_OK);
     CHECK(readval == 42);
 
     sap_txn_abort(txn);
@@ -215,23 +215,23 @@ static void test_seal_prevents_writes(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
-    CHECK(thatch_write_tag(region, 0x01) == THATCH_OK);
-    CHECK(thatch_seal(txn, region) == THATCH_OK);
+    CHECK(thatch_write_tag(region, 0x01) == ERR_OK);
+    CHECK(thatch_seal(txn, region) == ERR_OK);
 
-    /* All writes should now fail with THATCH_INVALID */
-    CHECK(thatch_write_tag(region, 0x02) == THATCH_INVALID);
-    CHECK(thatch_write_data(region, "x", 1) == THATCH_INVALID);
+    /* All writes should now fail with ERR_INVALID */
+    CHECK(thatch_write_tag(region, 0x02) == ERR_INVALID);
+    CHECK(thatch_write_data(region, "x", 1) == ERR_INVALID);
 
     ThatchCursor skip_loc;
-    CHECK(thatch_reserve_skip(region, &skip_loc) == THATCH_INVALID);
-    CHECK(thatch_commit_skip(region, 0) == THATCH_INVALID);
+    CHECK(thatch_reserve_skip(region, &skip_loc) == ERR_INVALID);
+    CHECK(thatch_commit_skip(region, 0) == ERR_INVALID);
 
     /* But reads should still work */
     ThatchCursor cursor = 0;
     uint8_t tag = 0;
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == 0x01);
 
     sap_txn_abort(txn);
@@ -252,19 +252,19 @@ static void test_commit_seals_regions(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *r1 = NULL, *r2 = NULL;
-    CHECK(thatch_region_new(txn, &r1) == THATCH_OK);
-    CHECK(thatch_region_new(txn, &r2) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &r1) == ERR_OK);
+    CHECK(thatch_region_new(txn, &r2) == ERR_OK);
 
     /* Write something to both */
-    CHECK(thatch_write_tag(r1, 0xAA) == THATCH_OK);
-    CHECK(thatch_write_tag(r2, 0xBB) == THATCH_OK);
+    CHECK(thatch_write_tag(r1, 0xAA) == ERR_OK);
+    CHECK(thatch_write_tag(r2, 0xBB) == ERR_OK);
 
     /* Commit should seal both */
-    CHECK(sap_txn_commit(txn) == SAP_OK);
+    CHECK(sap_txn_commit(txn) == ERR_OK);
 
     /* After commit, regions are sealed (writes should fail) */
-    CHECK(thatch_write_tag(r1, 0x01) == THATCH_INVALID);
-    CHECK(thatch_write_tag(r2, 0x01) == THATCH_INVALID);
+    CHECK(thatch_write_tag(r1, 0x01) == ERR_INVALID);
+    CHECK(thatch_write_tag(r2, 0x01) == ERR_INVALID);
 
     sap_env_destroy(env);
     sap_arena_destroy(arena);
@@ -294,7 +294,7 @@ static void test_abort_frees_regions(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     /* We should have allocated pages (at least the region page + scratch page) */
     CHECK(sap_arena_active_pages(arena) > baseline);
@@ -322,16 +322,16 @@ static void test_multiple_regions(void) {
 
     ThatchRegion *regions[4];
     for (int i = 0; i < 4; i++) {
-        CHECK(thatch_region_new(txn, &regions[i]) == THATCH_OK);
+        CHECK(thatch_region_new(txn, &regions[i]) == ERR_OK);
         uint8_t tag = (uint8_t)(0x10 + i);
-        CHECK(thatch_write_tag(regions[i], tag) == THATCH_OK);
+        CHECK(thatch_write_tag(regions[i], tag) == ERR_OK);
     }
 
     /* Verify each region has independent data */
     for (int i = 0; i < 4; i++) {
         ThatchCursor cursor = 0;
         uint8_t tag = 0;
-        CHECK(thatch_read_tag(regions[i], &cursor, &tag) == THATCH_OK);
+        CHECK(thatch_read_tag(regions[i], &cursor, &tag) == ERR_OK);
         CHECK(tag == (uint8_t)(0x10 + i));
     }
 
@@ -353,25 +353,25 @@ static void test_bounds_checking(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     /* Write 2 bytes total */
-    CHECK(thatch_write_tag(region, 0xAA) == THATCH_OK);
-    CHECK(thatch_write_tag(region, 0xBB) == THATCH_OK);
+    CHECK(thatch_write_tag(region, 0xAA) == ERR_OK);
+    CHECK(thatch_write_tag(region, 0xBB) == ERR_OK);
 
     /* Try to read 4 bytes (should fail) */
     ThatchCursor cursor = 0;
     char buf[4];
-    CHECK(thatch_read_data(region, &cursor, 4, buf) == THATCH_BOUNDS);
+    CHECK(thatch_read_data(region, &cursor, 4, buf) == ERR_RANGE);
 
     /* Try to advance past end */
     cursor = 0;
-    CHECK(thatch_advance_cursor(region, &cursor, 10) == THATCH_BOUNDS);
+    CHECK(thatch_advance_cursor(region, &cursor, 10) == ERR_RANGE);
 
     /* Try to read skip len (needs 4 bytes but only 2 available) */
     cursor = 0;
     uint32_t skip = 0;
-    CHECK(thatch_read_skip_len(region, &cursor, &skip) == THATCH_BOUNDS);
+    CHECK(thatch_read_skip_len(region, &cursor, &skip) == ERR_RANGE);
 
     sap_txn_abort(txn);
     sap_env_destroy(env);
@@ -385,18 +385,18 @@ static void test_invalid_args(void) {
     printf("--- invalid argument handling ---\n");
 
     /* NULL region */
-    CHECK(thatch_write_tag(NULL, 0) == THATCH_INVALID);
-    CHECK(thatch_write_data(NULL, "x", 1) == THATCH_INVALID);
-    CHECK(thatch_read_tag(NULL, NULL, NULL) == THATCH_INVALID);
+    CHECK(thatch_write_tag(NULL, 0) == ERR_INVALID);
+    CHECK(thatch_write_data(NULL, "x", 1) == ERR_INVALID);
+    CHECK(thatch_read_tag(NULL, NULL, NULL) == ERR_INVALID);
 
     ThatchCursor cursor = 0;
-    CHECK(thatch_reserve_skip(NULL, &cursor) == THATCH_INVALID);
-    CHECK(thatch_commit_skip(NULL, 0) == THATCH_INVALID);
-    CHECK(thatch_seal(NULL, NULL) == THATCH_INVALID);
+    CHECK(thatch_reserve_skip(NULL, &cursor) == ERR_INVALID);
+    CHECK(thatch_commit_skip(NULL, 0) == ERR_INVALID);
+    CHECK(thatch_seal(NULL, NULL) == ERR_INVALID);
 
     /* NULL txn for region_new */
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(NULL, &region) == THATCH_INVALID);
+    CHECK(thatch_region_new(NULL, &region) == ERR_INVALID);
 }
 
 /* ------------------------------------------------------------------ */
@@ -412,50 +412,50 @@ static void test_nested_skip_pointers(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     /* Serialize: { inner: { val: 99 } }
      * Outer: [tag:OBJ][skip_outer][tag:OBJ][skip_inner][tag:NUM][data:99]
      */
-    CHECK(thatch_write_tag(region, TAG_OBJ) == THATCH_OK);
+    CHECK(thatch_write_tag(region, TAG_OBJ) == ERR_OK);
     ThatchCursor skip_outer = 0;
-    CHECK(thatch_reserve_skip(region, &skip_outer) == THATCH_OK);
+    CHECK(thatch_reserve_skip(region, &skip_outer) == ERR_OK);
 
-    CHECK(thatch_write_tag(region, TAG_OBJ) == THATCH_OK);
+    CHECK(thatch_write_tag(region, TAG_OBJ) == ERR_OK);
     ThatchCursor skip_inner = 0;
-    CHECK(thatch_reserve_skip(region, &skip_inner) == THATCH_OK);
+    CHECK(thatch_reserve_skip(region, &skip_inner) == ERR_OK);
 
-    CHECK(thatch_write_tag(region, TAG_NUM) == THATCH_OK);
+    CHECK(thatch_write_tag(region, TAG_NUM) == ERR_OK);
     uint32_t val = 99;
-    CHECK(thatch_write_data(region, &val, sizeof(val)) == THATCH_OK);
+    CHECK(thatch_write_data(region, &val, sizeof(val)) == ERR_OK);
 
     /* Backpatch inner first, then outer */
-    CHECK(thatch_commit_skip(region, skip_inner) == THATCH_OK);
-    CHECK(thatch_commit_skip(region, skip_outer) == THATCH_OK);
+    CHECK(thatch_commit_skip(region, skip_inner) == ERR_OK);
+    CHECK(thatch_commit_skip(region, skip_outer) == ERR_OK);
 
     /* Read back: skip the outer object entirely */
     ThatchCursor cursor = 0;
     uint8_t tag = 0;
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == TAG_OBJ);
 
     uint32_t outer_skip = 0;
-    CHECK(thatch_read_skip_len(region, &cursor, &outer_skip) == THATCH_OK);
+    CHECK(thatch_read_skip_len(region, &cursor, &outer_skip) == ERR_OK);
     /* Inner: tag(1) + skip(4) + tag(1) + uint32(4) = 10 bytes */
     CHECK(outer_skip == 10);
 
     /* Skip the entire outer contents */
     ThatchCursor end = cursor + outer_skip;
-    CHECK(thatch_advance_cursor(region, &cursor, outer_skip) == THATCH_OK);
+    CHECK(thatch_advance_cursor(region, &cursor, outer_skip) == ERR_OK);
     CHECK(cursor == end);
 
     /* Or: read the inner skip pointer and bypass just the inner */
     cursor = skip_outer + sizeof(uint32_t); /* after outer skip slot */
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == TAG_OBJ);
 
     uint32_t inner_skip = 0;
-    CHECK(thatch_read_skip_len(region, &cursor, &inner_skip) == THATCH_OK);
+    CHECK(thatch_read_skip_len(region, &cursor, &inner_skip) == ERR_OK);
     /* tag(1) + uint32(4) = 5 bytes */
     CHECK(inner_skip == 5);
 
@@ -478,10 +478,10 @@ static void test_region_valid_after_commit(void) {
     CHECK(txn1 != NULL);
 
     ThatchRegion *r1 = NULL;
-    CHECK(thatch_region_new(txn1, &r1) == THATCH_OK);
-    CHECK(thatch_write_tag(r1, 0xAB) == THATCH_OK);
-    CHECK(thatch_write_data(r1, "hello", 5) == THATCH_OK);
-    CHECK(sap_txn_commit(txn1) == SAP_OK);
+    CHECK(thatch_region_new(txn1, &r1) == ERR_OK);
+    CHECK(thatch_write_tag(r1, 0xAB) == ERR_OK);
+    CHECK(thatch_write_data(r1, "hello", 5) == ERR_OK);
+    CHECK(sap_txn_commit(txn1) == ERR_OK);
 
     /* Txn2: start a new txn that allocates its own region.
      * If r1's metadata was on scratch memory, txn2's scratch
@@ -490,17 +490,17 @@ static void test_region_valid_after_commit(void) {
     CHECK(txn2 != NULL);
 
     ThatchRegion *r2 = NULL;
-    CHECK(thatch_region_new(txn2, &r2) == THATCH_OK);
-    CHECK(thatch_write_tag(r2, 0xCD) == THATCH_OK);
+    CHECK(thatch_region_new(txn2, &r2) == ERR_OK);
+    CHECK(thatch_write_tag(r2, 0xCD) == ERR_OK);
 
     /* r1 must still be readable and contain original data */
     ThatchCursor cursor = 0;
     uint8_t tag = 0;
-    CHECK(thatch_read_tag(r1, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(r1, &cursor, &tag) == ERR_OK);
     CHECK(tag == 0xAB);  /* must NOT be 0xCD from txn2 */
 
     char buf[8] = {0};
-    CHECK(thatch_read_data(r1, &cursor, 5, buf) == THATCH_OK);
+    CHECK(thatch_read_data(r1, &cursor, 5, buf) == ERR_OK);
     CHECK(memcmp(buf, "hello", 5) == 0);
 
     sap_txn_abort(txn2);
@@ -521,25 +521,25 @@ static void test_commit_skip_bounds_check(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     /* Write a single tag byte so head == 1 */
-    CHECK(thatch_write_tag(region, 0x01) == THATCH_OK);
+    CHECK(thatch_write_tag(region, 0x01) == ERR_OK);
 
     /* skip_loc pointing past end — must fail */
-    CHECK(thatch_commit_skip(region, 100) == THATCH_BOUNDS);
+    CHECK(thatch_commit_skip(region, 100) == ERR_RANGE);
 
     /* skip_loc at head (no room for 4-byte slot) — must fail */
-    CHECK(thatch_commit_skip(region, 1) == THATCH_BOUNDS);
+    CHECK(thatch_commit_skip(region, 1) == ERR_RANGE);
 
     /* skip_loc at 0 but only 1 byte written (need 4) — must fail */
-    CHECK(thatch_commit_skip(region, 0) == THATCH_BOUNDS);
+    CHECK(thatch_commit_skip(region, 0) == ERR_RANGE);
 
     /* Now write enough data so a valid skip_loc works */
     ThatchCursor skip_loc;
-    CHECK(thatch_reserve_skip(region, &skip_loc) == THATCH_OK);
-    CHECK(thatch_write_tag(region, 0x42) == THATCH_OK);
-    CHECK(thatch_commit_skip(region, skip_loc) == THATCH_OK);
+    CHECK(thatch_reserve_skip(region, &skip_loc) == ERR_OK);
+    CHECK(thatch_write_tag(region, 0x42) == ERR_OK);
+    CHECK(thatch_commit_skip(region, skip_loc) == ERR_OK);
 
     sap_txn_abort(txn);
     sap_env_destroy(env);
@@ -571,12 +571,12 @@ static void test_region_release(void) {
     /* Allocate 5 regions, then release them all within the same txn */
     ThatchRegion *regions[5];
     for (int i = 0; i < 5; i++) {
-        CHECK(thatch_region_new(txn, &regions[i]) == THATCH_OK);
+        CHECK(thatch_region_new(txn, &regions[i]) == ERR_OK);
     }
     CHECK(sap_arena_active_pages(arena) > baseline);
 
     for (int i = 0; i < 5; i++) {
-        CHECK(thatch_region_release(txn, regions[i]) == THATCH_OK);
+        CHECK(thatch_region_release(txn, regions[i]) == ERR_OK);
     }
     CHECK(sap_arena_active_pages(arena) == baseline);
 
@@ -586,7 +586,7 @@ static void test_region_release(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Test: [P0] double-release returns THATCH_INVALID, no crash         */
+/* Test: [P0] double-release returns ERR_INVALID, no crash         */
 /* ------------------------------------------------------------------ */
 static void test_double_release(void) {
     printf("--- double release ---\n");
@@ -598,13 +598,13 @@ static void test_double_release(void) {
     CHECK(txn != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn, &region) == ERR_OK);
 
     /* First release succeeds */
-    CHECK(thatch_region_release(txn, region) == THATCH_OK);
+    CHECK(thatch_region_release(txn, region) == ERR_OK);
 
     /* Second release must fail — region is no longer in the txn's list */
-    CHECK(thatch_region_release(txn, region) == THATCH_INVALID);
+    CHECK(thatch_region_release(txn, region) == ERR_INVALID);
 
     sap_txn_abort(txn);
     sap_env_destroy(env);
@@ -612,7 +612,7 @@ static void test_double_release(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Test: [P0] wrong-owner release returns THATCH_INVALID              */
+/* Test: [P0] wrong-owner release returns ERR_INVALID              */
 /* ------------------------------------------------------------------ */
 static void test_wrong_owner_release(void) {
     printf("--- wrong-owner release ---\n");
@@ -626,13 +626,13 @@ static void test_wrong_owner_release(void) {
     CHECK(txn2 != NULL);
 
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(txn1, &region) == THATCH_OK);
+    CHECK(thatch_region_new(txn1, &region) == ERR_OK);
 
     /* Releasing from wrong txn must fail */
-    CHECK(thatch_region_release(txn2, region) == THATCH_INVALID);
+    CHECK(thatch_region_release(txn2, region) == ERR_INVALID);
 
     /* Original owner can still release */
-    CHECK(thatch_region_release(txn1, region) == THATCH_OK);
+    CHECK(thatch_region_release(txn1, region) == ERR_OK);
 
     sap_txn_abort(txn2);
     sap_txn_abort(txn1);
@@ -669,9 +669,9 @@ static void test_nested_child_commit_parent_abort(void) {
 
     /* Allocate regions in child */
     ThatchRegion *r1 = NULL;
-    CHECK(thatch_region_new(child, &r1) == THATCH_OK);
+    CHECK(thatch_region_new(child, &r1) == ERR_OK);
     ThatchRegion *r2 = NULL;
-    CHECK(thatch_region_new(child, &r2) == THATCH_OK);
+    CHECK(thatch_region_new(child, &r2) == ERR_OK);
     CHECK(sap_arena_active_pages(arena) > baseline);
 
     /* Child commits — regions should transfer to parent */
@@ -704,9 +704,9 @@ static void test_nested_child_commit_parent_commit(void) {
 
     /* Write data in child */
     ThatchRegion *region = NULL;
-    CHECK(thatch_region_new(child, &region) == THATCH_OK);
-    CHECK(thatch_write_tag(region, 0xAA) == THATCH_OK);
-    CHECK(thatch_write_data(region, "nested", 6) == THATCH_OK);
+    CHECK(thatch_region_new(child, &region) == ERR_OK);
+    CHECK(thatch_write_tag(region, 0xAA) == ERR_OK);
+    CHECK(thatch_write_data(region, "nested", 6) == ERR_OK);
 
     /* Child commits */
     CHECK(sap_txn_commit(child) == 0);
@@ -717,10 +717,10 @@ static void test_nested_child_commit_parent_commit(void) {
     /* Data must still be readable */
     ThatchCursor cursor = 0;
     uint8_t tag = 0;
-    CHECK(thatch_read_tag(region, &cursor, &tag) == THATCH_OK);
+    CHECK(thatch_read_tag(region, &cursor, &tag) == ERR_OK);
     CHECK(tag == 0xAA);
     char buf[8] = {0};
-    CHECK(thatch_read_data(region, &cursor, 6, buf) == THATCH_OK);
+    CHECK(thatch_read_data(region, &cursor, 6, buf) == ERR_OK);
     CHECK(memcmp(buf, "nested", 6) == 0);
 
     sap_env_destroy(env);

@@ -19,23 +19,23 @@ static int stream_collect_write(const uint8_t *chunk, uint32_t chunk_len, void *
     StreamCollectCtx *collect = (StreamCollectCtx *)ctx;
     if (!collect)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (chunk_len == 0u)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
     if (!chunk)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (collect->len > collect->cap || chunk_len > collect->cap - collect->len)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
     memcpy(collect->buf + collect->len, chunk, chunk_len);
     collect->len += chunk_len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int legacy_adapter_invoke(void *ctx, SapHostV0 *host, const uint8_t *request,
@@ -45,7 +45,7 @@ static int legacy_adapter_invoke(void *ctx, SapHostV0 *host, const uint8_t *requ
     SapWasiRuntimeV0 *runtime = (SapWasiRuntimeV0 *)ctx;
     if (!runtime || !runtime->entry_fn_compat)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return runtime->entry_fn_compat(runtime->entry_ctx_compat, host, request, request_len,
                                     reply_buf, reply_buf_cap, reply_len_out);
@@ -62,15 +62,15 @@ int sap_wasi_runtime_v0_init_adapter(SapWasiRuntimeV0 *runtime, const char *entr
 {
     if (!runtime || !entry_name || !adapter || (!adapter->invoke && !adapter->invoke_stream))
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memset(runtime, 0, sizeof(*runtime));
     runtime->entry_name = entry_name;
     runtime->adapter = adapter;
     runtime->adapter_ctx = adapter_ctx;
     runtime->calls = 0u;
-    runtime->last_rc = SAP_OK;
-    return SAP_OK;
+    runtime->last_rc = ERR_OK;
+    return ERR_OK;
 }
 
 int sap_wasi_runtime_v0_init(SapWasiRuntimeV0 *runtime, const char *entry_name,
@@ -79,16 +79,16 @@ int sap_wasi_runtime_v0_init(SapWasiRuntimeV0 *runtime, const char *entry_name,
     int rc;
     if (!runtime || !entry_name || !entry_fn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = sap_wasi_runtime_v0_init_adapter(runtime, entry_name, &k_legacy_adapter, runtime);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     runtime->entry_fn_compat = entry_fn;
     runtime->entry_ctx_compat = entry_ctx;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, SapHostV0 *host,
@@ -104,14 +104,14 @@ int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, SapHostV0 *host,
     if (!runtime || !runtime->entry_name || !runtime->adapter || !msg || !reply_buf ||
         !reply_len_out || (!runtime->adapter->invoke && !runtime->adapter->invoke_stream))
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     request = msg->payload;
     request_len = msg->payload_len;
     if (!request && request_len > 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     *reply_len_out = 0u;
@@ -122,7 +122,7 @@ int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, SapHostV0 *host,
         collect.len = 0u;
         rc = runtime->adapter->invoke_stream(runtime->adapter_ctx, host, request, request_len,
                                              stream_collect_write, &collect, &produced);
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
         {
             if (produced == 0u || produced == collect.len)
             {
@@ -130,10 +130,10 @@ int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, SapHostV0 *host,
             }
             else
             {
-                rc = SAP_ERROR;
+                rc = ERR_CORRUPT;
             }
         }
-        else if (rc == SAP_FULL)
+        else if (rc == ERR_FULL)
         {
             *reply_len_out = collect.len;
         }
@@ -146,16 +146,16 @@ int sap_wasi_runtime_v0_invoke(SapWasiRuntimeV0 *runtime, SapHostV0 *host,
 
     runtime->calls++;
 
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         runtime->last_rc = rc;
         return rc;
     }
     if (*reply_len_out > reply_buf_cap)
     {
-        runtime->last_rc = SAP_ERROR;
-        return SAP_ERROR;
+        runtime->last_rc = ERR_CORRUPT;
+        return ERR_CORRUPT;
     }
-    runtime->last_rc = SAP_OK;
-    return SAP_OK;
+    runtime->last_rc = ERR_OK;
+    return ERR_OK;
 }

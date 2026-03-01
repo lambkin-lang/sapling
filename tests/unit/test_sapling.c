@@ -134,7 +134,7 @@ static int check_str(Txn *txn, const char *key, const char *expected)
     const void *v;
     uint32_t vl;
     int rc = str_get(txn, key, &v, &vl);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return 0;
     if (vl != (uint32_t)strlen(expected))
         return 0;
@@ -444,9 +444,9 @@ static void test_basic_crud(void)
     CHECK(txn != NULL);
 
     /* Insert */
-    CHECK(str_put(txn, "hello", "world") == SAP_OK);
-    CHECK(str_put(txn, "foo", "bar") == SAP_OK);
-    CHECK(str_put(txn, "abc", "123") == SAP_OK);
+    CHECK(str_put(txn, "hello", "world") == ERR_OK);
+    CHECK(str_put(txn, "foo", "bar") == ERR_OK);
+    CHECK(str_put(txn, "abc", "123") == ERR_OK);
 
     /* Get */
     CHECK(check_str(txn, "hello", "world"));
@@ -456,23 +456,23 @@ static void test_basic_crud(void)
     /* Not found */
     const void *v;
     uint32_t vl;
-    CHECK(str_get(txn, "missing", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(txn, "missing", &v, &vl) == ERR_NOT_FOUND);
 
     /* Update */
-    CHECK(str_put(txn, "hello", "WORLD") == SAP_OK);
+    CHECK(str_put(txn, "hello", "WORLD") == ERR_OK);
     CHECK(check_str(txn, "hello", "WORLD"));
 
     /* Delete */
-    CHECK(str_del(txn, "foo") == SAP_OK);
-    CHECK(str_get(txn, "foo", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_del(txn, "foo") == ERR_OK);
+    CHECK(str_get(txn, "foo", &v, &vl) == ERR_NOT_FOUND);
 
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     /* Verify after commit */
     txn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(check_str(txn, "hello", "WORLD"));
     CHECK(check_str(txn, "abc", "123"));
-    CHECK(str_get(txn, "foo", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(txn, "foo", &v, &vl) == ERR_NOT_FOUND);
     txn_abort(txn);
 
     db_close(db);
@@ -490,14 +490,14 @@ static void test_empty_tree(void)
 
     const void *v;
     uint32_t vl;
-    CHECK(txn_get(txn, "k", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_del(txn, "k", 1) == SAP_NOTFOUND);
+    CHECK(txn_get(txn, "k", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_del(txn, "k", 1) == ERR_NOT_FOUND);
 
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_NOTFOUND);
-    CHECK(cursor_last(cur) == SAP_NOTFOUND);
-    CHECK(cursor_next(cur) == SAP_NOTFOUND);
-    CHECK(cursor_prev(cur) == SAP_NOTFOUND);
+    CHECK(cursor_first(cur) == ERR_NOT_FOUND);
+    CHECK(cursor_last(cur) == ERR_NOT_FOUND);
+    CHECK(cursor_next(cur) == ERR_NOT_FOUND);
+    CHECK(cursor_prev(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     txn_abort(txn);
@@ -513,30 +513,30 @@ static void test_single_element(void)
     SECTION("single element");
     DB *db = new_db();
     Txn *txn = txn_begin(db, NULL, 0);
-    CHECK(str_put(txn, "only", "one") == SAP_OK);
+    CHECK(str_put(txn, "only", "one") == ERR_OK);
 
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 4 && memcmp(k, "only", 4) == 0);
     CHECK(vl == 3 && memcmp(v, "one", 3) == 0);
-    CHECK(cursor_next(cur) == SAP_NOTFOUND);
+    CHECK(cursor_next(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     cur = cursor_open(txn);
-    CHECK(cursor_last(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_last(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 4 && memcmp(k, "only", 4) == 0);
-    CHECK(cursor_prev(cur) == SAP_NOTFOUND);
+    CHECK(cursor_prev(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     /* Delete the only element */
-    CHECK(str_del(txn, "only") == SAP_OK);
+    CHECK(str_del(txn, "only") == ERR_OK);
     const void *v2;
     uint32_t vl2;
-    CHECK(str_get(txn, "only", &v2, &vl2) == SAP_NOTFOUND);
+    CHECK(str_get(txn, "only", &v2, &vl2) == ERR_NOT_FOUND);
 
     txn_abort(txn);
     db_close(db);
@@ -555,52 +555,52 @@ static void test_range_scan(void)
     /* Insert keys out of order */
     const char *keys[] = {"d", "b", "f", "a", "c", "e", "g"};
     for (int i = 0; i < 7; i++)
-        CHECK(str_put(txn, keys[i], keys[i]) == SAP_OK);
+        CHECK(str_put(txn, keys[i], keys[i]) == ERR_OK);
 
     /* Forward scan should give alphabetical order */
     const char *expected[] = {"a", "b", "c", "d", "e", "f", "g"};
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     for (int i = 0; i < 7; i++)
     {
         const void *k, *v;
         uint32_t kl, vl;
-        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
         CHECK(kl == 1 && *(char *)k == expected[i][0]);
         if (i < 6)
-            CHECK(cursor_next(cur) == SAP_OK);
+            CHECK(cursor_next(cur) == ERR_OK);
     }
-    CHECK(cursor_next(cur) == SAP_NOTFOUND);
+    CHECK(cursor_next(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     /* Backward scan */
     cur = cursor_open(txn);
-    CHECK(cursor_last(cur) == SAP_OK);
+    CHECK(cursor_last(cur) == ERR_OK);
     for (int i = 6; i >= 0; i--)
     {
         const void *k, *v;
         uint32_t kl, vl;
-        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
         CHECK(kl == 1 && *(char *)k == expected[i][0]);
         if (i > 0)
-            CHECK(cursor_prev(cur) == SAP_OK);
+            CHECK(cursor_prev(cur) == ERR_OK);
     }
-    CHECK(cursor_prev(cur) == SAP_NOTFOUND);
+    CHECK(cursor_prev(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     /* Seek */
     cur = cursor_open(txn);
-    CHECK(cursor_seek(cur, "c", 1) == SAP_OK);
+    CHECK(cursor_seek(cur, "c", 1) == ERR_OK);
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'c');
     cursor_close(cur);
 
     /* Seek to non-existent key between entries */
     cur = cursor_open(txn);
-    CHECK(cursor_seek(cur, "bb", 2) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_seek(cur, "bb", 2) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'c');
     cursor_close(cur);
 
@@ -647,7 +647,7 @@ static void test_large_dataset(void)
     {
         snprintf(kbuf, sizeof(kbuf), "%06d", order[i]);
         snprintf(vbuf, sizeof(vbuf), "val%06d", order[i]);
-        CHECK(txn_put(txn, kbuf, 6, vbuf, (uint32_t)strlen(vbuf)) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, 6, vbuf, (uint32_t)strlen(vbuf)) == ERR_OK);
     }
     free(order);
 
@@ -660,21 +660,21 @@ static void test_large_dataset(void)
         const void *v;
         uint32_t vl;
         int rc = txn_get(txn, kbuf, 6, &v, &vl);
-        if (rc != SAP_OK || vl != strlen(vbuf) || memcmp(v, vbuf, vl) != 0)
+        if (rc != ERR_OK || vl != strlen(vbuf) || memcmp(v, vbuf, vl) != 0)
             errors++;
     }
     CHECK(errors == 0);
 
     /* Scan: should visit all N keys in order */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     int count = 0;
     int scan_err = 0;
     do
     {
         const void *k, *v;
         uint32_t kl, vl;
-        if (cursor_get(cur, &k, &kl, &v, &vl) != SAP_OK)
+        if (cursor_get(cur, &k, &kl, &v, &vl) != ERR_OK)
         {
             scan_err++;
             break;
@@ -683,12 +683,12 @@ static void test_large_dataset(void)
         if (kl != 6 || memcmp(k, kbuf, 6) != 0)
             scan_err++;
         count++;
-    } while (cursor_next(cur) == SAP_OK);
+    } while (cursor_next(cur) == ERR_OK);
     cursor_close(cur);
     CHECK(count == N);
     CHECK(scan_err == 0);
 
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
     db_close(db);
 }
 
@@ -703,23 +703,23 @@ static void test_snapshot_isolation(void)
 
     /* Committed baseline */
     Txn *w = txn_begin(db, NULL, 0);
-    CHECK(str_put(w, "x", "original") == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(str_put(w, "x", "original") == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Read-only snapshot */
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
 
     /* Write transaction modifies x */
     w = txn_begin(db, NULL, 0);
-    CHECK(str_put(w, "x", "modified") == SAP_OK);
-    CHECK(str_put(w, "y", "new") == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(str_put(w, "x", "modified") == ERR_OK);
+    CHECK(str_put(w, "y", "new") == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Read snapshot still sees original */
     CHECK(check_str(r, "x", "original"));
     const void *v;
     uint32_t vl;
-    CHECK(str_get(r, "y", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(r, "y", &v, &vl) == ERR_NOT_FOUND);
     txn_abort(r);
 
     /* New read sees updated values */
@@ -741,20 +741,20 @@ static void test_nested_commit(void)
     DB *db = new_db();
 
     Txn *outer = txn_begin(db, NULL, 0);
-    CHECK(str_put(outer, "a", "1") == SAP_OK);
+    CHECK(str_put(outer, "a", "1") == ERR_OK);
 
     Txn *inner = txn_begin(db, outer, 0);
-    CHECK(str_put(inner, "b", "2") == SAP_OK);
+    CHECK(str_put(inner, "b", "2") == ERR_OK);
     /* Inner sees outer's write */
     CHECK(check_str(inner, "a", "1"));
 
-    CHECK(txn_commit(inner) == SAP_OK); /* child commit: visible to outer */
+    CHECK(txn_commit(inner) == ERR_OK); /* child commit: visible to outer */
 
     /* Outer now sees inner's write */
     CHECK(check_str(outer, "b", "2"));
     CHECK(check_str(outer, "a", "1"));
 
-    CHECK(txn_commit(outer) == SAP_OK);
+    CHECK(txn_commit(outer) == ERR_OK);
 
     /* DB has both */
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
@@ -775,24 +775,24 @@ static void test_nested_abort(void)
     DB *db = new_db();
 
     Txn *outer = txn_begin(db, NULL, 0);
-    CHECK(str_put(outer, "stable", "yes") == SAP_OK);
+    CHECK(str_put(outer, "stable", "yes") == ERR_OK);
 
     Txn *inner = txn_begin(db, outer, 0);
-    CHECK(str_put(inner, "volatile", "no") == SAP_OK);
-    CHECK(str_put(inner, "stable", "overwrite") == SAP_OK);
+    CHECK(str_put(inner, "volatile", "no") == ERR_OK);
+    CHECK(str_put(inner, "stable", "overwrite") == ERR_OK);
     txn_abort(inner); /* discard all inner changes */
 
     /* Outer still sees its original writes */
     CHECK(check_str(outer, "stable", "yes"));
     const void *v;
     uint32_t vl;
-    CHECK(str_get(outer, "volatile", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(outer, "volatile", &v, &vl) == ERR_NOT_FOUND);
 
-    CHECK(txn_commit(outer) == SAP_OK);
+    CHECK(txn_commit(outer) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(check_str(r, "stable", "yes"));
-    CHECK(str_get(r, "volatile", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(r, "volatile", &v, &vl) == ERR_NOT_FOUND);
     txn_abort(r);
 
     db_close(db);
@@ -819,7 +819,7 @@ static void test_deep_nested(void)
     {
         char key[4] = {'k', (char)('0' + i), 0};
         char val[4] = {'v', (char)('0' + i), 0};
-        CHECK(str_put(t[i], key, val) == SAP_OK);
+        CHECK(str_put(t[i], key, val) == ERR_OK);
         if (i < 7)
             t[i + 1] = txn_begin(db, t[i], 0);
     }
@@ -833,7 +833,7 @@ static void test_deep_nested(void)
 
     /* Commit 5 → 4 → 3 → 2 → 1 → 0 (inner-first) */
     for (int i = 5; i >= 0; i--)
-        CHECK(txn_commit(t[i]) == SAP_OK);
+        CHECK(txn_commit(t[i]) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     for (int i = 0; i <= 5; i++)
@@ -845,8 +845,8 @@ static void test_deep_nested(void)
     /* k6 and k7 were aborted */
     const void *v;
     uint32_t vl;
-    CHECK(str_get(r, "k6", &v, &vl) == SAP_NOTFOUND);
-    CHECK(str_get(r, "k7", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(r, "k6", &v, &vl) == ERR_NOT_FOUND);
+    CHECK(str_get(r, "k7", &v, &vl) == ERR_NOT_FOUND);
     txn_abort(r);
 
     db_close(db);
@@ -870,9 +870,9 @@ static void test_freelist_recycling(void)
     {
         snprintf(kbuf, sizeof(kbuf), "recycle%04d", i);
         snprintf(vbuf, sizeof(vbuf), "val%04d", i);
-        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) == ERR_OK);
     }
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
     uint32_t pages_after_insert = db_num_pages(db);
 
     /* Phase 2: delete all N keys */
@@ -882,7 +882,7 @@ static void test_freelist_recycling(void)
         snprintf(kbuf, sizeof(kbuf), "recycle%04d", i);
         txn_del(txn, kbuf, (uint32_t)strlen(kbuf));
     }
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     /* Phase 3: insert N keys again */
     txn = txn_begin(db, NULL, 0);
@@ -890,9 +890,9 @@ static void test_freelist_recycling(void)
     {
         snprintf(kbuf, sizeof(kbuf), "recycle%04d", i);
         snprintf(vbuf, sizeof(vbuf), "new%04d", i);
-        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) == ERR_OK);
     }
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     /* Page count should not have grown significantly beyond first-insert peak */
     uint32_t pages_after_reinsertion = db_num_pages(db);
@@ -909,7 +909,7 @@ static void test_freelist_recycling(void)
         const void *v;
         uint32_t vl;
         int rc = txn_get(txn, kbuf, (uint32_t)strlen(kbuf), &v, &vl);
-        if (rc != SAP_OK || vl != strlen(vbuf) || memcmp(v, vbuf, vl) != 0)
+        if (rc != ERR_OK || vl != strlen(vbuf) || memcmp(v, vbuf, vl) != 0)
             errors++;
     }
     CHECK(errors == 0);
@@ -929,13 +929,13 @@ static void test_txn_abort(void)
 
     /* Commit a baseline */
     Txn *t = txn_begin(db, NULL, 0);
-    CHECK(str_put(t, "base", "value") == SAP_OK);
-    CHECK(txn_commit(t) == SAP_OK);
+    CHECK(str_put(t, "base", "value") == ERR_OK);
+    CHECK(txn_commit(t) == ERR_OK);
 
     /* Abort a write txn */
     t = txn_begin(db, NULL, 0);
-    CHECK(str_put(t, "aborted", "gone") == SAP_OK);
-    CHECK(str_del(t, "base") == SAP_OK);
+    CHECK(str_put(t, "aborted", "gone") == ERR_OK);
+    CHECK(str_del(t, "base") == ERR_OK);
     txn_abort(t);
 
     /* Baseline is intact; aborted key does not exist */
@@ -943,7 +943,7 @@ static void test_txn_abort(void)
     CHECK(check_str(t, "base", "value"));
     const void *v;
     uint32_t vl;
-    CHECK(str_get(t, "aborted", &v, &vl) == SAP_NOTFOUND);
+    CHECK(str_get(t, "aborted", &v, &vl) == ERR_NOT_FOUND);
     txn_abort(t);
 
     db_close(db);
@@ -963,8 +963,8 @@ static void test_readonly_flag(void)
     txn_commit(w);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
-    CHECK(str_put(r, "x", "y") == SAP_READONLY);
-    CHECK(str_del(r, "k") == SAP_READONLY);
+    CHECK(str_put(r, "x", "y") == ERR_READONLY);
+    CHECK(str_del(r, "k") == ERR_READONLY);
     CHECK(check_str(r, "k", "v"));
     txn_abort(r);
 
@@ -987,22 +987,22 @@ static void test_binary_keys(void)
     uint8_t v1[] = {0xDE, 0xAD};
     uint8_t v2[] = {0xBE, 0xEF};
 
-    CHECK(txn_put(txn, k1, 3, v1, 2) == SAP_OK);
-    CHECK(txn_put(txn, k2, 3, v2, 2) == SAP_OK);
+    CHECK(txn_put(txn, k1, 3, v1, 2) == ERR_OK);
+    CHECK(txn_put(txn, k2, 3, v2, 2) == ERR_OK);
 
     const void *v;
     uint32_t vl;
-    CHECK(txn_get(txn, k1, 3, &v, &vl) == SAP_OK);
+    CHECK(txn_get(txn, k1, 3, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, v1, 2) == 0);
-    CHECK(txn_get(txn, k2, 3, &v, &vl) == SAP_OK);
+    CHECK(txn_get(txn, k2, 3, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, v2, 2) == 0);
 
     /* Prefix ordering: k1 < k2 */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     const void *k;
     uint32_t kl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 3 && memcmp(k, k1, 3) == 0);
     cursor_close(cur);
 
@@ -1027,19 +1027,19 @@ static void test_seek_boundaries(void)
     Cursor *cur = cursor_open(txn);
 
     /* Seek to key before all entries */
-    CHECK(cursor_seek(cur, "a", 1) == SAP_OK);
+    CHECK(cursor_seek(cur, "a", 1) == ERR_OK);
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'b');
 
     /* Seek to exact key */
-    CHECK(cursor_seek(cur, "d", 1) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_seek(cur, "d", 1) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'd');
 
     /* Seek past all entries */
-    CHECK(cursor_seek(cur, "z", 1) == SAP_NOTFOUND);
+    CHECK(cursor_seek(cur, "z", 1) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     txn_abort(txn);
@@ -1056,12 +1056,12 @@ static void test_delete_reinsert(void)
     DB *db = new_db();
     Txn *txn = txn_begin(db, NULL, 0);
 
-    CHECK(str_put(txn, "k", "v1") == SAP_OK);
-    CHECK(str_del(txn, "k") == SAP_OK);
+    CHECK(str_put(txn, "k", "v1") == ERR_OK);
+    CHECK(str_del(txn, "k") == ERR_OK);
     const void *v;
     uint32_t vl;
-    CHECK(str_get(txn, "k", &v, &vl) == SAP_NOTFOUND);
-    CHECK(str_put(txn, "k", "v2") == SAP_OK);
+    CHECK(str_get(txn, "k", &v, &vl) == ERR_NOT_FOUND);
+    CHECK(str_put(txn, "k", "v2") == ERR_OK);
     CHECK(check_str(txn, "k", "v2"));
 
     txn_abort(txn);
@@ -1088,9 +1088,9 @@ static void test_multi_commit(void)
             snprintf(kbuf, sizeof(kbuf), "b%d_%04d", batch, i);
             snprintf(vbuf, sizeof(vbuf), "v%d_%04d", batch, i);
             CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) ==
-                  SAP_OK);
+                  ERR_OK);
         }
-        CHECK(txn_commit(txn) == SAP_OK);
+        CHECK(txn_commit(txn) == ERR_OK);
 
         /* Verify this batch */
         txn = txn_begin(db, NULL, TXN_RDONLY);
@@ -1115,13 +1115,13 @@ static void test_multi_commit(void)
             snprintf(kbuf, sizeof(kbuf), "b%d_%04d", batch, i);
             txn_del(txn, kbuf, (uint32_t)strlen(kbuf));
         }
-        CHECK(txn_commit(txn) == SAP_OK);
+        CHECK(txn_commit(txn) == ERR_OK);
     }
 
     /* Tree should be empty */
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     Cursor *cur = cursor_open(r);
-    CHECK(cursor_first(cur) == SAP_NOTFOUND);
+    CHECK(cursor_first(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
     txn_abort(r);
 
@@ -1139,17 +1139,17 @@ static void test_input_validation(void)
     Txn *txn = txn_begin(db, NULL, 0);
 
     /* Key too large for uint16_t storage */
-    CHECK(txn_put(txn, "k", 1, "v", (uint32_t)70000) == SAP_FULL);
-    CHECK(txn_put(txn, "k", (uint32_t)70000, "v", 1) == SAP_FULL);
+    CHECK(txn_put(txn, "k", 1, "v", (uint32_t)70000) == ERR_FULL);
+    CHECK(txn_put(txn, "k", (uint32_t)70000, "v", 1) == ERR_FULL);
 
     /* Get/Del with oversized key_len */
     const void *v;
     uint32_t vl;
-    CHECK(txn_get(txn, "k", (uint32_t)70000, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_del(txn, "k", (uint32_t)70000) == SAP_NOTFOUND);
+    CHECK(txn_get(txn, "k", (uint32_t)70000, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_del(txn, "k", (uint32_t)70000) == ERR_NOT_FOUND);
 
     /* Normal operations still work */
-    CHECK(str_put(txn, "normal", "value") == SAP_OK);
+    CHECK(str_put(txn, "normal", "value") == ERR_OK);
     CHECK(check_str(txn, "normal", "value"));
 
     txn_abort(txn);
@@ -1157,12 +1157,12 @@ static void test_input_validation(void)
 }
 
 /* ================================================================== */
-/* Test: SAP_FULL for oversized entry                                   */
+/* Test: ERR_FULL for oversized entry                                   */
 /* ================================================================== */
 
 static void test_sap_full(void)
 {
-    SECTION("SAP_FULL for oversized entry");
+    SECTION("ERR_FULL for oversized entry");
     DB *db = db_open(g_alloc, 256, NULL, NULL); /* small pages */
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
@@ -1170,13 +1170,13 @@ static void test_sap_full(void)
     /* Key too large to fit even with overflow value indirection. */
     char big_key[260];
     memset(big_key, 'A', sizeof(big_key));
-    CHECK(txn_put(txn, big_key, 250, "v", 1) == SAP_FULL);
+    CHECK(txn_put(txn, big_key, 250, "v", 1) == ERR_FULL);
 
     /* Value length still bounded by uint16_t API encoding. */
-    CHECK(txn_put(txn, "k", 1, big_key, (uint32_t)70000) == SAP_FULL);
+    CHECK(txn_put(txn, "k", 1, big_key, (uint32_t)70000) == ERR_FULL);
 
     /* Smaller entry should still work */
-    CHECK(txn_put(txn, "k", 1, "v", 1) == SAP_OK);
+    CHECK(txn_put(txn, "k", 1, "v", 1) == ERR_OK);
 
     txn_abort(txn);
     db_close(db);
@@ -1199,10 +1199,10 @@ static void test_overflow_values(void)
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put(w, "k1", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
-    CHECK(txn_put(w, "k2", 2, "x", 1) == SAP_OK);
-    CHECK(txn_put_flags(w, "k3", 2, NULL, (uint32_t)sizeof(v1), SAP_RESERVE, NULL) == SAP_ERROR);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put(w, "k1", 2, v1, (uint32_t)sizeof(v1)) == ERR_OK);
+    CHECK(txn_put(w, "k2", 2, "x", 1) == ERR_OK);
+    CHECK(txn_put_flags(w, "k3", 2, NULL, (uint32_t)sizeof(v1), SAP_RESERVE, NULL) == ERR_INVALID);
+    CHECK(txn_commit(w) == ERR_OK);
 
     {
         const void *v;
@@ -1211,10 +1211,10 @@ static void test_overflow_values(void)
         uint32_t vl_again;
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_OK);
+        CHECK(txn_get(r, "k1", 2, &v, &vl) == ERR_OK);
         CHECK(vl == (uint32_t)sizeof(v1));
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
-        CHECK(txn_get(r, "k1", 2, &v_again, &vl_again) == SAP_OK);
+        CHECK(txn_get(r, "k1", 2, &v_again, &vl_again) == ERR_OK);
         CHECK(vl_again == vl);
         CHECK(v_again == v);
 
@@ -1222,8 +1222,8 @@ static void test_overflow_values(void)
         const void *k;
         uint32_t kl;
         CHECK(cur != NULL);
-        CHECK(cursor_seek(cur, "k1", 2) == SAP_OK);
-        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_seek(cur, "k1", 2) == ERR_OK);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
         CHECK(kl == 2 && memcmp(k, "k1", 2) == 0);
         CHECK(vl == (uint32_t)sizeof(v1));
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
@@ -1237,18 +1237,18 @@ static void test_overflow_values(void)
     {
         Cursor *cur = cursor_open(w);
         CHECK(cur != NULL);
-        CHECK(cursor_seek(cur, "k1", 2) == SAP_OK);
-        CHECK(cursor_put(cur, v2, (uint32_t)sizeof(v2), 0) == SAP_OK);
+        CHECK(cursor_seek(cur, "k1", 2) == ERR_OK);
+        CHECK(cursor_put(cur, v2, (uint32_t)sizeof(v2), 0) == ERR_OK);
         cursor_close(cur);
     }
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     {
         const void *v;
         uint32_t vl;
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_OK);
+        CHECK(txn_get(r, "k1", 2, &v, &vl) == ERR_OK);
         CHECK(vl == (uint32_t)sizeof(v2));
         CHECK(memcmp(v, v2, sizeof(v2)) == 0);
         txn_abort(r);
@@ -1258,18 +1258,18 @@ static void test_overflow_values(void)
     CHECK(w != NULL);
     {
         uint64_t deleted = 0;
-        CHECK(txn_del_range(w, 0, "k1", 2, "k3", 2, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 0, "k1", 2, "k3", 2, &deleted) == ERR_OK);
         CHECK(deleted == 2);
     }
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     {
         const void *v;
         uint32_t vl;
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "k1", 2, &v, &vl) == SAP_NOTFOUND);
-        CHECK(txn_get(r, "k2", 2, &v, &vl) == SAP_NOTFOUND);
+        CHECK(txn_get(r, "k1", 2, &v, &vl) == ERR_NOT_FOUND);
+        CHECK(txn_get(r, "k2", 2, &v, &vl) == ERR_NOT_FOUND);
         txn_abort(r);
     }
 
@@ -1280,21 +1280,21 @@ static void test_overflow_values(void)
 
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put(w, "kp", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
-        CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_OK);
+        CHECK(txn_put(w, "kp", 2, v1, (uint32_t)sizeof(v1)) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+        CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_OK);
 
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put(w, "kp", 2, "short", 5) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_put(w, "kp", 2, "short", 5) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         snap.pos = 0;
-        CHECK(db_restore(db, membuf_read, &snap) == SAP_OK);
+        CHECK(db_restore(db, membuf_read, &snap) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "kp", 2, &v, &vl) == SAP_OK);
+        CHECK(txn_get(r, "kp", 2, &v, &vl) == ERR_OK);
         CHECK(vl == (uint32_t)sizeof(v1));
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
         txn_abort(r);
@@ -1313,12 +1313,12 @@ static void test_overflow_values(void)
         const void *v;
         uint32_t vl;
 
-        CHECK(txn_load_sorted(t, 0, keys, key_lens, vals, val_lens, 2) == SAP_OK);
-        CHECK(txn_commit(t) == SAP_OK);
+        CHECK(txn_load_sorted(t, 0, keys, key_lens, vals, val_lens, 2) == ERR_OK);
+        CHECK(txn_commit(t) == ERR_OK);
 
         Txn *r = txn_begin(db2, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "a", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get(r, "a", 1, &v, &vl) == ERR_OK);
         CHECK(vl == (uint32_t)sizeof(v1));
         CHECK(memcmp(v, v1, sizeof(v1)) == 0);
         txn_abort(r);
@@ -1335,9 +1335,9 @@ static void test_overflow_values(void)
         CHECK(db3 != NULL);
         w = txn_begin(db3, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put(w, "kc", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
-        CHECK(db_checkpoint(db3, membuf_write, &snap) == SAP_OK);
+        CHECK(txn_put(w, "kc", 2, v2, (uint32_t)sizeof(v2)) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+        CHECK(db_checkpoint(db3, membuf_write, &snap) == ERR_OK);
         CHECK(snapshot_find_first_page_type(&snap, 3u, &page_size, &page_index) == 1);
         if (page_size > 0)
         {
@@ -1346,10 +1346,10 @@ static void test_overflow_values(void)
             write_u32_le(pg + 8, 0xFFFFFFFFu);
         }
         snap.pos = 0;
-        CHECK(db_restore(db3, membuf_read, &snap) == SAP_OK);
+        CHECK(db_restore(db3, membuf_read, &snap) == ERR_OK);
         Txn *r = txn_begin(db3, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "kc", 2, &v, &vl) == SAP_ERROR);
+        CHECK(txn_get(r, "kc", 2, &v, &vl) == ERR_CORRUPT);
         txn_abort(r);
         free(snap.data);
         db_close(db3);
@@ -1365,9 +1365,9 @@ static void test_overflow_values(void)
         CHECK(db4 != NULL);
         w = txn_begin(db4, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put(w, "kd", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
-        CHECK(db_checkpoint(db4, membuf_write, &snap) == SAP_OK);
+        CHECK(txn_put(w, "kd", 2, v2, (uint32_t)sizeof(v2)) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+        CHECK(db_checkpoint(db4, membuf_write, &snap) == ERR_OK);
         CHECK(snapshot_find_first_page_type(&snap, 3u, &page_size, &page_index) == 1);
         if (page_size > 0)
         {
@@ -1376,10 +1376,10 @@ static void test_overflow_values(void)
             write_u16_le(pg + 12, 0);
         }
         snap.pos = 0;
-        CHECK(db_restore(db4, membuf_read, &snap) == SAP_OK);
+        CHECK(db_restore(db4, membuf_read, &snap) == ERR_OK);
         Txn *r = txn_begin(db4, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "kd", 2, &v, &vl) == SAP_ERROR);
+        CHECK(txn_get(r, "kd", 2, &v, &vl) == ERR_CORRUPT);
         txn_abort(r);
         free(snap.data);
         db_close(db4);
@@ -1399,10 +1399,10 @@ static void test_overflow_values(void)
         CHECK(db5 != NULL);
         w = txn_begin(db5, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put(w, "ka", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
-        CHECK(txn_put(w, "kb", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
-        CHECK(db_checkpoint(db5, membuf_write, &snap) == SAP_OK);
+        CHECK(txn_put(w, "ka", 2, v1, (uint32_t)sizeof(v1)) == ERR_OK);
+        CHECK(txn_put(w, "kb", 2, v2, (uint32_t)sizeof(v2)) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+        CHECK(db_checkpoint(db5, membuf_write, &snap) == ERR_OK);
         CHECK(snapshot_find_first_page_type(&snap, 3u, &page_size, &page_index) == 1);
         if (page_size > 0)
         {
@@ -1410,19 +1410,19 @@ static void test_overflow_values(void)
             write_u16_le(pg + 12, 0);
         }
         snap.pos = 0;
-        CHECK(db_restore(db5, membuf_read, &snap) == SAP_OK);
+        CHECK(db_restore(db5, membuf_read, &snap) == ERR_OK);
 
         Txn *r = txn_begin(db5, NULL, TXN_RDONLY);
         CHECK(r != NULL);
         rc_ka = txn_get(r, "ka", 2, &va, &vla);
         rc_kb = txn_get(r, "kb", 2, &vb, &vlb);
-        CHECK((rc_ka == SAP_ERROR && rc_kb == SAP_OK) || (rc_ka == SAP_OK && rc_kb == SAP_ERROR));
-        if (rc_ka == SAP_OK)
+        CHECK((rc_ka == ERR_CORRUPT && rc_kb == ERR_OK) || (rc_ka == ERR_OK && rc_kb == ERR_CORRUPT));
+        if (rc_ka == ERR_OK)
         {
             CHECK(vla == (uint32_t)sizeof(v1));
             CHECK(memcmp(va, v1, sizeof(v1)) == 0);
         }
-        if (rc_kb == SAP_OK)
+        if (rc_kb == ERR_OK)
         {
             CHECK(vlb == (uint32_t)sizeof(v2));
             CHECK(memcmp(vb, v2, sizeof(v2)) == 0);
@@ -1441,9 +1441,9 @@ static void test_overflow_values(void)
         CHECK(db6 != NULL);
         w = txn_begin(db6, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put(w, "ke", 2, v2, (uint32_t)sizeof(v2)) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
-        CHECK(db_checkpoint(db6, membuf_write, &snap) == SAP_OK);
+        CHECK(txn_put(w, "ke", 2, v2, (uint32_t)sizeof(v2)) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+        CHECK(db_checkpoint(db6, membuf_write, &snap) == ERR_OK);
         CHECK(snapshot_find_leaf_overflow_ref(&snap, "ke", 2, &ref_off) == 1);
         if (ref_off > 0)
         {
@@ -1451,10 +1451,10 @@ static void test_overflow_values(void)
             write_u32_le(snap.data + ref_off, (uint32_t)UINT16_MAX + 1u);
         }
         snap.pos = 0;
-        CHECK(db_restore(db6, membuf_read, &snap) == SAP_OK);
+        CHECK(db_restore(db6, membuf_read, &snap) == ERR_OK);
         Txn *r = txn_begin(db6, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "ke", 2, &v, &vl) == SAP_ERROR);
+        CHECK(txn_get(r, "ke", 2, &v, &vl) == ERR_CORRUPT);
         txn_abort(r);
         free(snap.data);
         db_close(db6);
@@ -1495,23 +1495,23 @@ static void test_overflow_failure_atomicity(void)
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put(w, "k", 1, oldv, (uint32_t)sizeof(oldv)) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put(w, "k", 1, oldv, (uint32_t)sizeof(oldv)) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     failing_alloc_arm(&fa, 2);
-    CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == SAP_ERROR);
+    CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == ERR_OOM);
     failing_alloc_disarm(&fa);
-    CHECK(txn_put(w, "side", 4, "ok", 2) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put(w, "side", 4, "ok", 2) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get(r, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get(r, "k", 1, &v, &vl) == ERR_OK);
     CHECK(vl == (uint32_t)sizeof(oldv));
     CHECK(memcmp(v, oldv, sizeof(oldv)) == 0);
-    CHECK(txn_get(r, "side", 4, &v, &vl) == SAP_OK);
+    CHECK(txn_get(r, "side", 4, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
     txn_abort(r);
 
@@ -1519,41 +1519,41 @@ static void test_overflow_failure_atomicity(void)
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     failing_alloc_arm(&fa, 2);
-    CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == SAP_ERROR);
+    CHECK(txn_put(w, "k", 1, bigv, (uint32_t)sizeof(bigv)) == ERR_OOM);
     failing_alloc_disarm(&fa);
     txn_abort(w);
     CHECK(sap_arena_active_pages(alloc) == live_before_abort);
 
-    CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_OK);
+    CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_OK);
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put(w, "k", 1, "mut", 3) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put(w, "k", 1, "mut", 3) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     live_before_restore_fail = sap_arena_active_pages(alloc);
     snap.pos = 0;
     failing_alloc_arm(&fa, 2);
-    CHECK(db_restore(db, membuf_read, &snap) == SAP_ERROR);
+    CHECK(db_restore(db, membuf_read, &snap) == ERR_OOM);
     failing_alloc_disarm(&fa);
     CHECK(sap_arena_active_pages(alloc) == live_before_restore_fail);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get(r, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get(r, "k", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "mut", 3) == 0);
-    CHECK(txn_get(r, "side", 4, &v, &vl) == SAP_OK);
+    CHECK(txn_get(r, "side", 4, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
     txn_abort(r);
 
     snap.pos = 0;
-    CHECK(db_restore(db, membuf_read, &snap) == SAP_OK);
+    CHECK(db_restore(db, membuf_read, &snap) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get(r, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get(r, "k", 1, &v, &vl) == ERR_OK);
     CHECK(vl == (uint32_t)sizeof(oldv));
     CHECK(memcmp(v, oldv, sizeof(oldv)) == 0);
-    CHECK(txn_get(r, "side", 4, &v, &vl) == SAP_OK);
+    CHECK(txn_get(r, "side", 4, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "ok", 2) == 0);
     txn_abort(r);
 
@@ -1587,7 +1587,7 @@ static void test_overflow_contract_matrix(void)
     CHECK(db != NULL);
     if (!db)
         return;
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     fill_pattern(ov_a, (uint32_t)sizeof(ov_a), 3);
     fill_pattern(ov_b, (uint32_t)sizeof(ov_b), 21);
@@ -1597,46 +1597,46 @@ static void test_overflow_contract_matrix(void)
     CHECK(w != NULL);
 
     /* non-DUPSORT writes can spill to overflow */
-    CHECK(txn_put_dbi(w, 0, "n0", 2, ov_a, (uint32_t)sizeof(ov_a)) == SAP_OK);
+    CHECK(txn_put_dbi(w, 0, "n0", 2, ov_a, (uint32_t)sizeof(ov_a)) == ERR_OK);
 
     /* SAP_RESERVE requires inline storage and rejects overflow needs */
     CHECK(txn_put_flags_dbi(w, 0, "nr", 2, NULL, (uint32_t)sizeof(ov_b), SAP_RESERVE, &reserved) ==
-          SAP_ERROR);
+          ERR_INVALID);
     CHECK(reserved == (void *)0x1);
 
     /* DUPSORT remains inline-only and rejects large composite key/value cells */
-    CHECK(txn_put_dbi(w, 1, "d0", 2, dupsort_big, (uint32_t)sizeof(dupsort_big)) == SAP_FULL);
-    CHECK(txn_put_flags_dbi(w, 1, "d1", 2, NULL, 4, SAP_RESERVE, &reserved) == SAP_ERROR);
+    CHECK(txn_put_dbi(w, 1, "d0", 2, dupsort_big, (uint32_t)sizeof(dupsort_big)) == ERR_FULL);
+    CHECK(txn_put_flags_dbi(w, 1, "d1", 2, NULL, 4, SAP_RESERVE, &reserved) == ERR_INVALID);
 
     /* Other contracts remain intact with overflow-enabled DBIs */
     CHECK(txn_put_flags_dbi(w, 0, "n0", 2, ov_b, (uint32_t)sizeof(ov_b), SAP_NOOVERWRITE, NULL) ==
-          SAP_EXISTS);
-    CHECK(txn_merge(w, 0, "m0", 2, ov_b, (uint32_t)sizeof(ov_b), merge_concat, NULL) == SAP_OK);
-    CHECK(txn_merge(w, 1, "m0", 2, "x", 1, merge_concat, NULL) == SAP_ERROR);
+          ERR_EXISTS);
+    CHECK(txn_merge(w, 0, "m0", 2, ov_b, (uint32_t)sizeof(ov_b), merge_concat, NULL) == ERR_OK);
+    CHECK(txn_merge(w, 1, "m0", 2, "x", 1, merge_concat, NULL) == ERR_INVALID);
 
     cur = cursor_open_dbi(w, 0);
     CHECK(cur != NULL);
-    CHECK(cursor_seek(cur, "n0", 2) == SAP_OK);
-    CHECK(cursor_put(cur, ov_b, (uint32_t)sizeof(ov_b), 0) == SAP_OK);
+    CHECK(cursor_seek(cur, "n0", 2) == ERR_OK);
+    CHECK(cursor_put(cur, ov_b, (uint32_t)sizeof(ov_b), 0) == ERR_OK);
     cursor_close(cur);
 
-    CHECK(txn_put_dbi(w, 1, "dk", 2, "v", 1) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, "dk", 2, "v", 1) == ERR_OK);
     cur = cursor_open_dbi(w, 1);
     CHECK(cur != NULL);
-    CHECK(cursor_first(cur) == SAP_OK);
-    CHECK(cursor_put(cur, "x", 1, 0) == SAP_ERROR);
+    CHECK(cursor_first(cur) == ERR_OK);
+    CHECK(cursor_put(cur, "x", 1, 0) == ERR_INVALID);
     cursor_close(cur);
 
-    CHECK(txn_load_sorted(w, 0, kz, kz_len, vz_overflow, vz_overflow_len, 1) == SAP_OK);
-    CHECK(txn_load_sorted(w, 1, kz, kz_len, vz_dupsort_big, vz_dupsort_big_len, 1) == SAP_FULL);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_load_sorted(w, 0, kz, kz_len, vz_overflow, vz_overflow_len, 1) == ERR_OK);
+    CHECK(txn_load_sorted(w, 1, kz, kz_len, vz_dupsort_big, vz_dupsort_big_len, 1) == ERR_FULL);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_dbi(r, 0, "n0", 2, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 0, "n0", 2, &v, &vl) == ERR_OK);
     CHECK(vl == (uint32_t)sizeof(ov_b));
     CHECK(memcmp(v, ov_b, sizeof(ov_b)) == 0);
-    CHECK(txn_get_dbi(r, 0, "m0", 2, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 0, "m0", 2, &v, &vl) == ERR_OK);
     CHECK(vl == (uint32_t)sizeof(ov_b));
     CHECK(memcmp(v, ov_b, sizeof(ov_b)) == 0);
     txn_abort(r);
@@ -1687,20 +1687,20 @@ static void test_runtime_page_size_safety(void)
     if (alloc_ok)
     {
         for (int i = 0; i < 4; i++)
-            CHECK(txn_put(txn, keys[i], klen, "v", 1) == SAP_OK);
+            CHECK(txn_put(txn, keys[i], klen, "v", 1) == ERR_OK);
 
         Cursor *cur = cursor_open(txn);
         CHECK(cur != NULL);
         if (cur)
         {
-            CHECK(cursor_seek(cur, keys[0], klen) == SAP_OK);
-            CHECK(cursor_put(cur, "w", 1, 0) == SAP_OK);
+            CHECK(cursor_seek(cur, keys[0], klen) == ERR_OK);
+            CHECK(cursor_put(cur, "w", 1, 0) == ERR_OK);
             cursor_close(cur);
         }
 
         const void *v;
         uint32_t vl;
-        CHECK(txn_get(txn, keys[0], klen, &v, &vl) == SAP_OK);
+        CHECK(txn_get(txn, keys[0], klen, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "w", 1) == 0);
     }
 
@@ -1756,7 +1756,7 @@ static void test_leaf_capacity(void)
     {
         snprintf(kbuf, sizeof(kbuf), "k%04d", i);
         snprintf(vbuf, sizeof(vbuf), "v%04d", i);
-        CHECK(txn_put(txn, kbuf, 5, vbuf, 5) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, 5, vbuf, 5) == ERR_OK);
     }
     /* Verify all entries are retrievable */
     int errors = 0;
@@ -1771,12 +1771,12 @@ static void test_leaf_capacity(void)
 
     /* Verify ordered scan */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     int count = 0;
     do
     {
         count++;
-    } while (cursor_next(cur) == SAP_OK);
+    } while (cursor_next(cur) == ERR_OK);
     cursor_close(cur);
     CHECK(count == 200);
 
@@ -1805,35 +1805,35 @@ static void test_custom_comparator(void)
     CHECK(db != NULL);
     Txn *txn = txn_begin(db, NULL, 0);
 
-    CHECK(str_put(txn, "a", "1") == SAP_OK);
-    CHECK(str_put(txn, "b", "2") == SAP_OK);
-    CHECK(str_put(txn, "c", "3") == SAP_OK);
+    CHECK(str_put(txn, "a", "1") == ERR_OK);
+    CHECK(str_put(txn, "b", "2") == ERR_OK);
+    CHECK(str_put(txn, "c", "3") == ERR_OK);
 
     /* With reverse comparator, cursor_first should return "c" */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'c');
 
-    CHECK(cursor_next(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'b');
 
-    CHECK(cursor_next(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && *(char *)k == 'a');
 
-    CHECK(cursor_next(cur) == SAP_NOTFOUND);
+    CHECK(cursor_next(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     /* Get/del still work */
     CHECK(check_str(txn, "b", "2"));
-    CHECK(str_del(txn, "b") == SAP_OK);
+    CHECK(str_del(txn, "b") == ERR_OK);
     const void *v2;
     uint32_t vl2;
-    CHECK(str_get(txn, "b", &v2, &vl2) == SAP_NOTFOUND);
+    CHECK(str_get(txn, "b", &v2, &vl2) == ERR_NOT_FOUND);
 
     txn_abort(txn);
     db_close(db);
@@ -1849,7 +1849,7 @@ static void test_entry_count(void)
     DB *db = new_db();
     SapStat stat;
 
-    CHECK(db_stat(db, &stat) == SAP_OK);
+    CHECK(db_stat(db, &stat) == ERR_OK);
     CHECK(stat.num_entries == 0);
     CHECK(stat.tree_depth == 0);
 
@@ -1858,23 +1858,23 @@ static void test_entry_count(void)
     {
         char kbuf[16];
         snprintf(kbuf, sizeof(kbuf), "k%04d", i);
-        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), "v", 1) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), "v", 1) == ERR_OK);
     }
-    CHECK(txn_stat(txn, &stat) == SAP_OK);
+    CHECK(txn_stat(txn, &stat) == ERR_OK);
     CHECK(stat.num_entries == 100);
 
     /* Update should not change count */
-    CHECK(str_put(txn, "k0000", "new") == SAP_OK);
-    CHECK(txn_stat(txn, &stat) == SAP_OK);
+    CHECK(str_put(txn, "k0000", "new") == ERR_OK);
+    CHECK(txn_stat(txn, &stat) == ERR_OK);
     CHECK(stat.num_entries == 100);
 
     /* Delete decrements */
-    CHECK(str_del(txn, "k0000") == SAP_OK);
-    CHECK(txn_stat(txn, &stat) == SAP_OK);
+    CHECK(str_del(txn, "k0000") == ERR_OK);
+    CHECK(txn_stat(txn, &stat) == ERR_OK);
     CHECK(stat.num_entries == 99);
 
-    CHECK(txn_commit(txn) == SAP_OK);
-    CHECK(db_stat(db, &stat) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
+    CHECK(db_stat(db, &stat) == ERR_OK);
     CHECK(stat.num_entries == 99);
     CHECK(stat.tree_depth > 0);
 
@@ -1891,24 +1891,24 @@ static void test_entry_count_nested(void)
     DB *db = new_db();
 
     Txn *outer = txn_begin(db, NULL, 0);
-    CHECK(str_put(outer, "a", "1") == SAP_OK);
+    CHECK(str_put(outer, "a", "1") == ERR_OK);
 
     Txn *inner = txn_begin(db, outer, 0);
-    CHECK(str_put(inner, "b", "2") == SAP_OK);
-    CHECK(str_put(inner, "c", "3") == SAP_OK);
+    CHECK(str_put(inner, "b", "2") == ERR_OK);
+    CHECK(str_put(inner, "c", "3") == ERR_OK);
 
     SapStat stat;
-    CHECK(txn_stat(inner, &stat) == SAP_OK);
+    CHECK(txn_stat(inner, &stat) == ERR_OK);
     CHECK(stat.num_entries == 3);
 
     txn_abort(inner);
 
     /* After abort, outer should be back to 1 */
-    CHECK(txn_stat(outer, &stat) == SAP_OK);
+    CHECK(txn_stat(outer, &stat) == ERR_OK);
     CHECK(stat.num_entries == 1);
 
-    CHECK(txn_commit(outer) == SAP_OK);
-    CHECK(db_stat(db, &stat) == SAP_OK);
+    CHECK(txn_commit(outer) == ERR_OK);
+    CHECK(db_stat(db, &stat) == ERR_OK);
     CHECK(stat.num_entries == 1);
 
     db_close(db);
@@ -1924,22 +1924,22 @@ static void test_statistics_api(void)
     DB *db = new_db();
     SapStat stat;
 
-    CHECK(db_stat(db, &stat) == SAP_OK);
+    CHECK(db_stat(db, &stat) == ERR_OK);
     CHECK(stat.page_size == SAPLING_PAGE_SIZE);
     CHECK(stat.num_pages >= 2); /* at least 2 meta pages */
     CHECK(stat.has_write_txn == 0);
 
     Txn *txn = txn_begin(db, NULL, 0);
-    CHECK(db_stat(db, &stat) == SAP_OK);
+    CHECK(db_stat(db, &stat) == ERR_OK);
     CHECK(stat.has_write_txn == 1);
 
     txn_abort(txn);
-    CHECK(db_stat(db, &stat) == SAP_OK);
+    CHECK(db_stat(db, &stat) == ERR_OK);
     CHECK(stat.has_write_txn == 0);
 
     /* NULL checks */
-    CHECK(db_stat(NULL, &stat) == SAP_ERROR);
-    CHECK(db_stat(db, NULL) == SAP_ERROR);
+    CHECK(db_stat(NULL, &stat) == ERR_INVALID);
+    CHECK(db_stat(db, NULL) == ERR_INVALID);
 
     db_close(db);
 }
@@ -1969,32 +1969,32 @@ static void test_integer_key_comparator(void)
     /* Insert integers in random order */
     int32_t keys[] = {300, 100, 200, 50, 400};
     for (int i = 0; i < 5; i++)
-        CHECK(txn_put(txn, &keys[i], 4, "v", 1) == SAP_OK);
+        CHECK(txn_put(txn, &keys[i], 4, "v", 1) == ERR_OK);
 
     /* Scan should yield sorted integer order: 50, 100, 200, 300, 400 */
     int32_t expected[] = {50, 100, 200, 300, 400};
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     for (int i = 0; i < 5; i++)
     {
         const void *k, *v;
         uint32_t kl, vl;
-        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
         int32_t got;
         memcpy(&got, k, 4);
         CHECK(got == expected[i]);
         if (i < 4)
-            CHECK(cursor_next(cur) == SAP_OK);
+            CHECK(cursor_next(cur) == ERR_OK);
     }
-    CHECK(cursor_next(cur) == SAP_NOTFOUND);
+    CHECK(cursor_next(cur) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     /* Update works with integer keys */
     int32_t key200 = 200;
-    CHECK(txn_put(txn, &key200, 4, "updated", 7) == SAP_OK);
+    CHECK(txn_put(txn, &key200, 4, "updated", 7) == ERR_OK);
     const void *v;
     uint32_t vl;
-    CHECK(txn_get(txn, &key200, 4, &v, &vl) == SAP_OK);
+    CHECK(txn_get(txn, &key200, 4, &v, &vl) == ERR_OK);
     CHECK(vl == 7 && memcmp(v, "updated", 7) == 0);
 
     txn_abort(txn);
@@ -2020,12 +2020,12 @@ static void test_large_dataset_100k(void)
     for (int i = 0; i < N; i++)
     {
         snprintf(kbuf, sizeof(kbuf), "%08d", i);
-        CHECK(txn_put(txn, kbuf, 8, kbuf, 8) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, 8, kbuf, 8) == ERR_OK);
     }
 
     /* Verify count */
     SapStat stat;
-    CHECK(txn_stat(txn, &stat) == SAP_OK);
+    CHECK(txn_stat(txn, &stat) == ERR_OK);
     CHECK(stat.num_entries == (uint64_t)N);
 
     /* Spot-check entries */
@@ -2034,11 +2034,11 @@ static void test_large_dataset_100k(void)
         snprintf(kbuf, sizeof(kbuf), "%08d", i);
         const void *v;
         uint32_t vl;
-        CHECK(txn_get(txn, kbuf, 8, &v, &vl) == SAP_OK);
+        CHECK(txn_get(txn, kbuf, 8, &v, &vl) == ERR_OK);
         CHECK(vl == 8 && memcmp(v, kbuf, 8) == 0);
     }
 
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
     db_close(db);
 }
 
@@ -2056,16 +2056,16 @@ static void test_ascending_insert(void)
     for (int i = 0; i < N; i++)
     {
         snprintf(kbuf, sizeof(kbuf), "%06d", i);
-        CHECK(txn_put(txn, kbuf, 6, "v", 1) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, 6, "v", 1) == ERR_OK);
     }
     /* Verify order */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     int count = 0;
     do
     {
         count++;
-    } while (cursor_next(cur) == SAP_OK);
+    } while (cursor_next(cur) == ERR_OK);
     cursor_close(cur);
     CHECK(count == N);
     txn_abort(txn);
@@ -2086,17 +2086,17 @@ static void test_descending_insert(void)
     for (int i = N - 1; i >= 0; i--)
     {
         snprintf(kbuf, sizeof(kbuf), "%06d", i);
-        CHECK(txn_put(txn, kbuf, 6, "v", 1) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, 6, "v", 1) == ERR_OK);
     }
     /* First entry should be "000000" */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 6 && memcmp(k, "000000", 6) == 0);
     int count = 1;
-    while (cursor_next(cur) == SAP_OK)
+    while (cursor_next(cur) == ERR_OK)
         count++;
     cursor_close(cur);
     CHECK(count == N);
@@ -2166,7 +2166,7 @@ static void test_interleaved_put_delete(void)
     {
         snprintf(kbuf, sizeof(kbuf), "s%06d", i);
         snprintf(vbuf, sizeof(vbuf), "v%06d", i);
-        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), vbuf, (uint32_t)strlen(vbuf)) == ERR_OK);
     }
     /* Delete even keys, update odd keys */
     for (int i = 0; i < N; i++)
@@ -2174,11 +2174,11 @@ static void test_interleaved_put_delete(void)
         snprintf(kbuf, sizeof(kbuf), "s%06d", i);
         if (i % 2 == 0)
         {
-            CHECK(txn_del(txn, kbuf, (uint32_t)strlen(kbuf)) == SAP_OK);
+            CHECK(txn_del(txn, kbuf, (uint32_t)strlen(kbuf)) == ERR_OK);
         }
         else
         {
-            CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), "updated", 7) == SAP_OK);
+            CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), "updated", 7) == ERR_OK);
         }
     }
 
@@ -2192,22 +2192,22 @@ static void test_interleaved_put_delete(void)
         int rc = txn_get(txn, kbuf, (uint32_t)strlen(kbuf), &v, &vl);
         if (i % 2 == 0)
         {
-            if (rc != SAP_NOTFOUND)
+            if (rc != ERR_NOT_FOUND)
                 errors++;
         }
         else
         {
-            if (rc != SAP_OK || vl != 7 || memcmp(v, "updated", 7) != 0)
+            if (rc != ERR_OK || vl != 7 || memcmp(v, "updated", 7) != 0)
                 errors++;
         }
     }
     CHECK(errors == 0);
 
     SapStat stat;
-    CHECK(txn_stat(txn, &stat) == SAP_OK);
+    CHECK(txn_stat(txn, &stat) == ERR_OK);
     CHECK(stat.num_entries == (uint64_t)(N / 2));
 
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
     db_close(db);
 }
 
@@ -2226,27 +2226,27 @@ static void test_cursor_stability(void)
     for (int i = 0; i < 100; i++)
     {
         snprintf(kbuf, sizeof(kbuf), "cs%04d", i);
-        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), "v", 1) == SAP_OK);
+        CHECK(txn_put(txn, kbuf, (uint32_t)strlen(kbuf), "v", 1) == ERR_OK);
     }
 
     /* Seek to middle, walk forward, then backward */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_seek(cur, "cs0050", 6) == SAP_OK);
+    CHECK(cursor_seek(cur, "cs0050", 6) == ERR_OK);
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 6 && memcmp(k, "cs0050", 6) == 0);
 
     /* Walk forward 10 steps */
     for (int i = 0; i < 10; i++)
-        CHECK(cursor_next(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_next(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 6 && memcmp(k, "cs0060", 6) == 0);
 
     /* Walk backward 20 steps */
     for (int i = 0; i < 20; i++)
-        CHECK(cursor_prev(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_prev(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 6 && memcmp(k, "cs0040", 6) == 0);
 
     cursor_close(cur);
@@ -2264,38 +2264,38 @@ static void test_cursor_renew(void)
     DB *db = new_db();
 
     Txn *w1 = txn_begin(db, NULL, 0);
-    CHECK(txn_put(w1, "k1", 2, "v1", 2) == SAP_OK);
-    CHECK(txn_commit(w1) == SAP_OK);
+    CHECK(txn_put(w1, "k1", 2, "v1", 2) == ERR_OK);
+    CHECK(txn_commit(w1) == ERR_OK);
 
     Txn *r1 = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r1 != NULL);
     Cursor *cur = cursor_open(r1);
     CHECK(cur != NULL);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
 
     const void *k;
     uint32_t kl;
-    CHECK(cursor_get_key(cur, &k, &kl) == SAP_OK);
+    CHECK(cursor_get_key(cur, &k, &kl) == ERR_OK);
     CHECK(kl == 2 && memcmp(k, "k1", 2) == 0);
 
     Txn *w2 = txn_begin(db, NULL, 0);
     CHECK(w2 != NULL);
-    CHECK(txn_put(w2, "k2", 2, "v2", 2) == SAP_OK);
-    CHECK(txn_commit(w2) == SAP_OK);
+    CHECK(txn_put(w2, "k2", 2, "v2", 2) == ERR_OK);
+    CHECK(txn_commit(w2) == ERR_OK);
 
-    CHECK(cursor_seek(cur, "k2", 2) == SAP_NOTFOUND);
+    CHECK(cursor_seek(cur, "k2", 2) == ERR_NOT_FOUND);
 
     Txn *r2 = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r2 != NULL);
-    CHECK(cursor_renew(cur, r2) == SAP_OK);
-    CHECK(cursor_seek(cur, "k2", 2) == SAP_OK);
-    CHECK(cursor_get_key(cur, &k, &kl) == SAP_OK);
+    CHECK(cursor_renew(cur, r2) == ERR_OK);
+    CHECK(cursor_seek(cur, "k2", 2) == ERR_OK);
+    CHECK(cursor_get_key(cur, &k, &kl) == ERR_OK);
     CHECK(kl == 2 && memcmp(k, "k2", 2) == 0);
 
     DB *db2 = new_db();
     Txn *r_other = txn_begin(db2, NULL, TXN_RDONLY);
     CHECK(r_other != NULL);
-    CHECK(cursor_renew(cur, r_other) == SAP_ERROR);
+    CHECK(cursor_renew(cur, r_other) == ERR_INVALID);
 
     txn_abort(r_other);
     db_close(db2);
@@ -2313,39 +2313,39 @@ static void test_cursor_get_key(void)
 {
     SECTION("cursor_get_key");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put(w, "a", 1, "va", 2) == SAP_OK);
-    CHECK(txn_put(w, "b", 1, "vb", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "dup", 3, "a", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "dup", 3, "b", 1) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put(w, "a", 1, "va", 2) == ERR_OK);
+    CHECK(txn_put(w, "b", 1, "vb", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "dup", 3, "a", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "dup", 3, "b", 1) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
 
     Cursor *cur = cursor_open(r);
     CHECK(cur != NULL);
-    CHECK(cursor_seek(cur, "b", 1) == SAP_OK);
+    CHECK(cursor_seek(cur, "b", 1) == ERR_OK);
     const void *k;
     uint32_t kl;
-    CHECK(cursor_get_key(cur, &k, &kl) == SAP_OK);
+    CHECK(cursor_get_key(cur, &k, &kl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "b", 1) == 0);
-    CHECK(cursor_get_key(cur, NULL, &kl) == SAP_ERROR);
-    CHECK(cursor_get_key(cur, &k, NULL) == SAP_ERROR);
-    CHECK(cursor_next(cur) == SAP_NOTFOUND);
-    CHECK(cursor_get_key(cur, &k, &kl) == SAP_NOTFOUND);
+    CHECK(cursor_get_key(cur, NULL, &kl) == ERR_INVALID);
+    CHECK(cursor_get_key(cur, &k, NULL) == ERR_INVALID);
+    CHECK(cursor_next(cur) == ERR_NOT_FOUND);
+    CHECK(cursor_get_key(cur, &k, &kl) == ERR_NOT_FOUND);
     cursor_close(cur);
 
     Cursor *dcur = cursor_open_dbi(r, 1);
     CHECK(dcur != NULL);
-    CHECK(cursor_seek_prefix(dcur, "dup", 3) == SAP_OK);
-    CHECK(cursor_get_key(dcur, &k, &kl) == SAP_OK);
+    CHECK(cursor_seek_prefix(dcur, "dup", 3) == ERR_OK);
+    CHECK(cursor_get_key(dcur, &k, &kl) == ERR_OK);
     CHECK(kl == 3 && memcmp(k, "dup", 3) == 0);
-    CHECK(cursor_next_dup(dcur) == SAP_OK);
-    CHECK(cursor_get_key(dcur, &k, &kl) == SAP_OK);
+    CHECK(cursor_next_dup(dcur) == ERR_OK);
+    CHECK(cursor_get_key(dcur, &k, &kl) == ERR_OK);
     CHECK(kl == 3 && memcmp(k, "dup", 3) == 0);
     cursor_close(dcur);
 
@@ -2364,20 +2364,20 @@ static void test_nooverwrite(void)
     Txn *txn = txn_begin(db, NULL, 0);
 
     /* First insert succeeds */
-    CHECK(txn_put_flags(txn, "key", 3, "val1", 4, SAP_NOOVERWRITE, NULL) == SAP_OK);
+    CHECK(txn_put_flags(txn, "key", 3, "val1", 4, SAP_NOOVERWRITE, NULL) == ERR_OK);
 
-    /* Duplicate insert fails with SAP_EXISTS */
-    CHECK(txn_put_flags(txn, "key", 3, "val2", 4, SAP_NOOVERWRITE, NULL) == SAP_EXISTS);
+    /* Duplicate insert fails with ERR_EXISTS */
+    CHECK(txn_put_flags(txn, "key", 3, "val2", 4, SAP_NOOVERWRITE, NULL) == ERR_EXISTS);
 
     /* Original value unchanged */
     CHECK(check_str(txn, "key", "val1"));
 
     /* Without flag, upsert still works */
-    CHECK(txn_put_flags(txn, "key", 3, "val2", 4, 0, NULL) == SAP_OK);
+    CHECK(txn_put_flags(txn, "key", 3, "val2", 4, 0, NULL) == ERR_OK);
     CHECK(check_str(txn, "key", "val2"));
 
     /* NOOVERWRITE on a new key works */
-    CHECK(txn_put_flags(txn, "new", 3, "yes", 3, SAP_NOOVERWRITE, NULL) == SAP_OK);
+    CHECK(txn_put_flags(txn, "new", 3, "yes", 3, SAP_NOOVERWRITE, NULL) == ERR_OK);
     CHECK(check_str(txn, "new", "yes"));
 
     txn_abort(txn);
@@ -2395,7 +2395,7 @@ static void test_reserve(void)
     Txn *txn = txn_begin(db, NULL, 0);
 
     void *reserved = NULL;
-    CHECK(txn_put_flags(txn, "rkey", 4, NULL, 8, SAP_RESERVE, &reserved) == SAP_OK);
+    CHECK(txn_put_flags(txn, "rkey", 4, NULL, 8, SAP_RESERVE, &reserved) == ERR_OK);
     CHECK(reserved != NULL);
     if (!reserved)
     {
@@ -2410,12 +2410,12 @@ static void test_reserve(void)
     /* Read it back */
     const void *v;
     uint32_t vl;
-    CHECK(txn_get(txn, "rkey", 4, &v, &vl) == SAP_OK);
+    CHECK(txn_get(txn, "rkey", 4, &v, &vl) == ERR_OK);
     CHECK(vl == 8 && memcmp(v, "reserved", 8) == 0);
 
     /* Reserve + NOOVERWRITE combo: should fail on existing key */
     void *r2 = NULL;
-    CHECK(txn_put_flags(txn, "rkey", 4, NULL, 8, SAP_RESERVE | SAP_NOOVERWRITE, &r2) == SAP_EXISTS);
+    CHECK(txn_put_flags(txn, "rkey", 4, NULL, 8, SAP_RESERVE | SAP_NOOVERWRITE, &r2) == ERR_EXISTS);
 
     txn_abort(txn);
     db_close(db);
@@ -2429,31 +2429,31 @@ static void test_put_if(void)
 {
     SECTION("txn_put_if");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 2, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 0, "k", 1, "v1", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "db1", 3) == SAP_OK);
-    CHECK(txn_put_dbi(w, 2, "dup", 3, "a", 1) == SAP_OK);
+    CHECK(txn_put_dbi(w, 0, "k", 1, "v1", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "db1", 3) == ERR_OK);
+    CHECK(txn_put_dbi(w, 2, "dup", 3, "a", 1) == ERR_OK);
 
-    CHECK(txn_put_if(w, 0, "k", 1, "v2", 2, "v1", 2) == SAP_OK);
+    CHECK(txn_put_if(w, 0, "k", 1, "v2", 2, "v1", 2) == ERR_OK);
     CHECK(check_str(w, "k", "v2"));
 
-    CHECK(txn_put_if(w, 0, "k", 1, "v3", 2, "v1", 2) == SAP_CONFLICT);
+    CHECK(txn_put_if(w, 0, "k", 1, "v3", 2, "v1", 2) == ERR_CONFLICT);
     CHECK(check_str(w, "k", "v2"));
 
-    CHECK(txn_put_if(w, 0, "missing", 7, "x", 1, "", 0) == SAP_NOTFOUND);
-    CHECK(txn_put_if(w, 1, "k", 1, "db1x", 4, "db1", 3) == SAP_OK);
-    CHECK(txn_put_if(w, 99, "k", 1, "x", 1, "v2", 2) == SAP_ERROR);
-    CHECK(txn_put_if(w, 0, "k", 1, "x", 1, NULL, 1) == SAP_ERROR);
-    CHECK(txn_put_if(w, 2, "dup", 3, "b", 1, "a", 1) == SAP_ERROR);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_if(w, 0, "missing", 7, "x", 1, "", 0) == ERR_NOT_FOUND);
+    CHECK(txn_put_if(w, 1, "k", 1, "db1x", 4, "db1", 3) == ERR_OK);
+    CHECK(txn_put_if(w, 99, "k", 1, "x", 1, "v2", 2) == ERR_INVALID);
+    CHECK(txn_put_if(w, 0, "k", 1, "x", 1, NULL, 1) == ERR_INVALID);
+    CHECK(txn_put_if(w, 2, "dup", 3, "b", 1, "a", 1) == ERR_INVALID);
+    CHECK(txn_commit(w) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_put_if(r, 0, "k", 1, "v4", 2, "v2", 2) == SAP_READONLY);
+    CHECK(txn_put_if(r, 0, "k", 1, "v4", 2, "v2", 2) == ERR_READONLY);
     txn_abort(r);
 
     db_close(db);
@@ -2471,17 +2471,17 @@ static void test_put_if(void)
         w = txn_begin(odb, NULL, 0);
         CHECK(w != NULL);
         CHECK(txn_put_if(w, 0, "ov", 2, v2, (uint32_t)sizeof(v2), v1, (uint32_t)sizeof(v1)) ==
-              SAP_NOTFOUND);
-        CHECK(txn_put(w, "ov", 2, v1, (uint32_t)sizeof(v1)) == SAP_OK);
+              ERR_NOT_FOUND);
+        CHECK(txn_put(w, "ov", 2, v1, (uint32_t)sizeof(v1)) == ERR_OK);
         CHECK(txn_put_if(w, 0, "ov", 2, v2, (uint32_t)sizeof(v2), v1, (uint32_t)sizeof(v1)) ==
-              SAP_OK);
+              ERR_OK);
         CHECK(txn_put_if(w, 0, "ov", 2, v1, (uint32_t)sizeof(v1), v1, (uint32_t)sizeof(v1)) ==
-              SAP_CONFLICT);
-        CHECK(txn_commit(w) == SAP_OK);
+              ERR_CONFLICT);
+        CHECK(txn_commit(w) == ERR_OK);
 
         r = txn_begin(odb, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get(r, "ov", 2, &v, &vl) == SAP_OK);
+        CHECK(txn_get(r, "ov", 2, &v, &vl) == ERR_OK);
         CHECK(vl == (uint32_t)sizeof(v2));
         CHECK(memcmp(v, v2, sizeof(v2)) == 0);
         txn_abort(r);
@@ -2505,132 +2505,132 @@ static void test_ttl_helpers(void)
     Txn *w;
     Txn *r;
 
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 2, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 3, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 3, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "a", 1, "va", 2, 100) == SAP_OK);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "b", 1, "vb", 2, 250) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "plain", 5, "p", 1) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "a", 1, "va", 2, 100) == ERR_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "b", 1, "vb", 2, 250) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "plain", 5, "p", 1) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 99, &v, &vl, 0) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 99, &v, &vl, 0) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "va", 2) == 0);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 100, &v, &vl, 0) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "plain", 5, 0, &v, &vl, 0) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 3, 2, "a", 1, 0, &v, &vl, 0) == SAP_ERROR);
-    CHECK(txn_get_ttl_dbi(r, 1, 3, "a", 1, 0, &v, &vl, 0) == SAP_ERROR);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, NULL, &vl, 0) == SAP_ERROR);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, &v, NULL, 0) == SAP_ERROR);
-    CHECK(txn_put_ttl_dbi(r, 1, 2, "x", 1, "y", 1, 1) == SAP_READONLY);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 100, &v, &vl, 0) == ERR_NOT_FOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "plain", 5, 0, &v, &vl, 0) == ERR_NOT_FOUND);
+    CHECK(txn_get_ttl_dbi(r, 3, 2, "a", 1, 0, &v, &vl, 0) == ERR_INVALID);
+    CHECK(txn_get_ttl_dbi(r, 1, 3, "a", 1, 0, &v, &vl, 0) == ERR_INVALID);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, NULL, &vl, 0) == ERR_INVALID);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 0, &v, NULL, 0) == ERR_INVALID);
+    CHECK(txn_put_ttl_dbi(r, 1, 2, "x", 1, "y", 1, 1) == ERR_READONLY);
     deleted = 77;
-    CHECK(txn_sweep_ttl_dbi(r, 1, 2, 200, &deleted) == SAP_READONLY);
+    CHECK(txn_sweep_ttl_dbi(r, 1, 2, 200, &deleted) == ERR_READONLY);
     CHECK(deleted == 0);
     deleted = 77;
-    CHECK(txn_sweep_ttl_dbi_limit(r, 1, 2, 200, 1, &deleted) == SAP_READONLY);
+    CHECK(txn_sweep_ttl_dbi_limit(r, 1, 2, 200, 1, &deleted) == ERR_READONLY);
     CHECK(deleted == 0);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 200, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 200, &deleted) == ERR_OK);
     CHECK(deleted == 1);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 2, "a", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "b", 1, 200, &v, &vl, 0) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 2, "a", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "b", 1, 200, &v, &vl, 0) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "vb", 2) == 0);
-    CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == ERR_OK);
     CHECK(vl == 1 && memcmp(v, "p", 1) == 0);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 2, bad_lookup_key, (uint32_t)sizeof(bad_lookup_key), "oops", 4) == SAP_OK);
-    CHECK(txn_put_dbi(w, 2, bad_index_key, (uint32_t)sizeof(bad_index_key), "oops", 4) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 2, bad_lookup_key, (uint32_t)sizeof(bad_lookup_key), "oops", 4) == ERR_OK);
+    CHECK(txn_put_dbi(w, 2, bad_index_key, (uint32_t)sizeof(bad_index_key), "oops", 4) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "bad", 3, 0, &v, &vl, 0) == SAP_ERROR);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "bad", 3, 0, &v, &vl, 0) == ERR_CORRUPT);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == SAP_ERROR);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == ERR_CORRUPT);
     txn_abort(w);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_ttl_dbi(w, 1, 1, "k", 1, "v", 1, 10) == SAP_ERROR);
-    CHECK(txn_put_ttl_dbi(w, 3, 2, "k", 1, "v", 1, 10) == SAP_ERROR);
-    CHECK(txn_put_ttl_dbi(w, 1, 3, "k", 1, "v", 1, 10) == SAP_ERROR);
-    CHECK(txn_del_dbi(w, 2, bad_lookup_key, (uint32_t)sizeof(bad_lookup_key)) == SAP_OK);
-    CHECK(txn_del_dbi(w, 2, bad_index_key, (uint32_t)sizeof(bad_index_key)) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 1, "k", 1, "v", 1, 10) == ERR_INVALID);
+    CHECK(txn_put_ttl_dbi(w, 3, 2, "k", 1, "v", 1, 10) == ERR_INVALID);
+    CHECK(txn_put_ttl_dbi(w, 1, 3, "k", 1, "v", 1, 10) == ERR_INVALID);
+    CHECK(txn_del_dbi(w, 2, bad_lookup_key, (uint32_t)sizeof(bad_lookup_key)) == ERR_OK);
+    CHECK(txn_del_dbi(w, 2, bad_index_key, (uint32_t)sizeof(bad_index_key)) == ERR_OK);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi(w, 99, 2, 500, &deleted) == SAP_ERROR);
-    CHECK(txn_sweep_ttl_dbi(w, 1, 99, 500, &deleted) == SAP_ERROR);
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, NULL) == SAP_ERROR);
-    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 500, 1, NULL) == SAP_ERROR);
+    CHECK(txn_sweep_ttl_dbi(w, 99, 2, 500, &deleted) == ERR_INVALID);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 99, 500, &deleted) == ERR_INVALID);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, NULL) == ERR_INVALID);
+    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 500, 1, NULL) == ERR_INVALID);
     deleted = 11;
-    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 500, 0, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 500, 0, &deleted) == ERR_OK);
     CHECK(deleted == 0);
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 500, &deleted) == ERR_OK);
     CHECK(deleted == 1);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 2, "b", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 2, "b", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 1, "plain", 5, &v, &vl) == ERR_OK);
     CHECK(vl == 1 && memcmp(v, "p", 1) == 0);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "l1", 2, "1", 1, 900) == SAP_OK);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "l2", 2, "2", 1, 900) == SAP_OK);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "l3", 2, "3", 1, 900) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "l1", 2, "1", 1, 900) == ERR_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "l2", 2, "2", 1, 900) == ERR_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "l3", 2, "3", 1, 900) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 1000, 2, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi_limit(w, 1, 2, 1000, 2, &deleted) == ERR_OK);
     CHECK(deleted == 2);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_dbi(r, 1, "l1", 2, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 1, "l2", 2, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "l3", 2, 0, &v, &vl, 0) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "l1", 2, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 1, "l2", 2, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "l3", 2, 0, &v, &vl, 0) == ERR_OK);
     CHECK(vl == 1 && memcmp(v, "3", 1) == 0);
     txn_abort(r);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 1000, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 1000, &deleted) == ERR_OK);
     CHECK(deleted == 1);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Test TTL mismatch (sweep should silently prune stale indices but preserve authoritative data)
      */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "hero", 4, "alive", 5, 2000) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "hero", 4, "alive", 5, 2000) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
@@ -2647,21 +2647,21 @@ static void test_ttl_helpers(void)
         buf[7] = (uint8_t)((v_exp >> 8) & 0xff);
         buf[8] = (uint8_t)(v_exp & 0xff);
         memcpy(buf + 9, "hero", 4);
-        CHECK(txn_put_dbi(w, 2, buf, 13, NULL, 0) == SAP_OK);
+        CHECK(txn_put_dbi(w, 2, buf, 13, NULL, 0) == ERR_OK);
     }
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Sweep at 1800 should hit the stale 1500 index, but preserve data and lookup metadata. */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 1800, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 1800, &deleted) == ERR_OK);
     CHECK(deleted == 0); /* no logical TTL rows actually expired */
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "hero", 4, 1800, &v, &vl, 0) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "hero", 4, 1800, &v, &vl, 0) == ERR_OK);
     CHECK(vl == 5 && memcmp(v, "alive", 5) == 0);
     txn_abort(r);
 
@@ -2669,9 +2669,9 @@ static void test_ttl_helpers(void)
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     deleted = 0;
-    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 2500, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi(w, 1, 2, 2500, &deleted) == ERR_OK);
     CHECK(deleted == 1);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     db_close(db);
 }
@@ -2684,30 +2684,30 @@ static void test_ttl_metadata_protection(void)
 {
     SECTION("TTL metadata protection mode");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_TTL_META) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_TTL_META) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
 
     /* Attempt raw put with bad key tag -> ERROR */
-    CHECK(txn_put_dbi(w, 1, "bad", 3, "val", 3) == SAP_ERROR);
+    CHECK(txn_put_dbi(w, 1, "bad", 3, "val", 3) == ERR_INVALID);
 
     /* Attempt raw put with lookup tag but bad value length (!= 8) -> ERROR */
     uint8_t lookup[2] = {0, 'a'};
-    CHECK(txn_put_dbi(w, 1, lookup, 2, "1234567", 7) == SAP_ERROR);
-    CHECK(txn_put_dbi(w, 1, lookup, 2, "123456789", 9) == SAP_ERROR);
-    CHECK(txn_put_dbi(w, 1, lookup, 2, "12345678", 8) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, lookup, 2, "1234567", 7) == ERR_INVALID);
+    CHECK(txn_put_dbi(w, 1, lookup, 2, "123456789", 9) == ERR_INVALID);
+    CHECK(txn_put_dbi(w, 1, lookup, 2, "12345678", 8) == ERR_OK);
 
     /* Attempt raw put with index tag but bad length (< 9) -> ERROR */
     uint8_t idx[8] = {1, 0, 0, 0, 0, 0, 0, 0};
-    CHECK(txn_put_dbi(w, 1, idx, 8, NULL, 0) == SAP_ERROR);
+    CHECK(txn_put_dbi(w, 1, idx, 8, NULL, 0) == ERR_INVALID);
 
     /* Attempt raw put with index tag but bad value length (> 0) -> ERROR */
     uint8_t idx_good[9] = {1, 0, 0, 0, 0, 0, 0, 0, 0};
-    CHECK(txn_put_dbi(w, 1, idx_good, 9, "bad", 3) == SAP_ERROR);
-    CHECK(txn_put_dbi(w, 1, idx_good, 9, NULL, 0) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, idx_good, 9, "bad", 3) == ERR_INVALID);
+    CHECK(txn_put_dbi(w, 1, idx_good, 9, NULL, 0) == ERR_OK);
 
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
     db_close(db);
 }
 
@@ -2719,8 +2719,8 @@ static void test_ttl_checkpoint(void)
 {
     SECTION("TTL resumable sweep checkpoint");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 2, NULL, NULL, DBI_TTL_META) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, DBI_TTL_META) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
@@ -2730,9 +2730,9 @@ static void test_ttl_checkpoint(void)
         snprintf(key, sizeof(key), "k%d", i);
         /* Expiries: 100, 200, 300, 400, 500 */
         CHECK(txn_put_ttl_dbi(w, 1, 2, key, (uint32_t)strlen(key), "v", 1,
-                              (uint64_t)((i + 1) * 100)) == SAP_OK);
+                              (uint64_t)((i + 1) * 100)) == ERR_OK);
     }
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     SapSweepCheckpoint cp = {0};
     uint64_t deleted = 0;
@@ -2740,9 +2740,9 @@ static void test_ttl_checkpoint(void)
     /* First sweep: delete up to 2 items (expires at 100, 200). */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == ERR_OK);
     CHECK(deleted == 2);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Verify checkpoint state */
     CHECK(cp.index_len > 0);
@@ -2752,16 +2752,16 @@ static void test_ttl_checkpoint(void)
        It should start from cp and successfully find the next two. */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == ERR_OK);
     CHECK(deleted == 2);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Third sweep: delete remaining 1 item (expires at 500). */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == SAP_OK);
+    CHECK(txn_sweep_ttl_dbi_checkpoint(w, 1, 2, 1000, 2, &cp, &deleted) == ERR_OK);
     CHECK(deleted == 1);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     sap_sweep_checkpoint_clear(&cp);
     db_close(db);
@@ -2775,58 +2775,58 @@ static void test_ttl_lazy_delete(void)
 {
     SECTION("TTL lazy deletes");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 2, NULL, NULL, DBI_TTL_META) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, DBI_TTL_META) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "a", 1, "va", 2, 100) == SAP_OK);
-    CHECK(txn_put_ttl_dbi(w, 1, 2, "b", 1, "vb", 2, 200) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "a", 1, "va", 2, 100) == ERR_OK);
+    CHECK(txn_put_ttl_dbi(w, 1, 2, "b", 1, "vb", 2, 200) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Test 1: Read-only txn passing SAP_TTL_LAZY_DELETE should NOT delete anything.
-     * It should return SAP_NOTFOUND but leave the row intact.
+     * It should return ERR_NOT_FOUND but leave the row intact.
      */
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
     const void *v;
     uint32_t vl;
-    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 150, &v, &vl, SAP_TTL_LAZY_DELETE) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(r, 1, 2, "a", 1, 150, &v, &vl, SAP_TTL_LAZY_DELETE) == ERR_NOT_FOUND);
     txn_abort(r);
 
     /* Verify it is still there */
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "a", 1, &v, &vl) == ERR_OK);
     txn_abort(r);
 
     /* Test 2: Write txn without SAP_TTL_LAZY_DELETE should NOT delete anything. */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_get_ttl_dbi(w, 1, 2, "a", 1, 150, &v, &vl, 0) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(w, 1, "a", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_ttl_dbi(w, 1, 2, "a", 1, 150, &v, &vl, 0) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(w, 1, "a", 1, &v, &vl) == ERR_OK);
     txn_abort(w);
 
     /* Test 3: Write txn WITH SAP_TTL_LAZY_DELETE SHOULD delete. */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_get_ttl_dbi(w, 1, 2, "a", 1, 150, &v, &vl, SAP_TTL_LAZY_DELETE) == SAP_NOTFOUND);
+    CHECK(txn_get_ttl_dbi(w, 1, 2, "a", 1, 150, &v, &vl, SAP_TTL_LAZY_DELETE) == ERR_NOT_FOUND);
     /* Verify it's gone from backend */
-    CHECK(txn_get_dbi(w, 1, "a", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_get_dbi(w, 1, "a", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Test 4: cursor_get_ttl_dbi SHOULD lazily delete */
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
     Cursor *cur = cursor_open_dbi(w, 1);
     CHECK(cur != NULL);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     /* Currently looking at "b". Simulate time = 250 so it's expired. */
-    CHECK(cursor_get_ttl_dbi(cur, 2, 250, &v, &vl, SAP_TTL_LAZY_DELETE) == SAP_NOTFOUND);
+    CHECK(cursor_get_ttl_dbi(cur, 2, 250, &v, &vl, SAP_TTL_LAZY_DELETE) == ERR_NOT_FOUND);
     /* Verify it's gone from backend */
-    CHECK(txn_get_dbi(w, 1, "b", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(w, 1, "b", 1, &v, &vl) == ERR_NOT_FOUND);
     cursor_close(cur);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     db_close(db);
 }
@@ -2839,43 +2839,43 @@ static void test_multi_dbi(void)
 {
     SECTION("multiple named databases");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 2, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, 0) == ERR_OK);
 
     Txn *txn = txn_begin(db, NULL, 0);
 
     /* Same key in different DBIs — isolation */
-    CHECK(txn_put_dbi(txn, 0, "shared", 6, "db0", 3) == SAP_OK);
-    CHECK(txn_put_dbi(txn, 1, "shared", 6, "db1", 3) == SAP_OK);
-    CHECK(txn_put_dbi(txn, 2, "shared", 6, "db2", 3) == SAP_OK);
+    CHECK(txn_put_dbi(txn, 0, "shared", 6, "db0", 3) == ERR_OK);
+    CHECK(txn_put_dbi(txn, 1, "shared", 6, "db1", 3) == ERR_OK);
+    CHECK(txn_put_dbi(txn, 2, "shared", 6, "db2", 3) == ERR_OK);
 
     const void *v;
     uint32_t vl;
-    CHECK(txn_get_dbi(txn, 0, "shared", 6, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(txn, 0, "shared", 6, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "db0", 3) == 0);
-    CHECK(txn_get_dbi(txn, 1, "shared", 6, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(txn, 1, "shared", 6, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "db1", 3) == 0);
-    CHECK(txn_get_dbi(txn, 2, "shared", 6, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(txn, 2, "shared", 6, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "db2", 3) == 0);
 
     /* Default API (DBI 0) still works */
-    CHECK(txn_get(txn, "shared", 6, &v, &vl) == SAP_OK);
+    CHECK(txn_get(txn, "shared", 6, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "db0", 3) == 0);
 
     /* Per-DBI entry count */
     SapStat stat;
-    CHECK(dbi_stat(txn, 0, &stat) == SAP_OK);
+    CHECK(dbi_stat(txn, 0, &stat) == ERR_OK);
     CHECK(stat.num_entries == 1);
-    CHECK(dbi_stat(txn, 1, &stat) == SAP_OK);
+    CHECK(dbi_stat(txn, 1, &stat) == ERR_OK);
     CHECK(stat.num_entries == 1);
 
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     /* Verify after commit */
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
-    CHECK(txn_get_dbi(r, 0, "shared", 6, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 0, "shared", 6, &v, &vl) == ERR_OK);
     CHECK(memcmp(v, "db0", 3) == 0);
-    CHECK(txn_get_dbi(r, 1, "shared", 6, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "shared", 6, &v, &vl) == ERR_OK);
     CHECK(memcmp(v, "db1", 3) == 0);
     txn_abort(r);
 
@@ -2901,19 +2901,19 @@ static void test_multi_dbi_txn(void)
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     const void *v;
     uint32_t vl;
-    CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == ERR_NOT_FOUND);
     txn_abort(r);
 
     /* Commit: both DBIs updated atomically */
     txn = txn_begin(db, NULL, 0);
     txn_put_dbi(txn, 0, "a", 1, "1", 1);
     txn_put_dbi(txn, 1, "b", 1, "2", 1);
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
-    CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == SAP_OK);
-    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == ERR_OK);
+    CHECK(txn_get_dbi(r, 1, "b", 1, &v, &vl) == ERR_OK);
     txn_abort(r);
 
     db_close(db);
@@ -2928,51 +2928,51 @@ static void test_checkpoint_restore(void)
     SECTION("checkpoint/restore");
     struct MemBuf snap = {0};
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 0, "a", 1, "one", 3) == SAP_OK);
-    CHECK(txn_put_dbi(w, 0, "b", 1, "two", 3) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "x", 1, "db1v", 4) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 0, "a", 1, "one", 3) == ERR_OK);
+    CHECK(txn_put_dbi(w, 0, "b", 1, "two", 3) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "x", 1, "db1v", 4) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
-    CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_OK);
+    CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_OK);
     CHECK(snap.len > 0);
 
     Txn *wb = txn_begin(db, NULL, 0);
     CHECK(wb != NULL);
-    CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_BUSY);
-    CHECK(db_restore(db, membuf_read, &snap) == SAP_BUSY);
+    CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_BUSY);
+    CHECK(db_restore(db, membuf_read, &snap) == ERR_BUSY);
     txn_abort(wb);
 
     Txn *rb = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rb != NULL);
-    CHECK(db_checkpoint(db, membuf_write, &snap) == SAP_BUSY);
-    CHECK(db_restore(db, membuf_read, &snap) == SAP_BUSY);
+    CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_BUSY);
+    CHECK(db_restore(db, membuf_read, &snap) == ERR_BUSY);
     txn_abort(rb);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 0, "a", 1, "ONE!", 4) == SAP_OK);
-    CHECK(txn_del_dbi(w, 1, "x", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "y", 1, "later", 5) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 0, "a", 1, "ONE!", 4) == ERR_OK);
+    CHECK(txn_del_dbi(w, 1, "x", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "y", 1, "later", 5) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     snap.pos = 0;
-    CHECK(db_restore(db, membuf_read, &snap) == SAP_OK);
+    CHECK(db_restore(db, membuf_read, &snap) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
     const void *v;
     uint32_t vl;
-    CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "one", 3) == 0);
-    CHECK(txn_get_dbi(r, 0, "b", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 0, "b", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 3 && memcmp(v, "two", 3) == 0);
-    CHECK(txn_get_dbi(r, 1, "x", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "x", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 4 && memcmp(v, "db1v", 4) == 0);
-    CHECK(txn_get_dbi(r, 1, "y", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 1, "y", 1, &v, &vl) == ERR_NOT_FOUND);
     txn_abort(r);
 
     {
@@ -2981,7 +2981,7 @@ static void test_checkpoint_restore(void)
         bad.len = 3;
         bad.cap = 3;
         bad.pos = 0;
-        CHECK(db_restore(db, membuf_read, &bad) == SAP_ERROR);
+        CHECK(db_restore(db, membuf_read, &bad) == ERR_CORRUPT);
     }
 
     free(snap.data);
@@ -2996,7 +2996,7 @@ static void test_count_range(void)
 {
     SECTION("txn_count_range");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
@@ -3005,40 +3005,40 @@ static void test_count_range(void)
         char k[3], v[3];
         snprintf(k, sizeof(k), "k%d", i);
         snprintf(v, sizeof(v), "v%d", i);
-        CHECK(txn_put_dbi(w, 0, k, 2, v, 2) == SAP_OK);
+        CHECK(txn_put_dbi(w, 0, k, 2, v, 2) == ERR_OK);
     }
-    CHECK(txn_put_dbi(w, 1, "k", 1, "a", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "b", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "c", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "m", 1, "z", 1) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "a", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "b", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "c", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "m", 1, "z", 1) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
     uint64_t count = 999;
 
-    CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, &count) == ERR_OK);
     CHECK(count == 10);
 
-    CHECK(txn_count_range(r, 0, "k3", 2, "k7", 2, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 0, "k3", 2, "k7", 2, &count) == ERR_OK);
     CHECK(count == 4);
 
-    CHECK(txn_count_range(r, 0, "k7", 2, "k3", 2, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 0, "k7", 2, "k3", 2, &count) == ERR_OK);
     CHECK(count == 0);
 
-    CHECK(txn_count_range(r, 0, "zz", 2, NULL, 0, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 0, "zz", 2, NULL, 0, &count) == ERR_OK);
     CHECK(count == 0);
 
-    CHECK(txn_count_range(r, 1, "k", 1, "m", 1, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 1, "k", 1, "m", 1, &count) == ERR_OK);
     CHECK(count == 3);
 
-    CHECK(txn_count_range(r, 1, "k", 1, "n", 1, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 1, "k", 1, "n", 1, &count) == ERR_OK);
     CHECK(count == 4);
 
-    CHECK(txn_count_range(r, 0, NULL, 1, NULL, 0, &count) == SAP_ERROR);
-    CHECK(txn_count_range(r, 0, NULL, 0, NULL, 1, &count) == SAP_ERROR);
-    CHECK(txn_count_range(r, 99, NULL, 0, NULL, 0, &count) == SAP_ERROR);
-    CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, NULL) == SAP_ERROR);
+    CHECK(txn_count_range(r, 0, NULL, 1, NULL, 0, &count) == ERR_INVALID);
+    CHECK(txn_count_range(r, 0, NULL, 0, NULL, 1, &count) == ERR_INVALID);
+    CHECK(txn_count_range(r, 99, NULL, 0, NULL, 0, &count) == ERR_INVALID);
+    CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, NULL) == ERR_INVALID);
 
     txn_abort(r);
     db_close(db);
@@ -3052,7 +3052,7 @@ static void test_del_range(void)
 {
     SECTION("txn_del_range");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
@@ -3061,14 +3061,14 @@ static void test_del_range(void)
         char k[3], v[3];
         snprintf(k, sizeof(k), "k%d", i);
         snprintf(v, sizeof(v), "v%d", i);
-        CHECK(txn_put_dbi(w, 0, k, 2, v, 2) == SAP_OK);
+        CHECK(txn_put_dbi(w, 0, k, 2, v, 2) == ERR_OK);
     }
-    CHECK(txn_put_dbi(w, 1, "k", 1, "a", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "b", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "c", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "m", 1, "z", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "n", 1, "y", 1) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "a", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "b", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "c", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "m", 1, "z", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "n", 1, "y", 1) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     {
         uint64_t deleted = 999;
@@ -3078,18 +3078,18 @@ static void test_del_range(void)
 
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_del_range(w, 0, "k3", 2, "k7", 2, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 0, "k3", 2, "k7", 2, &deleted) == ERR_OK);
         CHECK(deleted == 4);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, &count) == SAP_OK);
+        CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, &count) == ERR_OK);
         CHECK(count == 6);
-        CHECK(txn_get_dbi(r, 0, "k2", 2, &v, &vl) == SAP_OK);
-        CHECK(txn_get_dbi(r, 0, "k3", 2, &v, &vl) == SAP_NOTFOUND);
-        CHECK(txn_get_dbi(r, 0, "k6", 2, &v, &vl) == SAP_NOTFOUND);
-        CHECK(txn_get_dbi(r, 0, "k7", 2, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "k2", 2, &v, &vl) == ERR_OK);
+        CHECK(txn_get_dbi(r, 0, "k3", 2, &v, &vl) == ERR_NOT_FOUND);
+        CHECK(txn_get_dbi(r, 0, "k6", 2, &v, &vl) == ERR_NOT_FOUND);
+        CHECK(txn_get_dbi(r, 0, "k7", 2, &v, &vl) == ERR_OK);
         txn_abort(r);
     }
 
@@ -3099,19 +3099,19 @@ static void test_del_range(void)
 
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_del_range(w, 0, NULL, 0, "k2", 2, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 0, NULL, 0, "k2", 2, &deleted) == ERR_OK);
         CHECK(deleted == 2);
-        CHECK(txn_del_range(w, 0, "k8", 2, NULL, 0, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 0, "k8", 2, NULL, 0, &deleted) == ERR_OK);
         CHECK(deleted == 2);
-        CHECK(txn_del_range(w, 0, "k7", 2, "k7", 2, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 0, "k7", 2, "k7", 2, &deleted) == ERR_OK);
         CHECK(deleted == 0);
-        CHECK(txn_del_range(w, 0, "k9", 2, "k8", 2, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 0, "k9", 2, "k8", 2, &deleted) == ERR_OK);
         CHECK(deleted == 0);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, &count) == SAP_OK);
+        CHECK(txn_count_range(r, 0, NULL, 0, NULL, 0, &count) == ERR_OK);
         CHECK(count == 2);
         txn_abort(r);
     }
@@ -3122,13 +3122,13 @@ static void test_del_range(void)
 
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_del_range(w, 1, "k", 1, "m", 1, &deleted) == SAP_OK);
+        CHECK(txn_del_range(w, 1, "k", 1, "m", 1, &deleted) == ERR_OK);
         CHECK(deleted == 3);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_count_range(r, 1, NULL, 0, NULL, 0, &count) == SAP_OK);
+        CHECK(txn_count_range(r, 1, NULL, 0, NULL, 0, &count) == ERR_OK);
         CHECK(count == 2);
         txn_abort(r);
     }
@@ -3137,7 +3137,7 @@ static void test_del_range(void)
         uint64_t deleted = 999;
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_del_range(r, 0, NULL, 0, NULL, 0, &deleted) == SAP_READONLY);
+        CHECK(txn_del_range(r, 0, NULL, 0, NULL, 0, &deleted) == ERR_READONLY);
         txn_abort(r);
     }
 
@@ -3145,10 +3145,10 @@ static void test_del_range(void)
         uint64_t deleted = 999;
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_del_range(w, 99, NULL, 0, NULL, 0, &deleted) == SAP_ERROR);
-        CHECK(txn_del_range(w, 0, NULL, 1, NULL, 0, &deleted) == SAP_ERROR);
-        CHECK(txn_del_range(w, 0, NULL, 0, NULL, 1, &deleted) == SAP_ERROR);
-        CHECK(txn_del_range(w, 0, NULL, 0, NULL, 0, NULL) == SAP_ERROR);
+        CHECK(txn_del_range(w, 99, NULL, 0, NULL, 0, &deleted) == ERR_INVALID);
+        CHECK(txn_del_range(w, 0, NULL, 1, NULL, 0, &deleted) == ERR_INVALID);
+        CHECK(txn_del_range(w, 0, NULL, 0, NULL, 1, &deleted) == ERR_INVALID);
+        CHECK(txn_del_range(w, 0, NULL, 0, NULL, 0, NULL) == ERR_INVALID);
         txn_abort(w);
     }
 
@@ -3163,28 +3163,28 @@ static void test_merge(void)
 {
     SECTION("txn_merge");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 0, "k", 1, "a", 1) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "dup", 3) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 0, "k", 1, "a", 1) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "dup", 3) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     {
         const void *v;
         uint32_t vl;
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_merge(w, 0, "k", 1, "b", 1, merge_concat, NULL) == SAP_OK);
-        CHECK(txn_merge(w, 0, "new", 3, "xy", 2, merge_concat, NULL) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_merge(w, 0, "k", 1, "b", 1, merge_concat, NULL) == ERR_OK);
+        CHECK(txn_merge(w, 0, "new", 3, "xy", 2, merge_concat, NULL) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get_dbi(r, 0, "k", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "k", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 2 && memcmp(v, "ab", 2) == 0);
-        CHECK(txn_get_dbi(r, 0, "new", 3, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "new", 3, &v, &vl) == ERR_OK);
         CHECK(vl == 2 && memcmp(v, "xy", 2) == 0);
         txn_abort(r);
     }
@@ -3194,12 +3194,12 @@ static void test_merge(void)
         uint32_t vl;
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_merge(w, 0, "k", 1, NULL, 0, merge_clear, NULL) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_merge(w, 0, "k", 1, NULL, 0, merge_clear, NULL) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get_dbi(r, 0, "k", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "k", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 0);
         txn_abort(r);
     }
@@ -3212,12 +3212,12 @@ static void test_merge(void)
 
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_merge(w, 0, "blob", 4, big, (uint32_t)sizeof(big), merge_concat, NULL) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_merge(w, 0, "blob", 4, big, (uint32_t)sizeof(big), merge_concat, NULL) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_get_dbi(r, 0, "blob", 4, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "blob", 4, &v, &vl) == ERR_OK);
         CHECK(vl == (uint32_t)sizeof(big));
         CHECK(memcmp(v, big, sizeof(big)) == 0);
         txn_abort(r);
@@ -3228,8 +3228,8 @@ static void test_merge(void)
         uint32_t vl;
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_merge(w, 0, "new", 3, "!", 1, merge_overflow, NULL) == SAP_FULL);
-        CHECK(txn_get_dbi(w, 0, "new", 3, &v, &vl) == SAP_OK);
+        CHECK(txn_merge(w, 0, "new", 3, "!", 1, merge_overflow, NULL) == ERR_FULL);
+        CHECK(txn_get_dbi(w, 0, "new", 3, &v, &vl) == ERR_OK);
         CHECK(vl == 2 && memcmp(v, "xy", 2) == 0);
         txn_abort(w);
     }
@@ -3237,7 +3237,7 @@ static void test_merge(void)
     {
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_merge(r, 0, "k", 1, "x", 1, merge_concat, NULL) == SAP_READONLY);
+        CHECK(txn_merge(r, 0, "k", 1, "x", 1, merge_concat, NULL) == ERR_READONLY);
         txn_abort(r);
     }
 
@@ -3245,14 +3245,14 @@ static void test_merge(void)
         char z = 'z';
         w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_merge(w, 99, "k", 1, "x", 1, merge_concat, NULL) == SAP_ERROR);
-        CHECK(txn_merge(w, 0, NULL, 1, "x", 1, merge_concat, NULL) == SAP_ERROR);
-        CHECK(txn_merge(w, 0, "k", 1, NULL, 1, merge_concat, NULL) == SAP_ERROR);
-        CHECK(txn_merge(w, 0, "k", 1, "x", 1, NULL, NULL) == SAP_ERROR);
-        CHECK(txn_merge(w, 1, "k", 1, "x", 1, merge_concat, NULL) == SAP_ERROR);
-        CHECK(txn_merge(w, 0, "k", 1, "x", 1, merge_too_large, NULL) == SAP_FULL);
+        CHECK(txn_merge(w, 99, "k", 1, "x", 1, merge_concat, NULL) == ERR_INVALID);
+        CHECK(txn_merge(w, 0, NULL, 1, "x", 1, merge_concat, NULL) == ERR_INVALID);
+        CHECK(txn_merge(w, 0, "k", 1, NULL, 1, merge_concat, NULL) == ERR_INVALID);
+        CHECK(txn_merge(w, 0, "k", 1, "x", 1, NULL, NULL) == ERR_INVALID);
+        CHECK(txn_merge(w, 1, "k", 1, "x", 1, merge_concat, NULL) == ERR_INVALID);
+        CHECK(txn_merge(w, 0, "k", 1, "x", 1, merge_too_large, NULL) == ERR_FULL);
         CHECK(txn_merge(w, 0, &z, (uint32_t)UINT16_MAX + 1u, "x", 1, merge_concat, NULL) ==
-              SAP_FULL);
+              ERR_FULL);
         txn_abort(w);
     }
 
@@ -3267,7 +3267,7 @@ static void test_load_sorted(void)
 {
     SECTION("txn_load_sorted");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
     {
         uint8_t big[5000];
         const void *keys[] = {"q"};
@@ -3277,7 +3277,7 @@ static void test_load_sorted(void)
         fill_pattern(big, (uint32_t)sizeof(big), 17);
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 1) == SAP_FULL);
+        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 1) == ERR_FULL);
         txn_abort(w);
     }
 
@@ -3289,18 +3289,18 @@ static void test_load_sorted(void)
 
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 3) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 3) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
         const void *v;
         uint32_t vl;
-        CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "a", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "1", 1) == 0);
-        CHECK(txn_get_dbi(r, 0, "b", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "b", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "2", 1) == 0);
-        CHECK(txn_get_dbi(r, 0, "c", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "c", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "3", 1) == 0);
         txn_abort(r);
     }
@@ -3313,16 +3313,16 @@ static void test_load_sorted(void)
 
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
         const void *v;
         uint32_t vl;
-        CHECK(txn_get_dbi(r, 0, "b", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "b", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 2 && memcmp(v, "22", 2) == 0);
-        CHECK(txn_get_dbi(r, 0, "d", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "d", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "4", 1) == 0);
         txn_abort(r);
     }
@@ -3335,19 +3335,19 @@ static void test_load_sorted(void)
 
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_put_dbi(w, 0, "z", 1, "99", 2) == SAP_OK); /* force existing txn deltas */
-        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_put_dbi(w, 0, "z", 1, "99", 2) == ERR_OK); /* force existing txn deltas */
+        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
         const void *v;
         uint32_t vl;
-        CHECK(txn_get_dbi(r, 0, "z", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "z", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 2 && memcmp(v, "99", 2) == 0);
-        CHECK(txn_get_dbi(r, 0, "e", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "e", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "5", 1) == 0);
-        CHECK(txn_get_dbi(r, 0, "f", 1, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(r, 0, "f", 1, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "6", 1) == 0);
         txn_abort(r);
     }
@@ -3359,7 +3359,7 @@ static void test_load_sorted(void)
         const uint32_t val_lens[] = {1, 1};
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == SAP_ERROR);
+        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == ERR_INVALID);
         txn_abort(w);
     }
 
@@ -3370,7 +3370,7 @@ static void test_load_sorted(void)
         const uint32_t val_lens[] = {1, 1};
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == SAP_EXISTS);
+        CHECK(txn_load_sorted(w, 0, keys, key_lens, vals, val_lens, 2) == ERR_EXISTS);
         txn_abort(w);
     }
 
@@ -3381,16 +3381,16 @@ static void test_load_sorted(void)
         const uint32_t val_lens[] = {1, 1, 1, 1};
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 4) == SAP_OK);
-        CHECK(txn_commit(w) == SAP_OK);
+        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 4) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
 
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
         Cursor *cur = cursor_open_dbi(r, 1);
         CHECK(cur != NULL);
-        CHECK(cursor_seek_prefix(cur, "x", 1) == SAP_OK);
+        CHECK(cursor_seek_prefix(cur, "x", 1) == ERR_OK);
         uint64_t dup_count = 0;
-        CHECK(cursor_count_dup(cur, &dup_count) == SAP_OK);
+        CHECK(cursor_count_dup(cur, &dup_count) == ERR_OK);
         CHECK(dup_count == 3);
         cursor_close(cur);
         txn_abort(r);
@@ -3403,15 +3403,15 @@ static void test_load_sorted(void)
         const uint32_t val_lens[] = {1, 1};
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 2) == SAP_ERROR);
+        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals, val_lens, 2) == ERR_INVALID);
         txn_abort(w);
     }
 
     {
         Txn *w = txn_begin(db, NULL, 0);
         CHECK(w != NULL);
-        CHECK(txn_load_sorted(w, 0, NULL, NULL, NULL, NULL, 0) == SAP_OK);
-        CHECK(txn_load_sorted(w, 0, NULL, NULL, NULL, NULL, 1) == SAP_ERROR);
+        CHECK(txn_load_sorted(w, 0, NULL, NULL, NULL, NULL, 0) == ERR_OK);
+        CHECK(txn_load_sorted(w, 0, NULL, NULL, NULL, NULL, 1) == ERR_INVALID);
         txn_abort(w);
     }
 
@@ -3422,7 +3422,7 @@ static void test_load_sorted(void)
         const uint32_t val_lens[] = {1};
         Txn *r = txn_begin(db, NULL, TXN_RDONLY);
         CHECK(r != NULL);
-        CHECK(txn_load_sorted(r, 0, keys, key_lens, vals, val_lens, 1) == SAP_READONLY);
+        CHECK(txn_load_sorted(r, 0, keys, key_lens, vals, val_lens, 1) == ERR_READONLY);
         txn_abort(r);
     }
 
@@ -3439,33 +3439,33 @@ static void test_prefix_helpers(void)
     DB *db = new_db();
     Txn *txn = txn_begin(db, NULL, 0);
 
-    CHECK(txn_put(txn, "ab0", 3, "v", 1) == SAP_OK);
-    CHECK(txn_put(txn, "ab1", 3, "v", 1) == SAP_OK);
-    CHECK(txn_put(txn, "ab2", 3, "v", 1) == SAP_OK);
-    CHECK(txn_put(txn, "ac0", 3, "v", 1) == SAP_OK);
-    CHECK(txn_put(txn, "b00", 3, "v", 1) == SAP_OK);
+    CHECK(txn_put(txn, "ab0", 3, "v", 1) == ERR_OK);
+    CHECK(txn_put(txn, "ab1", 3, "v", 1) == ERR_OK);
+    CHECK(txn_put(txn, "ab2", 3, "v", 1) == ERR_OK);
+    CHECK(txn_put(txn, "ac0", 3, "v", 1) == ERR_OK);
+    CHECK(txn_put(txn, "b00", 3, "v", 1) == ERR_OK);
 
     Cursor *cur = cursor_open(txn);
     CHECK(cur != NULL);
-    CHECK(cursor_seek_prefix(cur, "ab", 2) == SAP_OK);
+    CHECK(cursor_seek_prefix(cur, "ab", 2) == ERR_OK);
 
     const void *k, *v;
     uint32_t kl, vl;
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 3 && memcmp(k, "ab0", 3) == 0);
     CHECK(cursor_in_prefix(cur, "ab", 2) == 1);
 
     uint32_t count = 0;
     do
     {
-        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
         CHECK(kl == 3 && memcmp(k, "ab", 2) == 0);
         count++;
-    } while (cursor_next(cur) == SAP_OK && cursor_in_prefix(cur, "ab", 2));
+    } while (cursor_next(cur) == ERR_OK && cursor_in_prefix(cur, "ab", 2));
     CHECK(count == 3);
 
     CHECK(cursor_in_prefix(cur, "ab", 2) == 0);
-    CHECK(cursor_seek_prefix(cur, "zz", 2) == SAP_NOTFOUND);
+    CHECK(cursor_seek_prefix(cur, "zz", 2) == ERR_NOT_FOUND);
 
     cursor_close(cur);
     txn_abort(txn);
@@ -3480,26 +3480,26 @@ static void test_dupsort_apis(void)
 {
     SECTION("DUPSORT APIs");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
 
     void *reserved = NULL;
-    CHECK(txn_put_flags_dbi(w, 1, "k", 1, NULL, 4, SAP_RESERVE, &reserved) == SAP_ERROR);
+    CHECK(txn_put_flags_dbi(w, 1, "k", 1, NULL, 4, SAP_RESERVE, &reserved) == ERR_INVALID);
     {
         uint8_t big[5000];
         fill_pattern(big, (uint32_t)sizeof(big), 13);
-        CHECK(txn_put_dbi(w, 1, "overflow-like", 13, big, (uint32_t)sizeof(big)) == SAP_FULL);
+        CHECK(txn_put_dbi(w, 1, "overflow-like", 13, big, (uint32_t)sizeof(big)) == ERR_FULL);
     }
 
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v1", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v3", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == SAP_OK); /* exact duplicate is a no-op */
-    CHECK(txn_put_dbi(w, 1, "m", 1, "x1", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "m", 1, "x0", 2) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v1", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v3", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == ERR_OK); /* exact duplicate is a no-op */
+    CHECK(txn_put_dbi(w, 1, "m", 1, "x1", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "m", 1, "x0", 2) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
@@ -3507,78 +3507,78 @@ static void test_dupsort_apis(void)
     const void *v;
     uint32_t kl;
     uint32_t vl;
-    CHECK(txn_get_dbi(r, 1, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "k", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v1", 2) == 0);
 
     Cursor *cur = cursor_open_dbi(r, 1);
     CHECK(cur != NULL);
-    CHECK(cursor_seek_prefix(cur, "k", 1) == SAP_OK);
+    CHECK(cursor_seek_prefix(cur, "k", 1) == ERR_OK);
 
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "k", 1) == 0);
     CHECK(vl == 2 && memcmp(v, "v1", 2) == 0);
     CHECK(cursor_in_prefix(cur, "k", 1) == 1);
 
     uint64_t dup_count = 0;
-    CHECK(cursor_count_dup(cur, &dup_count) == SAP_OK);
+    CHECK(cursor_count_dup(cur, &dup_count) == ERR_OK);
     CHECK(dup_count == 3);
 
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v2", 2) == 0);
 
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v3", 2) == 0);
 
-    CHECK(cursor_next_dup(cur) == SAP_NOTFOUND);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_NOT_FOUND);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v3", 2) == 0);
 
-    CHECK(cursor_prev_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_prev_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v2", 2) == 0);
 
-    CHECK(cursor_first_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_first_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v1", 2) == 0);
 
-    CHECK(cursor_last_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_last_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v3", 2) == 0);
 
-    CHECK(cursor_seek_prefix(cur, "m", 1) == SAP_OK);
-    CHECK(cursor_count_dup(cur, &dup_count) == SAP_OK);
+    CHECK(cursor_seek_prefix(cur, "m", 1) == ERR_OK);
+    CHECK(cursor_count_dup(cur, &dup_count) == ERR_OK);
     CHECK(dup_count == 2);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "x0", 2) == 0);
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "x1", 2) == 0);
-    CHECK(cursor_next_dup(cur) == SAP_NOTFOUND);
+    CHECK(cursor_next_dup(cur) == ERR_NOT_FOUND);
 
-    CHECK(cursor_seek_prefix(cur, "z", 1) == SAP_NOTFOUND);
+    CHECK(cursor_seek_prefix(cur, "z", 1) == ERR_NOT_FOUND);
     cursor_close(cur);
     txn_abort(r);
 
     Txn *w2 = txn_begin(db, NULL, 0);
     CHECK(w2 != NULL);
-    CHECK(txn_del_dup_dbi(w2, 1, "k", 1, "v2", 2) == SAP_OK);
-    CHECK(txn_del_dup_dbi(w2, 1, "k", 1, "qq", 2) == SAP_NOTFOUND);
-    CHECK(txn_del_dup_dbi(w2, 0, "k", 1, "v1", 2) == SAP_ERROR);
-    CHECK(txn_commit(w2) == SAP_OK);
+    CHECK(txn_del_dup_dbi(w2, 1, "k", 1, "v2", 2) == ERR_OK);
+    CHECK(txn_del_dup_dbi(w2, 1, "k", 1, "qq", 2) == ERR_NOT_FOUND);
+    CHECK(txn_del_dup_dbi(w2, 0, "k", 1, "v1", 2) == ERR_INVALID);
+    CHECK(txn_commit(w2) == ERR_OK);
 
     Txn *r2 = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r2 != NULL);
     Cursor *cur2 = cursor_open_dbi(r2, 1);
     CHECK(cur2 != NULL);
-    CHECK(cursor_seek_prefix(cur2, "k", 1) == SAP_OK);
-    CHECK(cursor_count_dup(cur2, &dup_count) == SAP_OK);
+    CHECK(cursor_seek_prefix(cur2, "k", 1) == ERR_OK);
+    CHECK(cursor_count_dup(cur2, &dup_count) == ERR_OK);
     CHECK(dup_count == 2);
-    CHECK(cursor_get(cur2, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_get(cur2, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v1", 2) == 0);
-    CHECK(cursor_next_dup(cur2) == SAP_OK);
-    CHECK(cursor_get(cur2, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur2) == ERR_OK);
+    CHECK(cursor_get(cur2, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v3", 2) == 0);
     cursor_close(cur2);
     txn_abort(r2);
@@ -3587,11 +3587,11 @@ static void test_dupsort_apis(void)
     CHECK(r3 != NULL);
     Cursor *nondup = cursor_open(r3);
     CHECK(nondup != NULL);
-    CHECK(cursor_next_dup(nondup) == SAP_ERROR);
-    CHECK(cursor_prev_dup(nondup) == SAP_ERROR);
-    CHECK(cursor_first_dup(nondup) == SAP_ERROR);
-    CHECK(cursor_last_dup(nondup) == SAP_ERROR);
-    CHECK(cursor_count_dup(nondup, &dup_count) == SAP_ERROR);
+    CHECK(cursor_next_dup(nondup) == ERR_INVALID);
+    CHECK(cursor_prev_dup(nondup) == ERR_INVALID);
+    CHECK(cursor_first_dup(nondup) == ERR_INVALID);
+    CHECK(cursor_last_dup(nondup) == ERR_INVALID);
+    CHECK(cursor_count_dup(nondup, &dup_count) == ERR_INVALID);
     cursor_close(nondup);
     txn_abort(r3);
 
@@ -3606,14 +3606,14 @@ static void test_dupsort_value_comparator(void)
 {
     SECTION("DUPSORT value comparator");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
-    CHECK(dbi_set_dupsort(db, 1, reverse_cmp, NULL) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
+    CHECK(dbi_set_dupsort(db, 1, reverse_cmp, NULL) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v1", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v3", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == SAP_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v1", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v3", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "k", 1, "v2", 2) == ERR_OK);
 
     {
         const void *keys[] = {"q", "q", "q"};
@@ -3622,10 +3622,10 @@ static void test_dupsort_value_comparator(void)
         const void *vals_asc[] = {"a", "b", "c"};
         const uint32_t val_lens[] = {1, 1, 1};
 
-        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals_desc, val_lens, 3) == SAP_OK);
-        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals_asc, val_lens, 3) == SAP_ERROR);
+        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals_desc, val_lens, 3) == ERR_OK);
+        CHECK(txn_load_sorted(w, 1, keys, key_lens, vals_asc, val_lens, 3) == ERR_INVALID);
     }
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
@@ -3634,41 +3634,41 @@ static void test_dupsort_value_comparator(void)
     uint32_t kl;
     uint32_t vl;
 
-    CHECK(txn_get_dbi(r, 1, "k", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "k", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 2 && memcmp(v, "v3", 2) == 0);
 
     Cursor *cur = cursor_open_dbi(r, 1);
     CHECK(cur != NULL);
-    CHECK(cursor_seek_prefix(cur, "k", 1) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_seek_prefix(cur, "k", 1) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "k", 1) == 0);
     CHECK(vl == 2 && memcmp(v, "v3", 2) == 0);
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "k", 1) == 0);
     CHECK(vl == 2 && memcmp(v, "v2", 2) == 0);
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "k", 1) == 0);
     CHECK(vl == 2 && memcmp(v, "v1", 2) == 0);
 
-    CHECK(cursor_seek_prefix(cur, "q", 1) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_seek_prefix(cur, "q", 1) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "q", 1) == 0);
     CHECK(vl == 1 && memcmp(v, "c", 1) == 0);
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "q", 1) == 0);
     CHECK(vl == 1 && memcmp(v, "b", 1) == 0);
-    CHECK(cursor_next_dup(cur) == SAP_OK);
-    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+    CHECK(cursor_next_dup(cur) == ERR_OK);
+    CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
     CHECK(kl == 1 && memcmp(k, "q", 1) == 0);
     CHECK(vl == 1 && memcmp(v, "a", 1) == 0);
 
     uint64_t count = 0;
-    CHECK(txn_count_range(r, 1, "k", 1, "l", 1, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 1, "k", 1, "l", 1, &count) == ERR_OK);
     CHECK(count == 3);
-    CHECK(txn_count_range(r, 1, "k", 1, "r", 1, &count) == SAP_OK);
+    CHECK(txn_count_range(r, 1, "k", 1, "r", 1, &count) == ERR_OK);
     CHECK(count == 6);
 
     cursor_close(cur);
@@ -3677,14 +3677,14 @@ static void test_dupsort_value_comparator(void)
     uint64_t deleted = 0;
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_del_range(w, 1, "k", 1, "l", 1, &deleted) == SAP_OK);
+    CHECK(txn_del_range(w, 1, "k", 1, "l", 1, &deleted) == ERR_OK);
     CHECK(deleted == 3);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(txn_get_dbi(r, 1, "k", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 1, "q", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 1, "k", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 1, "q", 1, &v, &vl) == ERR_OK);
     CHECK(vl == 1 && memcmp(v, "c", 1) == 0);
     txn_abort(r);
 
@@ -3699,28 +3699,28 @@ static void test_dbi_guards(void)
 {
     SECTION("DBI lifecycle guards");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
 
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(dbi_open(db, 2, NULL, NULL, 0) == SAP_BUSY);
-    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == SAP_BUSY);
+    CHECK(dbi_open(db, 2, NULL, NULL, 0) == ERR_BUSY);
+    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == ERR_BUSY);
     txn_abort(w);
 
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(r != NULL);
-    CHECK(dbi_open(db, 2, NULL, NULL, 0) == SAP_BUSY);
-    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == SAP_BUSY);
+    CHECK(dbi_open(db, 2, NULL, NULL, 0) == ERR_BUSY);
+    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == ERR_BUSY);
 
     /* Invalid DBI should not produce an unsafe cursor. */
     Cursor *bad = cursor_open_dbi(r, 999u);
     CHECK(bad == NULL);
-    CHECK(txn_del_dup_dbi(r, 999u, "k", 1, "v", 1) == SAP_ERROR);
+    CHECK(txn_del_dup_dbi(r, 999u, "k", 1, "v", 1) == ERR_INVALID);
     txn_abort(r);
 
     /* Once no txns are active, DBI metadata changes are allowed. */
-    CHECK(dbi_open(db, 2, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == SAP_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == ERR_OK);
 
     db_close(db);
 }
@@ -3733,7 +3733,7 @@ static void test_cursor_put(void)
 {
     SECTION("cursor_put");
     DB *db = new_db();
-    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
     Txn *txn = txn_begin(db, NULL, 0);
 
     for (int i = 0; i < 100; i++)
@@ -3746,11 +3746,11 @@ static void test_cursor_put(void)
 
     /* Scan and update all values via cursor */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     do
     {
-        CHECK(cursor_put(cur, "UPDATED", 7, 0) == SAP_OK);
-    } while (cursor_next(cur) == SAP_OK);
+        CHECK(cursor_put(cur, "UPDATED", 7, 0) == ERR_OK);
+    } while (cursor_next(cur) == ERR_OK);
     cursor_close(cur);
 
     {
@@ -3761,10 +3761,10 @@ static void test_cursor_put(void)
 
         cur = cursor_open(txn);
         CHECK(cur != NULL);
-        CHECK(cursor_first(cur) == SAP_OK);
-        CHECK(cursor_put(cur, "IGNORED", 7, SAP_RESERVE) == SAP_ERROR);
-        CHECK(cursor_put(cur, "IGNORED", 7, SAP_NOOVERWRITE) == SAP_ERROR);
-        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK);
+        CHECK(cursor_first(cur) == ERR_OK);
+        CHECK(cursor_put(cur, "IGNORED", 7, SAP_RESERVE) == ERR_INVALID);
+        CHECK(cursor_put(cur, "IGNORED", 7, SAP_NOOVERWRITE) == ERR_INVALID);
+        CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
         CHECK(vl == 7 && memcmp(v, "UPDATED", 7) == 0);
         cursor_close(cur);
     }
@@ -3772,13 +3772,13 @@ static void test_cursor_put(void)
     {
         const void *v;
         uint32_t vl;
-        CHECK(txn_put_dbi(txn, 1, "dup", 3, "a", 1) == SAP_OK);
+        CHECK(txn_put_dbi(txn, 1, "dup", 3, "a", 1) == ERR_OK);
         cur = cursor_open_dbi(txn, 1);
         CHECK(cur != NULL);
-        CHECK(cursor_first(cur) == SAP_OK);
-        CHECK(cursor_put(cur, "b", 1, 0) == SAP_ERROR);
+        CHECK(cursor_first(cur) == ERR_OK);
+        CHECK(cursor_put(cur, "b", 1, 0) == ERR_INVALID);
         cursor_close(cur);
-        CHECK(txn_get_dbi(txn, 1, "dup", 3, &v, &vl) == SAP_OK);
+        CHECK(txn_get_dbi(txn, 1, "dup", 3, &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "a", 1) == 0);
     }
 
@@ -3790,7 +3790,7 @@ static void test_cursor_put(void)
         snprintf(kbuf, sizeof(kbuf), "k%04d", i);
         const void *v;
         uint32_t vl;
-        if (txn_get(txn, kbuf, 5, &v, &vl) != SAP_OK || vl != 7 || memcmp(v, "UPDATED", 7) != 0)
+        if (txn_get(txn, kbuf, 5, &v, &vl) != ERR_OK || vl != 7 || memcmp(v, "UPDATED", 7) != 0)
             errors++;
     }
     CHECK(errors == 0);
@@ -3815,15 +3815,15 @@ static void test_cursor_put(void)
 
         txn = txn_begin(sdb, NULL, 0);
         CHECK(txn != NULL);
-        CHECK(txn_put(txn, key, (uint32_t)sizeof(key), "x", 1) == SAP_OK);
+        CHECK(txn_put(txn, key, (uint32_t)sizeof(key), "x", 1) == ERR_OK);
 
         cur = cursor_open(txn);
         CHECK(cur != NULL);
-        CHECK(cursor_seek(cur, key, (uint32_t)sizeof(key)) == SAP_OK);
-        CHECK(cursor_put(cur, big, (uint32_t)sizeof(big), 0) == SAP_FULL);
+        CHECK(cursor_seek(cur, key, (uint32_t)sizeof(key)) == ERR_OK);
+        CHECK(cursor_put(cur, big, (uint32_t)sizeof(big), 0) == ERR_FULL);
         cursor_close(cur);
 
-        CHECK(txn_get(txn, key, (uint32_t)sizeof(key), &v, &vl) == SAP_OK);
+        CHECK(txn_get(txn, key, (uint32_t)sizeof(key), &v, &vl) == ERR_OK);
         CHECK(vl == 1 && memcmp(v, "x", 1) == 0);
 
         txn_abort(txn);
@@ -3850,24 +3850,24 @@ static void test_cursor_del(void)
 
     /* Delete every other entry via cursor */
     Cursor *cur = cursor_open(txn);
-    CHECK(cursor_first(cur) == SAP_OK);
+    CHECK(cursor_first(cur) == ERR_OK);
     int deleted = 0;
     int idx = 0;
     do
     {
         if (idx % 2 == 0)
         {
-            CHECK(cursor_del(cur) == SAP_OK);
+            CHECK(cursor_del(cur) == ERR_OK);
             deleted++;
             /* After del, cursor auto-advances to next entry (or becomes invalid) */
             const void *k, *v;
             uint32_t kl, vl;
-            if (cursor_get(cur, &k, &kl, &v, &vl) != SAP_OK)
+            if (cursor_get(cur, &k, &kl, &v, &vl) != ERR_OK)
                 break;
             idx++;
         }
         idx++;
-    } while (cursor_next(cur) == SAP_OK);
+    } while (cursor_next(cur) == ERR_OK);
     cursor_close(cur);
 
     SapStat stat;
@@ -3898,9 +3898,9 @@ static void test_cursor_del_all(void)
     /* Delete all via cursor — re-seek when cursor invalidated by collapse */
     Cursor *cur = cursor_open(txn);
     int count = 0;
-    while (cursor_first(cur) == SAP_OK)
+    while (cursor_first(cur) == ERR_OK)
     {
-        CHECK(cursor_del(cur) == SAP_OK);
+        CHECK(cursor_del(cur) == ERR_OK);
         count++;
     }
     cursor_close(cur);
@@ -3925,14 +3925,14 @@ static void test_watch_notifications(void)
     struct WatchLog log;
     memset(&log, 0, sizeof(log));
 
-    CHECK(db_watch(db, "a", 1, watch_collect, &log) == SAP_OK);
+    CHECK(db_watch(db, "a", 1, watch_collect, &log) == ERR_OK);
 
     Txn *txn = txn_begin(db, NULL, 0);
-    CHECK(str_put(txn, "apple", "1") == SAP_OK);
-    CHECK(str_put(txn, "banana", "2") == SAP_OK);
-    CHECK(str_put(txn, "apricot", "3") == SAP_OK);
-    CHECK(str_del(txn, "apricot") == SAP_OK);
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(str_put(txn, "apple", "1") == ERR_OK);
+    CHECK(str_put(txn, "banana", "2") == ERR_OK);
+    CHECK(str_put(txn, "apricot", "3") == ERR_OK);
+    CHECK(str_del(txn, "apricot") == ERR_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
 
     CHECK(log.count == 2);
     CHECK(log.events[0].key_len == 5);
@@ -3946,12 +3946,12 @@ static void test_watch_notifications(void)
     CHECK(log.events[1].has_val == 0);
     CHECK(log.events[1].val_len == 0);
 
-    CHECK(db_unwatch(db, "a", 1, watch_collect, &log) == SAP_OK);
-    CHECK(db_unwatch(db, "a", 1, watch_collect, &log) == SAP_NOTFOUND);
+    CHECK(db_unwatch(db, "a", 1, watch_collect, &log) == ERR_OK);
+    CHECK(db_unwatch(db, "a", 1, watch_collect, &log) == ERR_NOT_FOUND);
 
     txn = txn_begin(db, NULL, 0);
-    CHECK(str_put(txn, "apple", "9") == SAP_OK);
-    CHECK(txn_commit(txn) == SAP_OK);
+    CHECK(str_put(txn, "apple", "9") == ERR_OK);
+    CHECK(txn_commit(txn) == ERR_OK);
     CHECK(log.count == 2);
 
     db_close(db);
@@ -3964,16 +3964,16 @@ static void test_watch_nested_commit(void)
     struct WatchLog log;
     memset(&log, 0, sizeof(log));
 
-    CHECK(db_watch(db, "k", 1, watch_collect, &log) == SAP_OK);
+    CHECK(db_watch(db, "k", 1, watch_collect, &log) == ERR_OK);
 
     Txn *outer = txn_begin(db, NULL, 0);
     Txn *inner = txn_begin(db, outer, 0);
-    CHECK(str_put(inner, "k1", "v1") == SAP_OK);
-    CHECK(txn_commit(inner) == SAP_OK);
+    CHECK(str_put(inner, "k1", "v1") == ERR_OK);
+    CHECK(txn_commit(inner) == ERR_OK);
     CHECK(log.count == 0); /* child commit does not notify */
 
-    CHECK(str_put(outer, "k2", "v2") == SAP_OK);
-    CHECK(txn_commit(outer) == SAP_OK);
+    CHECK(str_put(outer, "k2", "v2") == ERR_OK);
+    CHECK(txn_commit(outer) == ERR_OK);
     CHECK(log.count == 2);
 
     CHECK(log.events[0].key_len == 2);
@@ -3990,12 +3990,12 @@ static void test_watch_nested_commit(void)
 
     outer = txn_begin(db, NULL, 0);
     inner = txn_begin(db, outer, 0);
-    CHECK(str_put(inner, "k3", "v3") == SAP_OK);
-    CHECK(txn_commit(inner) == SAP_OK);
+    CHECK(str_put(inner, "k3", "v3") == ERR_OK);
+    CHECK(txn_commit(inner) == ERR_OK);
     txn_abort(outer);
     CHECK(log.count == 2); /* abort discards pending notifications */
 
-    CHECK(db_unwatch(db, "k", 1, watch_collect, &log) == SAP_OK);
+    CHECK(db_unwatch(db, "k", 1, watch_collect, &log) == ERR_OK);
     db_close(db);
 }
 
@@ -4008,32 +4008,32 @@ static void test_watch_api_hardening(void)
     memset(&log0, 0, sizeof(log0));
     memset(&log1, 0, sizeof(log1));
 
-    CHECK(dbi_open(db, 1, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 2, NULL, NULL, DBI_DUPSORT) == SAP_OK);
+    CHECK(dbi_open(db, 1, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 2, NULL, NULL, DBI_DUPSORT) == ERR_OK);
 
-    CHECK(db_watch(db, "a", 1, watch_collect, &log0) == SAP_OK);
-    CHECK(db_watch(db, "a", 1, watch_collect, &log0) == SAP_EXISTS);
-    CHECK(db_watch_dbi(db, 1, "a", 1, watch_collect, &log1) == SAP_OK);
-    CHECK(db_watch_dbi(db, 1, "a", 1, watch_collect, &log1) == SAP_EXISTS);
-    CHECK(db_watch_dbi(db, 2, "a", 1, watch_collect, &log1) == SAP_ERROR);
-    CHECK(db_watch_dbi(db, 99, "a", 1, watch_collect, &log1) == SAP_ERROR);
+    CHECK(db_watch(db, "a", 1, watch_collect, &log0) == ERR_OK);
+    CHECK(db_watch(db, "a", 1, watch_collect, &log0) == ERR_EXISTS);
+    CHECK(db_watch_dbi(db, 1, "a", 1, watch_collect, &log1) == ERR_OK);
+    CHECK(db_watch_dbi(db, 1, "a", 1, watch_collect, &log1) == ERR_EXISTS);
+    CHECK(db_watch_dbi(db, 2, "a", 1, watch_collect, &log1) == ERR_INVALID);
+    CHECK(db_watch_dbi(db, 99, "a", 1, watch_collect, &log1) == ERR_INVALID);
 
     /* DBI metadata change is blocked while watchers are installed. */
-    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == SAP_BUSY);
+    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == ERR_BUSY);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(db_watch(db, "b", 1, watch_collect, &log0) == SAP_BUSY);
-    CHECK(db_unwatch(db, "a", 1, watch_collect, &log0) == SAP_BUSY);
-    CHECK(db_watch_dbi(db, 1, "b", 1, watch_collect, &log1) == SAP_BUSY);
-    CHECK(db_unwatch_dbi(db, 1, "a", 1, watch_collect, &log1) == SAP_BUSY);
+    CHECK(db_watch(db, "b", 1, watch_collect, &log0) == ERR_BUSY);
+    CHECK(db_unwatch(db, "a", 1, watch_collect, &log0) == ERR_BUSY);
+    CHECK(db_watch_dbi(db, 1, "b", 1, watch_collect, &log1) == ERR_BUSY);
+    CHECK(db_unwatch_dbi(db, 1, "a", 1, watch_collect, &log1) == ERR_BUSY);
     txn_abort(w);
 
     w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_dbi(w, 0, "a0", 2, "v0", 2) == SAP_OK);
-    CHECK(txn_put_dbi(w, 1, "a1", 2, "v1", 2) == SAP_OK);
-    CHECK(txn_commit(w) == SAP_OK);
+    CHECK(txn_put_dbi(w, 0, "a0", 2, "v0", 2) == ERR_OK);
+    CHECK(txn_put_dbi(w, 1, "a1", 2, "v1", 2) == ERR_OK);
+    CHECK(txn_commit(w) == ERR_OK);
 
     CHECK(log0.count == 1);
     CHECK(log0.events[0].key_len == 2);
@@ -4049,10 +4049,10 @@ static void test_watch_api_hardening(void)
     CHECK(log1.events[0].val_len == 2);
     CHECK(memcmp(log1.events[0].val, "v1", 2) == 0);
 
-    CHECK(db_unwatch(db, "a", 1, watch_collect, &log1) == SAP_NOTFOUND);
-    CHECK(db_unwatch(db, "a", 1, watch_collect, &log0) == SAP_OK);
-    CHECK(db_unwatch_dbi(db, 1, "a", 1, watch_collect, &log1) == SAP_OK);
-    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == SAP_OK);
+    CHECK(db_unwatch(db, "a", 1, watch_collect, &log1) == ERR_NOT_FOUND);
+    CHECK(db_unwatch(db, "a", 1, watch_collect, &log0) == ERR_OK);
+    CHECK(db_unwatch_dbi(db, 1, "a", 1, watch_collect, &log1) == ERR_OK);
+    CHECK(dbi_set_dupsort(db, 1, NULL, NULL) == ERR_OK);
 
     db_close(db);
 }
@@ -4075,13 +4075,13 @@ static void *reader_thread(void *arg)
         Cursor *cur = cursor_open(r);
         if (cur)
         {
-            if (cursor_first(cur) == SAP_OK)
+            if (cursor_first(cur) == ERR_OK)
             {
                 const void *k, *v;
                 uint32_t kl, vl;
-                while (cursor_get(cur, &k, &kl, &v, &vl) == SAP_OK)
+                while (cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK)
                 {
-                    if (cursor_next(cur) != SAP_OK)
+                    if (cursor_next(cur) != ERR_OK)
                         break;
                 }
             }
@@ -4158,7 +4158,7 @@ static void test_writer_reader_concurrent(void)
         snprintf(kbuf, sizeof(kbuf), "tw%06d", i);
         const void *v;
         uint32_t vl;
-        if (txn_get(r, kbuf, (uint32_t)strlen(kbuf), &v, &vl) == SAP_OK)
+        if (txn_get(r, kbuf, (uint32_t)strlen(kbuf), &v, &vl) == ERR_OK)
             found++;
     }
     CHECK(found == 500);
@@ -4170,12 +4170,12 @@ static void test_writer_reader_concurrent(void)
 #endif /* SAPLING_THREADED */
 
 /* ================================================================== */
-/* Regression: txn_put(NULL, ...) must return SAP_ERROR, not crash     */
+/* Regression: txn_put(NULL, ...) must return ERR_INVALID, not crash     */
 /* ================================================================== */
 static void test_null_txn_put(void) {
     printf("test_null_txn_put...\n");
-    CHECK(txn_put(NULL, "k", 1, "v", 1) == SAP_ERROR);
-    CHECK(txn_put_flags(NULL, "k", 1, "v", 1, 0, NULL) == SAP_ERROR);
+    CHECK(txn_put(NULL, "k", 1, "v", 1) == ERR_INVALID);
+    CHECK(txn_put_flags(NULL, "k", 1, "v", 1, 0, NULL) == ERR_INVALID);
     printf("  ok\n");
 }
 

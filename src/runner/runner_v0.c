@@ -181,13 +181,13 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
     (void)due_ts;
     if (!tctx || !tctx->worker || !payload || payload_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     worker = tctx->worker;
 
     metrics_note_step_attempt(&worker->runner);
     step_start_ms = worker_now_ms(worker);
-    emit_replay_event(&worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT, seq, SAP_OK,
+    emit_replay_event(&worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_ATTEMPT, seq, ERR_OK,
                       payload, payload_len);
     rc = sap_runner_v0_run_step(&worker->runner, payload, payload_len, worker->handler,
                                 worker->handler_ctx);
@@ -195,7 +195,7 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
     metrics_note_latency(&worker->runner, step_start_ms, step_end_ms);
     emit_replay_event(&worker->runner, SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT, seq, (int32_t)rc,
                       payload, payload_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         metrics_note_failure(&worker->runner, rc);
         emit_log_event(&worker->runner,
@@ -208,7 +208,7 @@ static int timer_dispatch_handler(int64_t due_ts, uint64_t seq, const uint8_t *p
 
     metrics_note_step_success(&worker->runner);
     tctx->count++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1] << 8)); }
@@ -269,20 +269,20 @@ static int validate_schema_value(const void *val, uint32_t val_len, uint16_t exp
 
     if (!raw || val_len != RUNNER_SCHEMA_VAL_LEN)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
     if (memcmp(raw, k_runner_schema_magic, sizeof(k_runner_schema_magic)) != 0)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     major = rd16(raw + 4);
     minor = rd16(raw + 6);
     if (major != expected_major || minor != expected_minor)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int copy_bytes(const uint8_t *src, uint32_t len, uint8_t **dst_out)
@@ -291,16 +291,16 @@ static int copy_bytes(const uint8_t *src, uint32_t len, uint8_t **dst_out)
 
     if (!src || !dst_out || len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     dst = (uint8_t *)malloc((size_t)len);
     if (!dst)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     memcpy(dst, src, len);
     *dst_out = dst;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
@@ -318,7 +318,7 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
 
     if (!db || !key_out || !key_len_out || !frame_out || !frame_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *key_out = NULL;
     *frame_out = NULL;
@@ -328,19 +328,19 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     cur = cursor_open_dbi(txn, SAP_WIT_DBI_INBOX);
     if (!cur)
     {
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     sap_runner_v0_inbox_key_encode((uint64_t)worker_id, 0u, prefix);
     rc = cursor_seek_prefix(cur, prefix, 8u);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -348,7 +348,7 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
     }
 
     rc = cursor_get(cur, &key, &key_len, &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -358,24 +358,24 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
     {
         cursor_close(cur);
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (val_len == 0u)
     {
         cursor_close(cur);
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = copy_bytes((const uint8_t *)key, key_len, key_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
         return rc;
     }
     rc = copy_bytes((const uint8_t *)val, val_len, frame_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         free(*key_out);
         *key_out = NULL;
@@ -388,10 +388,10 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
 
     cursor_close(cur);
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
-static int is_retryable_step_rc(int rc) { return rc == SAP_BUSY || rc == SAP_CONFLICT; }
+static int is_retryable_step_rc(int rc) { return rc == ERR_BUSY || rc == ERR_CONFLICT; }
 
 static void emit_metrics_snapshot(const SapRunnerV0 *runner)
 {
@@ -479,11 +479,11 @@ static void metrics_note_failure(SapRunnerV0 *runner, int rc)
     if (is_retryable_step_rc(rc))
     {
         runner->metrics.retryable_failures++;
-        if (rc == SAP_CONFLICT)
+        if (rc == ERR_CONFLICT)
         {
             runner->metrics.conflict_failures++;
         }
-        else if (rc == SAP_BUSY)
+        else if (rc == ERR_BUSY)
         {
             runner->metrics.busy_failures++;
         }
@@ -546,22 +546,22 @@ static int extract_message_id_from_frame(const uint8_t *frame, uint32_t frame_le
     }
     if (!frame || frame_len == 0u || !message_id_out || !message_id_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_message_v0_decode(frame, frame_len, &msg);
     if (rc != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (!msg.message_id || msg.message_id_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     *message_id_out = msg.message_id;
     *message_id_len_out = msg.message_id_len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int make_retry_key(const uint8_t *message_id, uint32_t message_id_len, uint8_t **key_out,
@@ -572,23 +572,23 @@ static int make_retry_key(const uint8_t *message_id, uint32_t message_id_len, ui
 
     if (!message_id || message_id_len == 0u || !key_out || !key_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (message_id_len > (UINT32_MAX - RUNNER_RETRY_KEY_PREFIX_LEN))
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
     key_len = RUNNER_RETRY_KEY_PREFIX_LEN + message_id_len;
     key = (uint8_t *)malloc((size_t)key_len);
     if (!key)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     memcpy(key, RUNNER_RETRY_KEY_PREFIX, RUNNER_RETRY_KEY_PREFIX_LEN);
     memcpy(key + RUNNER_RETRY_KEY_PREFIX_LEN, message_id, message_id_len);
     *key_out = key;
     *key_len_out = key_len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int retry_count_increment(DB *db, const uint8_t *message_id, uint32_t message_id_len,
@@ -609,10 +609,10 @@ static int retry_count_increment(DB *db, const uint8_t *message_id, uint32_t mes
     }
     if (!db || !message_id || message_id_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = make_retry_key(message_id, message_id_len, &key, &key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -621,28 +621,28 @@ static int retry_count_increment(DB *db, const uint8_t *message_id, uint32_t mes
     if (!txn)
     {
         free(key);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_DEDUPE, key, key_len, &cur, &cur_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         count = 1u;
     }
-    else if (rc == SAP_OK)
+    else if (rc == ERR_OK)
     {
         if (cur_len != sizeof(raw_count))
         {
             free(key);
             txn_abort(txn);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         count = rd32((const uint8_t *)cur);
         if (count == UINT32_MAX)
         {
             free(key);
             txn_abort(txn);
-            return SAP_FULL;
+            return ERR_FULL;
         }
         count++;
     }
@@ -656,13 +656,13 @@ static int retry_count_increment(DB *db, const uint8_t *message_id, uint32_t mes
     wr32(raw_count, count);
     rc = txn_put_dbi(txn, SAP_WIT_DBI_DEDUPE, key, key_len, raw_count, sizeof(raw_count));
     free(key);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
     }
     rc = txn_commit(txn);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -670,7 +670,7 @@ static int retry_count_increment(DB *db, const uint8_t *message_id, uint32_t mes
     {
         *count_out = count;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int retry_count_clear(DB *db, const uint8_t *message_id, uint32_t message_id_len)
@@ -682,10 +682,10 @@ static int retry_count_clear(DB *db, const uint8_t *message_id, uint32_t message
 
     if (!db || !message_id || message_id_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = make_retry_key(message_id, message_id_len, &key, &key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -694,17 +694,17 @@ static int retry_count_clear(DB *db, const uint8_t *message_id, uint32_t message
     if (!txn)
     {
         free(key);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_del_dbi(txn, SAP_WIT_DBI_DEDUPE, key, key_len);
     free(key);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -724,31 +724,31 @@ static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_
 
     if (!db || !next_seq_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *next_seq_out = 0u;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     cur = cursor_open_dbi(txn, SAP_WIT_DBI_INBOX);
     if (!cur)
     {
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     sap_runner_v0_inbox_key_encode(worker_id, 0u, prefix);
     rc = cursor_seek_prefix(cur, prefix, 8u);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         cursor_close(cur);
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -767,14 +767,14 @@ static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_
         rc = cursor_get(cur, &key, &key_len, &val, &val_len);
         (void)val;
         (void)val_len;
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
             return rc;
         }
         rc = sap_runner_v0_inbox_key_decode((const uint8_t *)key, key_len, &key_worker, &key_seq);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -789,11 +789,11 @@ static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_
         last_seq = key_seq;
 
         rc = cursor_next(cur);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -807,14 +807,14 @@ static int next_inbox_seq_for_worker(DB *db, uint64_t worker_id, uint64_t *next_
     if (!have_any)
     {
         *next_seq_out = 0u;
-        return SAP_OK;
+        return ERR_OK;
     }
     if (last_seq == UINT64_MAX)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
     *next_seq_out = last_seq + 1u;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t seq,
@@ -825,19 +825,19 @@ static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t se
 
     if (!db || !expected_lease)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     if (max_attempts == 0u)
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
 
     for (attempt = 0u; attempt < max_attempts; attempt++)
     {
         uint64_t new_seq = 0u;
         int rc = next_inbox_seq_for_worker(db, worker_id, &new_seq);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
@@ -845,19 +845,19 @@ static int requeue_claimed_inbox_message(DB *db, uint64_t worker_id, uint64_t se
         {
             if (new_seq == UINT64_MAX)
             {
-                return SAP_FULL;
+                return ERR_FULL;
             }
             new_seq++;
         }
 
         rc = sap_runner_mailbox_v0_requeue(db, worker_id, seq, expected_lease, new_seq);
-        if (rc == SAP_EXISTS || rc == SAP_CONFLICT || rc == SAP_BUSY)
+        if (rc == ERR_EXISTS || rc == ERR_CONFLICT || rc == ERR_BUSY)
         {
             continue;
         }
         return rc;
     }
-    return SAP_BUSY;
+    return ERR_BUSY;
 }
 
 int sap_runner_v0_bootstrap_dbis(DB *db)
@@ -866,15 +866,15 @@ int sap_runner_v0_bootstrap_dbis(DB *db)
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (sap_wit_dbi_schema_count == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (sap_wit_dbi_schema[0].dbi != SAP_WIT_DBI_APP_STATE)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     for (i = 1u; i < sap_wit_dbi_schema_count; i++)
@@ -884,15 +884,15 @@ int sap_runner_v0_bootstrap_dbis(DB *db)
 
         if (entry->dbi != i)
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
         rc = dbi_open(db, entry->dbi, NULL, NULL, 0u);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_t expected_minor,
@@ -905,30 +905,30 @@ int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_APP_STATE, k_runner_schema_key, RUNNER_SCHEMA_KEY_LEN, &val,
                      &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         return validate_schema_value(val, val_len, expected_major, expected_minor);
     }
-    if (rc != SAP_NOTFOUND)
+    if (rc != ERR_NOT_FOUND)
     {
         return rc;
     }
     if (!bootstrap_if_missing)
     {
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
 
     {
@@ -942,24 +942,24 @@ int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_
         wtxn = txn_begin(db, NULL, 0u);
         if (!wtxn)
         {
-            return SAP_BUSY;
+            return ERR_BUSY;
         }
         rc = txn_get_dbi(wtxn, SAP_WIT_DBI_APP_STATE, k_runner_schema_key, RUNNER_SCHEMA_KEY_LEN,
                          &existing_val, &existing_len);
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
         {
             rc = validate_schema_value(existing_val, existing_len, expected_major, expected_minor);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
             {
                 txn_abort(wtxn);
                 return rc;
             }
         }
-        else if (rc == SAP_NOTFOUND)
+        else if (rc == ERR_NOT_FOUND)
         {
             rc = txn_put_dbi(wtxn, SAP_WIT_DBI_APP_STATE, k_runner_schema_key,
                              RUNNER_SCHEMA_KEY_LEN, schema_val, RUNNER_SCHEMA_VAL_LEN);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
             {
                 txn_abort(wtxn);
                 return rc;
@@ -971,13 +971,13 @@ int sap_runner_v0_ensure_schema_version(DB *db, uint16_t expected_major, uint16_
             return rc;
         }
         rc = txn_commit(wtxn);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg)
@@ -986,19 +986,19 @@ int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg)
 
     if (!runner || !cfg || !cfg->db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     memset(runner, 0, sizeof(*runner));
     rc = sap_runner_v0_bootstrap_dbis(cfg->db);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     rc = sap_runner_v0_ensure_schema_version(cfg->db, cfg->schema_major, cfg->schema_minor,
                                              cfg->bootstrap_schema_if_missing);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -1011,7 +1011,7 @@ int sap_runner_v0_init(SapRunnerV0 *runner, const SapRunnerV0Config *cfg)
     runner->state = SAP_RUNNER_V0_STATE_RUNNING;
     sap_runner_v0_policy_default(&runner->policy);
     sap_runner_v0_metrics_reset(runner);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 void sap_runner_v0_policy_default(SapRunnerV0Policy *policy)
@@ -1133,11 +1133,11 @@ int sap_runner_v0_inbox_key_decode(const uint8_t *key, uint32_t key_len, uint64_
 {
     if (!key || key_len != SAP_RUNNER_INBOX_KEY_V0_SIZE || !worker_id_out || !seq_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *worker_id_out = rd64be(key);
     *seq_out = rd64be(key + 8);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_v0_inbox_put(DB *db, uint64_t worker_id, uint64_t seq, const uint8_t *frame,
@@ -1149,7 +1149,7 @@ int sap_runner_v0_inbox_put(DB *db, uint64_t worker_id, uint64_t seq, const uint
 
     if (!db || !frame || frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
@@ -1157,11 +1157,11 @@ int sap_runner_v0_inbox_put(DB *db, uint64_t worker_id, uint64_t seq, const uint
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), frame, frame_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -1182,7 +1182,7 @@ int sap_runner_v0_run_step(SapRunnerV0 *runner, const uint8_t *frame, uint32_t f
     }
     if (runner->state != SAP_RUNNER_V0_STATE_RUNNING)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = sap_runner_message_v0_decode(frame, frame_len, &msg);
@@ -1192,16 +1192,16 @@ int sap_runner_v0_run_step(SapRunnerV0 *runner, const uint8_t *frame, uint32_t f
     }
     if (msg.to_worker != (int64_t)runner->worker_id)
     {
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
 
     rc = handler(runner, &msg, ctx);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     runner->steps_completed++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
@@ -1218,15 +1218,15 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
     }
     if (!runner || !handler)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (runner->state != SAP_RUNNER_V0_STATE_RUNNING)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     if (max_messages == 0u)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
 
     for (i = 0u; i < max_messages; i++)
@@ -1242,11 +1242,11 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
 
         rc = read_next_inbox_frame(runner->db, runner->worker_id, &key, &key_len, &frame,
                                    &frame_len);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(frame);
@@ -1254,7 +1254,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
         }
 
         rc = sap_runner_v0_inbox_key_decode(key, key_len, &key_worker, &key_seq);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(frame);
@@ -1268,19 +1268,19 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
             rc = sap_runner_mailbox_v0_claim(runner->db, key_worker, key_seq, runner->worker_id,
                                              now_ms, deadline_ms, &lease);
         }
-        if (rc == SAP_BUSY)
+        if (rc == ERR_BUSY)
         {
             free(key);
             free(frame);
             break;
         }
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             free(key);
             free(frame);
             continue;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(frame);
@@ -1291,7 +1291,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
             int64_t step_start_ms = runner_now_ms_value(now_ms_fn, now_ms_ctx);
             int64_t step_end_ms;
             metrics_note_step_attempt(runner);
-            emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT, key_seq, SAP_OK,
+            emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT, key_seq, ERR_OK,
                               frame, frame_len);
             rc = sap_runner_v0_run_step(runner, frame, frame_len, handler, ctx);
             step_end_ms = runner_now_ms_value(now_ms_fn, now_ms_ctx);
@@ -1299,10 +1299,10 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
             emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT, key_seq, (int32_t)rc,
                               frame, frame_len);
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             int step_rc = rc;
-            int disposition_rc = SAP_OK;
+            int disposition_rc = ERR_OK;
             int extracted = 0;
             const uint8_t *message_id = NULL;
             uint32_t message_id_len = 0u;
@@ -1314,7 +1314,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
                                : SAP_RUNNER_V0_LOG_EVENT_STEP_NON_RETRYABLE_FAILURE,
                            key_seq, (int32_t)step_rc, 0u);
             if (extract_message_id_from_frame(frame, frame_len, &message_id, &message_id_len) ==
-                SAP_OK)
+                ERR_OK)
             {
                 extracted = 1;
             }
@@ -1323,7 +1323,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
             {
                 disposition_rc = sap_runner_dead_letter_v0_move(runner->db, key_worker, key_seq,
                                                                 &lease, (int32_t)step_rc, 0u);
-                if (disposition_rc == SAP_OK)
+                if (disposition_rc == ERR_OK)
                 {
                     metrics_note_dead_letter_move(runner);
                     emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_DEAD_LETTER,
@@ -1337,7 +1337,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
                 uint32_t retry_count = 0u;
                 int retry_rc =
                     retry_count_increment(runner->db, message_id, message_id_len, &retry_count);
-                if (retry_rc != SAP_OK)
+                if (retry_rc != ERR_OK)
                 {
                     free(key);
                     free(frame);
@@ -1348,7 +1348,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
                 {
                     disposition_rc = sap_runner_dead_letter_v0_move(
                         runner->db, key_worker, key_seq, &lease, (int32_t)step_rc, retry_count);
-                    if (disposition_rc == SAP_OK)
+                    if (disposition_rc == ERR_OK)
                     {
                         metrics_note_dead_letter_move(runner);
                         emit_replay_event(runner,
@@ -1357,7 +1357,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
                         emit_log_event(runner, SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_DEAD_LETTER,
                                        key_seq, (int32_t)step_rc, retry_count);
                         int clear_rc = retry_count_clear(runner->db, message_id, message_id_len);
-                        if (clear_rc != SAP_OK)
+                        if (clear_rc != ERR_OK)
                         {
                             free(key);
                             free(frame);
@@ -1370,7 +1370,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
                     disposition_rc =
                         requeue_claimed_inbox_message(runner->db, key_worker, key_seq, &lease,
                                                       runner->policy.requeue_max_attempts);
-                    if (disposition_rc == SAP_OK)
+                    if (disposition_rc == ERR_OK)
                     {
                         metrics_note_requeue(runner);
                         emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE,
@@ -1384,7 +1384,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
             {
                 disposition_rc = requeue_claimed_inbox_message(
                     runner->db, key_worker, key_seq, &lease, runner->policy.requeue_max_attempts);
-                if (disposition_rc == SAP_OK)
+                if (disposition_rc == ERR_OK)
                 {
                     metrics_note_requeue(runner);
                     emit_replay_event(runner, SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE,
@@ -1396,7 +1396,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
 
             free(key);
             free(frame);
-            if (disposition_rc != SAP_OK)
+            if (disposition_rc != ERR_OK)
             {
                 return disposition_rc;
             }
@@ -1412,7 +1412,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
         }
 
         rc = sap_runner_mailbox_v0_ack(runner->db, key_worker, key_seq, &lease);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(frame);
@@ -1423,10 +1423,10 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
             const uint8_t *message_id = NULL;
             uint32_t message_id_len = 0u;
             if (extract_message_id_from_frame(frame, frame_len, &message_id, &message_id_len) ==
-                SAP_OK)
+                ERR_OK)
             {
                 int clear_rc = retry_count_clear(runner->db, message_id, message_id_len);
-                if (clear_rc != SAP_OK)
+                if (clear_rc != ERR_OK)
                 {
                     free(key);
                     free(frame);
@@ -1444,7 +1444,7 @@ static int poll_inbox_with_clock(SapRunnerV0 *runner, uint32_t max_messages,
     {
         *processed_out = processed;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_v0_poll_inbox(SapRunnerV0 *runner, uint32_t max_messages,
@@ -1462,12 +1462,12 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
 
     if (!worker || !cfg || !handler)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     memset(worker, 0, sizeof(*worker));
     rc = sap_runner_v0_init(&worker->runner, cfg);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -1484,8 +1484,8 @@ int sap_runner_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config
     worker->last_ttl_sweep_ms = 0;
     worker->ttl_pair_count = 0u;
     worker_set_stop_requested(worker, 0);
-    worker->last_error = SAP_OK;
-    return SAP_OK;
+    worker->last_error = ERR_OK;
+    return ERR_OK;
 }
 
 int sap_runner_v0_worker_register_ttl_pair(SapRunnerV0Worker *worker, uint32_t data_dbi,
@@ -1493,34 +1493,34 @@ int sap_runner_v0_worker_register_ttl_pair(SapRunnerV0Worker *worker, uint32_t d
 {
     if (!worker)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (worker->ttl_pair_count >= SAP_RUNNER_V0_MAX_TTL_PAIRS)
     {
-        return SAP_ERROR;
+        return ERR_FULL;
     }
     SapRunnerV0TTLPair *pair = &worker->ttl_pairs[worker->ttl_pair_count++];
     pair->data_dbi = data_dbi;
     pair->ttl_dbi = ttl_dbi;
     memset(&pair->cp, 0, sizeof(pair->cp));
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_v0_db_gate_init(SapRunnerV0DbGate *gate)
 {
     if (!gate)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 #ifdef SAPLING_THREADED
     if (pthread_mutex_init(&gate->mutex, NULL) != 0)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
-    return SAP_OK;
+    return ERR_OK;
 #else
     gate->unused = 0u;
-    return SAP_ERROR;
+    return ERR_INVALID;
 #endif
 }
 
@@ -1548,7 +1548,7 @@ void sap_runner_v0_worker_set_db_gate(SapRunnerV0Worker *worker, SapRunnerV0DbGa
 
 int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out)
 {
-    int rc = SAP_OK;
+    int rc = ERR_OK;
     uint32_t processed = 0u;
     int gate_locked = 0;
 
@@ -1558,11 +1558,11 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
     }
     if (!worker || !worker->handler)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (worker_stop_requested(worker))
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     worker_db_gate_lock(worker);
@@ -1571,14 +1571,14 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
     rc = poll_inbox_with_clock(&worker->runner, worker->max_batch, worker->handler,
                                worker->handler_ctx, &processed, worker->now_ms_fn,
                                worker->now_ms_ctx);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
-        if (rc == SAP_NOTFOUND || rc == SAP_CONFLICT)
+        if (rc == ERR_NOT_FOUND || rc == ERR_CONFLICT)
         {
-            rc = SAP_BUSY;
+            rc = ERR_BUSY;
             goto out;
         }
-        if (rc != SAP_BUSY)
+        if (rc != ERR_BUSY)
         {
             worker->last_error = rc;
             emit_log_event(&worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u, (int32_t)rc,
@@ -1598,14 +1598,14 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
         timer_budget = worker->max_batch - processed;
         rc = sap_runner_timer_v0_drain_due(worker->runner.db, worker_now_ms(worker), timer_budget,
                                            timer_dispatch_handler, &timer_ctx, &timer_processed);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
-            if (rc == SAP_NOTFOUND || rc == SAP_CONFLICT)
+            if (rc == ERR_NOT_FOUND || rc == ERR_CONFLICT)
             {
-                rc = SAP_BUSY;
+                rc = ERR_BUSY;
                 goto out;
             }
-            if (rc != SAP_BUSY)
+            if (rc != ERR_BUSY)
             {
                 worker->last_error = rc;
                 emit_log_event(&worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u,
@@ -1637,12 +1637,12 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                     int sweep_rc = txn_sweep_ttl_dbi_checkpoint(
                         txn, pair->data_dbi, pair->ttl_dbi, now_ms,
                         worker->runner.policy.ttl_sweep_max_batch, &pair->cp, &deleted);
-                    if (sweep_rc == SAP_OK)
+                    if (sweep_rc == ERR_OK)
                     {
                         total_deleted += deleted;
                     }
                 }
-                if (txn_commit(txn) == SAP_OK)
+                if (txn_commit(txn) == ERR_OK)
                 {
                     worker->runner.metrics.ttl_sweeps_run++;
                     worker->runner.metrics.ttl_expired_entries_deleted += total_deleted;
@@ -1661,7 +1661,7 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
         *processed_out = processed;
     }
     worker->ticks++;
-    rc = SAP_OK;
+    rc = ERR_OK;
 
 out:
     if (gate_locked)
@@ -1713,7 +1713,7 @@ int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32
 
     if (!worker || !sleep_ms_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *sleep_ms_out = 0u;
 
@@ -1721,13 +1721,13 @@ int sap_runner_v0_worker_compute_idle_sleep_ms(SapRunnerV0Worker *worker, uint32
     gate_locked = 1;
     max_idle = (worker->max_idle_sleep_ms == 0u) ? 1u : worker->max_idle_sleep_ms;
     rc = sap_runner_scheduler_v0_next_due(worker->runner.db, &next_due);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *sleep_ms_out = max_idle;
-        rc = SAP_OK;
+        rc = ERR_OK;
         goto out;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         goto out;
     }
@@ -1768,14 +1768,14 @@ static void *runner_thread_main(void *arg)
         uint32_t sleep_ms = 0u;
         int rc = sap_runner_v0_worker_tick(worker, &processed);
 
-        if (rc == SAP_BUSY && worker_stop_requested(worker))
+        if (rc == ERR_BUSY && worker_stop_requested(worker))
         {
             break;
         }
-        if (rc == SAP_BUSY)
+        if (rc == ERR_BUSY)
         {
             rc = sap_runner_v0_worker_compute_idle_sleep_ms(worker, &sleep_ms);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
             {
                 worker->last_error = rc;
                 emit_log_event(&worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u,
@@ -1789,7 +1789,7 @@ static void *runner_thread_main(void *arg)
             worker_sleep_ms(worker, sleep_ms);
             continue;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             worker->last_error = rc;
             break;
@@ -1798,7 +1798,7 @@ static void *runner_thread_main(void *arg)
         {
             uint32_t sleep_ms = 0u;
             rc = sap_runner_v0_worker_compute_idle_sleep_ms(worker, &sleep_ms);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
             {
                 worker->last_error = rc;
                 emit_log_event(&worker->runner, SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR, 0u,
@@ -1819,23 +1819,23 @@ int sap_runner_v0_worker_start(SapRunnerV0Worker *worker)
 #ifdef SAPLING_THREADED
     if (!worker || !worker->handler)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (worker->thread_started)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     worker_set_stop_requested(worker, 0);
-    worker->last_error = SAP_OK;
+    worker->last_error = ERR_OK;
     if (pthread_create(&worker->thread, NULL, runner_thread_main, worker) != 0)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     worker->thread_started = 1;
-    return SAP_OK;
+    return ERR_OK;
 #else
     (void)worker;
-    return SAP_ERROR;
+    return ERR_INVALID;
 #endif
 }
 
@@ -1844,16 +1844,16 @@ int sap_runner_v0_worker_join(SapRunnerV0Worker *worker)
 #ifdef SAPLING_THREADED
     if (!worker || !worker->thread_started)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (pthread_join(worker->thread, NULL) != 0)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     worker->thread_started = 0;
-    return SAP_OK;
+    return ERR_OK;
 #else
     (void)worker;
-    return SAP_ERROR;
+    return ERR_INVALID;
 #endif
 }

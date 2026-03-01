@@ -53,12 +53,12 @@ static DB *new_db(void)
     {
         return NULL;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
         db_close(db);
         return NULL;
     }
-    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
+    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         db_close(db);
         return NULL;
@@ -74,7 +74,7 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -82,7 +82,7 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_outbox_v0_key_encode(seq, key);
     rc = txn_get_dbi(txn, 2u, key, sizeof(key), val_out, val_len_out);
@@ -99,7 +99,7 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -107,7 +107,7 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     timer_to_bept_key(due_ts, seq, bept_key);
     rc = sap_bept_get((SapTxnCtx *)txn, bept_key, 4, val_out, val_len_out);
@@ -129,7 +129,7 @@ static int test_sink_routes_outbox_and_timer(void)
     const uint8_t timer_payload[] = {'t', 'm'};
 
     CHECK(db != NULL);
-    CHECK(sap_runner_intent_sink_v0_init(&sink, db, 100u, 200u) == SAP_OK);
+    CHECK(sap_runner_intent_sink_v0_init(&sink, db, 100u, 200u) == ERR_OK);
 
     outbox.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
     outbox.flags = 0u;
@@ -138,7 +138,7 @@ static int test_sink_routes_outbox_and_timer(void)
     outbox.message_len = sizeof(outbox_payload);
     CHECK(sap_runner_intent_v0_encode(&outbox, frame, sizeof(frame), &frame_len) ==
           SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_intent_sink_v0_publish(frame, frame_len, &sink) == SAP_OK);
+    CHECK(sap_runner_intent_sink_v0_publish(frame, frame_len, &sink) == ERR_OK);
 
     timer.kind = SAP_RUNNER_INTENT_KIND_TIMER_ARM;
     timer.flags = SAP_RUNNER_INTENT_FLAG_HAS_DUE_TS;
@@ -147,14 +147,14 @@ static int test_sink_routes_outbox_and_timer(void)
     timer.message_len = sizeof(timer_payload);
     CHECK(sap_runner_intent_v0_encode(&timer, frame, sizeof(frame), &frame_len) ==
           SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_intent_sink_v0_publish(frame, frame_len, &sink) == SAP_OK);
+    CHECK(sap_runner_intent_sink_v0_publish(frame, frame_len, &sink) == ERR_OK);
 
     CHECK(sink.outbox.next_seq == 101u);
     CHECK(sink.timers.next_seq == 201u);
-    CHECK(outbox_get(db, 100u, &val, &val_len) == SAP_OK);
+    CHECK(outbox_get(db, 100u, &val, &val_len) == ERR_OK);
     CHECK(val_len == sizeof(outbox_payload));
     CHECK(memcmp(val, outbox_payload, sizeof(outbox_payload)) == 0);
-    CHECK(timer_get(db, 777, 200u, &val, &val_len) == SAP_OK);
+    CHECK(timer_get(db, 777, 200u, &val, &val_len) == ERR_OK);
     CHECK(val_len == sizeof(timer_payload));
     CHECK(memcmp(val, timer_payload, sizeof(timer_payload)) == 0);
 
@@ -169,8 +169,8 @@ static int test_sink_rejects_invalid_frame(void)
     uint8_t bogus[4] = {0, 1, 2, 3};
 
     CHECK(db != NULL);
-    CHECK(sap_runner_intent_sink_v0_init(&sink, db, 1u, 1u) == SAP_OK);
-    CHECK(sap_runner_intent_sink_v0_publish(bogus, sizeof(bogus), &sink) == SAP_ERROR);
+    CHECK(sap_runner_intent_sink_v0_init(&sink, db, 1u, 1u) == ERR_OK);
+    CHECK(sap_runner_intent_sink_v0_publish(bogus, sizeof(bogus), &sink) == ERR_CORRUPT);
 
     db_close(db);
     return 0;

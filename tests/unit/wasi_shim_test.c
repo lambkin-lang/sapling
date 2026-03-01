@@ -76,20 +76,20 @@ static int guest_call(void *ctx, SapHostV0 *host, const uint8_t *request, uint32
     (void)request_len;
     if (!g || !reply_buf || !reply_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     g->calls++;
-    if (g->rc != SAP_OK)
+    if (g->rc != ERR_OK)
     {
         return g->rc;
     }
     if (g->reply_len > reply_buf_cap)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memcpy(reply_buf, g->reply, g->reply_len);
     *reply_len_out = g->reply_len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_len_out,
@@ -101,27 +101,27 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
 
     if (!db || !val_out || !val_len_out || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_wasi_shim_v0_outbox_key_encode(seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), val_out, val_len_out);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
     txn_abort(txn);
     return rc;
@@ -137,27 +137,27 @@ static int inbox_exists(DB *db, uint64_t worker, uint64_t seq, int *exists_out)
 
     if (!db || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_v0_inbox_key_encode(worker, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &val, &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -185,29 +185,29 @@ static int test_worker_shim_outbox_path(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    guest.rc = SAP_OK;
+    guest.rc = ERR_OK;
     guest.reply[0] = 'o';
     guest.reply[1] = 'k';
     guest.reply_len = 2u;
 
-    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 100u, 1) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 4u) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 100u, 1) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 4u) == ERR_OK);
 
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(guest.calls == 1u);
     CHECK(runtime.calls == 1u);
-    CHECK(runtime.last_rc == SAP_OK);
+    CHECK(runtime.last_rc == ERR_OK);
     CHECK(shim.last_attempt_stats.attempts == 1u);
     CHECK(shim.last_attempt_stats.retries == 0u);
-    CHECK(shim.last_attempt_stats.last_rc == SAP_OK);
+    CHECK(shim.last_attempt_stats.last_rc == ERR_OK);
     CHECK(shim.next_outbox_seq == 101u);
 
-    CHECK(outbox_get(db, 100u, &out_val, &out_len, &exists) == SAP_OK);
+    CHECK(outbox_get(db, 100u, &out_val, &out_len, &exists) == ERR_OK);
     CHECK(exists == 1);
     CHECK(sap_runner_message_v0_decode((const uint8_t *)out_val, out_len, &out_msg) ==
           SAP_RUNNER_WIRE_OK);
@@ -216,7 +216,7 @@ static int test_worker_shim_outbox_path(void)
     CHECK(out_msg.payload_len == 2u);
     CHECK(memcmp(out_msg.payload, "ok", 2u) == 0);
 
-    CHECK(inbox_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -243,29 +243,29 @@ static int test_worker_shim_retryable_error_requeues_inbox(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    guest.rc = SAP_CONFLICT;
+    guest.rc = ERR_CONFLICT;
     guest.reply_len = 0u;
 
-    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 1) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 1) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == ERR_OK);
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 55u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 55u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 0u);
-    CHECK(worker.last_error == SAP_OK);
+    CHECK(worker.last_error == ERR_OK);
     CHECK(guest.calls == shim.attempt_policy.max_retries + 1u);
     CHECK(runtime.calls == shim.attempt_policy.max_retries + 1u);
-    CHECK(runtime.last_rc == SAP_CONFLICT);
+    CHECK(runtime.last_rc == ERR_CONFLICT);
     CHECK(shim.last_attempt_stats.attempts == shim.attempt_policy.max_retries + 1u);
     CHECK(shim.last_attempt_stats.retries == shim.attempt_policy.max_retries);
     CHECK(shim.last_attempt_stats.conflict_retries == shim.attempt_policy.max_retries);
-    CHECK(shim.last_attempt_stats.last_rc == SAP_CONFLICT);
+    CHECK(shim.last_attempt_stats.last_rc == ERR_CONFLICT);
 
-    CHECK(inbox_exists(db, 7u, 55u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 55u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_exists(db, 7u, 56u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 56u, &exists) == ERR_OK);
     CHECK(exists == 1);
 
     db_close(db);
@@ -292,28 +292,28 @@ static int test_worker_shim_fatal_error_requeues_and_returns_error(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    guest.rc = SAP_ERROR;
+    guest.rc = ERR_INVALID;
     guest.reply_len = 0u;
 
-    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 1) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 1) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == ERR_OK);
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 77u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 77u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_ERROR);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_INVALID);
     CHECK(processed == 0u);
-    CHECK(worker.last_error == SAP_ERROR);
+    CHECK(worker.last_error == ERR_INVALID);
     CHECK(guest.calls == 1u);
     CHECK(runtime.calls == 1u);
-    CHECK(runtime.last_rc == SAP_ERROR);
+    CHECK(runtime.last_rc == ERR_INVALID);
     CHECK(shim.last_attempt_stats.attempts == 1u);
     CHECK(shim.last_attempt_stats.retries == 0u);
-    CHECK(shim.last_attempt_stats.last_rc == SAP_ERROR);
+    CHECK(shim.last_attempt_stats.last_rc == ERR_INVALID);
 
-    CHECK(inbox_exists(db, 7u, 77u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 77u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_exists(db, 7u, 78u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 78u, &exists) == ERR_OK);
     CHECK(exists == 1);
 
     db_close(db);
@@ -344,7 +344,7 @@ static int test_worker_shim_custom_reply_cap(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    guest.rc = SAP_OK;
+    guest.rc = ERR_OK;
     guest.reply[0] = 'o';
     guest.reply[1] = 'v';
     guest.reply[2] = 'r';
@@ -356,27 +356,27 @@ static int test_worker_shim_custom_reply_cap(void)
     options.reply_buf = reply_buf;
     options.reply_buf_cap = (uint32_t)sizeof(reply_buf);
 
-    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_init_with_options(&shim, db, &runtime, &options) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_init_with_options(&shim, db, &runtime, &options) == ERR_OK);
     CHECK(shim.reply_buf == reply_buf);
     CHECK(shim.reply_buf_cap == (uint32_t)sizeof(reply_buf));
-    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == ERR_OK);
     CHECK(encode_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 91u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 91u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_ERROR);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_INVALID);
     CHECK(processed == 0u);
     CHECK(guest.calls == 1u);
     CHECK(runtime.calls == 1u);
-    CHECK(runtime.last_rc == SAP_ERROR);
+    CHECK(runtime.last_rc == ERR_INVALID);
     CHECK(shim.last_attempt_stats.attempts == 1u);
-    CHECK(shim.last_attempt_stats.last_rc == SAP_ERROR);
+    CHECK(shim.last_attempt_stats.last_rc == ERR_INVALID);
 
-    CHECK(inbox_exists(db, 7u, 91u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 91u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_exists(db, 7u, 92u, &exists) == SAP_OK);
+    CHECK(inbox_exists(db, 7u, 92u, &exists) == ERR_OK);
     CHECK(exists == 1);
-    CHECK(outbox_get(db, 0u, &out_val, &out_len, &exists) == SAP_OK);
+    CHECK(outbox_get(db, 0u, &out_val, &out_len, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);

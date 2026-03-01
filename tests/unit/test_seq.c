@@ -66,7 +66,7 @@ static int seq_equals_array(Seq *seq, uint32_t *val, size_t n)
     for (size_t i = 0; i < n; i++)
     {
         uint32_t out = 0;
-        if (seq_get(seq, i, &out) != SEQ_OK)
+        if (seq_get(seq, i, &out) != ERR_OK)
             return 0;
         if (out != val[i])
             return 0;
@@ -80,7 +80,7 @@ static Seq *seq_from_array(uint32_t *val, size_t n)
     Seq *s = seq_new();
     assert(s);
     for (size_t i = 0; i < n; i++)
-        assert(seq_push_back(s, val[i]) == SEQ_OK);
+        assert(seq_push_back(s, val[i]) == ERR_OK);
     return s;
 }
 
@@ -197,7 +197,7 @@ static int seq_matches_model(Seq *seq, const ModelVec *model)
     for (size_t i = 0; i < model->len; i++)
     {
         uint32_t out = 0;
-        if (seq_get(seq, i, &out) != SEQ_OK)
+        if (seq_get(seq, i, &out) != ERR_OK)
             return 0;
         if (out != model->data[i])
             return 0;
@@ -212,7 +212,7 @@ static int seq_matches_model_slice(Seq *seq, const ModelVec *model, size_t off, 
     for (size_t i = 0; i < n; i++)
     {
         uint32_t out = 0;
-        if (seq_get(seq, i, &out) != SEQ_OK)
+        if (seq_get(seq, i, &out) != ERR_OK)
             return 0;
         if (out != model->data[off + i])
             return 0;
@@ -232,9 +232,9 @@ static void test_empty(void)
     CHECK(seq_length(s) == 0);
 
     uint32_t out = 0;
-    CHECK(seq_pop_front(s, &out) == SEQ_EMPTY);
-    CHECK(seq_pop_back(s, &out) == SEQ_EMPTY);
-    CHECK(seq_get(s, 0, &out) == SEQ_RANGE);
+    CHECK(seq_pop_front(s, &out) == ERR_EMPTY);
+    CHECK(seq_pop_back(s, &out) == ERR_EMPTY);
+    CHECK(seq_get(s, 0, &out) == ERR_RANGE);
 
     seq_free(s);
 }
@@ -245,14 +245,14 @@ static void test_single(void)
     Seq *s = seq_new();
     uint32_t ptr = ip(42);
 
-    CHECK(seq_push_back(s, ptr) == SEQ_OK);
+    CHECK(seq_push_back(s, ptr) == ERR_OK);
     CHECK(seq_length(s) == 1);
 
     uint32_t out = 0;
-    CHECK(seq_get(s, 0, &out) == SEQ_OK);
+    CHECK(seq_get(s, 0, &out) == ERR_OK);
     CHECK(out == ptr);
 
-    CHECK(seq_get(s, 1, &out) == SEQ_RANGE);
+    CHECK(seq_get(s, 1, &out) == ERR_RANGE);
 
     seq_free(s);
 }
@@ -272,14 +272,14 @@ static void test_push_pop_front(void)
 
     /* Push 0..N-1 to the front; sequence should be N-1 .. 0 */
     for (size_t i = 0; i < N; i++)
-        CHECK(seq_push_front(s, ip(i)) == SEQ_OK);
+        CHECK(seq_push_front(s, ip(i)) == ERR_OK);
 
     CHECK(seq_length(s) == N);
 
     for (size_t i = 0; i < N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_get(s, i, &out) == SEQ_OK);
+        CHECK(seq_get(s, i, &out) == ERR_OK);
         CHECK(out == ip(N - 1 - i));
     }
 
@@ -287,7 +287,7 @@ static void test_push_pop_front(void)
     for (size_t i = N; i > 0; i--)
     {
         uint32_t out = 0;
-        CHECK(seq_pop_front(s, &out) == SEQ_OK);
+        CHECK(seq_pop_front(s, &out) == ERR_OK);
         CHECK(out == ip(i - 1));
     }
     CHECK(seq_length(s) == 0);
@@ -305,7 +305,7 @@ static void test_push_pop_back(void)
 
     /* Push 0..N-1 to the back */
     for (size_t i = 0; i < N; i++)
-        CHECK(seq_push_back(s, ip(i)) == SEQ_OK);
+        CHECK(seq_push_back(s, ip(i)) == ERR_OK);
 
     CHECK(seq_length(s) == N);
 
@@ -313,7 +313,7 @@ static void test_push_pop_back(void)
     for (size_t i = N; i > 0; i--)
     {
         uint32_t out = 0;
-        CHECK(seq_pop_back(s, &out) == SEQ_OK);
+        CHECK(seq_pop_back(s, &out) == ERR_OK);
         CHECK(out == ip(i - 1));
     }
     CHECK(seq_length(s) == 0);
@@ -343,7 +343,7 @@ static void test_alternating_push(void)
     for (int i = 0; i < N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_pop_front(s, &out) == SEQ_OK);
+        CHECK(seq_pop_front(s, &out) == ERR_OK);
         popped[i] = out;
     }
 
@@ -379,10 +379,10 @@ static void test_get(void)
     for (size_t i = 0; i < N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_get(s, i, &out) == SEQ_OK);
+        CHECK(seq_get(s, i, &out) == ERR_OK);
         CHECK(out == ip(i));
     }
-    CHECK(seq_get(s, N, &(uint32_t){0}) == SEQ_RANGE);
+    CHECK(seq_get(s, N, &(uint32_t){0}) == ERR_RANGE);
 
     seq_free(s);
 }
@@ -399,7 +399,7 @@ static void test_concat_basic(void)
     Seq *sa = seq_from_array(a, 3);
     Seq *sb = seq_from_array(b, 3);
 
-    CHECK(seq_concat(sa, sb) == SEQ_OK);
+    CHECK(seq_concat(sa, sb) == ERR_OK);
     CHECK(seq_length(sa) == 6);
     CHECK(seq_length(sb) == 0);
 
@@ -418,16 +418,16 @@ static void test_concat_empty(void)
     Seq *empty = seq_new();
 
     /* concat(non_empty, empty) */
-    CHECK(seq_concat(sa, empty) == SEQ_OK);
+    CHECK(seq_concat(sa, empty) == ERR_OK);
     CHECK(seq_length(sa) == 2);
 
     /* concat(empty, non_empty) */
     Seq *sa2 = seq_from_array(a, 2);
     Seq *empty2 = seq_new();
-    CHECK(seq_concat(empty2, sa2) == SEQ_OK);
+    CHECK(seq_concat(empty2, sa2) == ERR_OK);
     CHECK(seq_length(empty2) == 2);
     uint32_t out = 0;
-    CHECK(seq_get(empty2, 0, &out) == SEQ_OK);
+    CHECK(seq_get(empty2, 0, &out) == ERR_OK);
     CHECK(out == ip(1));
 
     seq_free(sa);
@@ -442,7 +442,7 @@ static void test_concat_self_invalid(void)
     uint32_t a[] = {ip(0), ip(1), ip(2), ip(3)};
     Seq *s = seq_from_array(a, 4);
 
-    CHECK(seq_concat(s, s) == SEQ_INVALID);
+    CHECK(seq_concat(s, s) == ERR_INVALID);
     CHECK(seq_length(s) == 4);
     CHECK(seq_equals_array(s, a, 4));
 
@@ -463,13 +463,13 @@ static void test_concat_large(void)
     for (size_t i = N; i < 2 * N; i++)
         seq_push_back(right, ip(i));
 
-    CHECK(seq_concat(left, right) == SEQ_OK);
+    CHECK(seq_concat(left, right) == ERR_OK);
     CHECK(seq_length(left) == 2 * N);
 
     for (size_t i = 0; i < 2 * N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_get(left, i, &out) == SEQ_OK);
+        CHECK(seq_get(left, i, &out) == ERR_OK);
         CHECK(out == ip(i));
     }
 
@@ -499,7 +499,7 @@ static void test_split_at_basic(void)
     {
         Seq *s = seq_from_array(vals, N);
         Seq *l = NULL, *r = NULL;
-        CHECK(seq_split_at(s, split, &l, &r) == SEQ_OK);
+        CHECK(seq_split_at(s, split, &l, &r) == ERR_OK);
         CHECK(seq_length(l) == split);
         CHECK(seq_length(r) == N - split);
 
@@ -535,7 +535,7 @@ static void test_split_at_large(void)
 
     size_t split = N / 3;
     Seq *l = NULL, *r = NULL;
-    CHECK(seq_split_at(s, split, &l, &r) == SEQ_OK);
+    CHECK(seq_split_at(s, split, &l, &r) == ERR_OK);
     CHECK(seq_length(l) == split);
     CHECK(seq_length(r) == N - split);
 
@@ -565,7 +565,7 @@ static void test_split_at_range(void)
     Seq *l = NULL, *r = NULL;
 
     /* idx == length is valid (right side is empty) */
-    CHECK(seq_split_at(s, 2, &l, &r) == SEQ_OK);
+    CHECK(seq_split_at(s, 2, &l, &r) == ERR_OK);
     CHECK(seq_length(l) == 2);
     CHECK(seq_length(r) == 0);
     seq_free(l);
@@ -573,7 +573,7 @@ static void test_split_at_range(void)
 
     /* idx > length is invalid */
     Seq *s2 = seq_from_array(a, 2);
-    CHECK(seq_split_at(s2, 3, &l, &r) == SEQ_RANGE);
+    CHECK(seq_split_at(s2, 3, &l, &r) == ERR_RANGE);
     seq_free(s2);
     seq_free(s);
 }
@@ -600,7 +600,7 @@ static void test_large_push_pop(void)
     for (size_t i = 0; i < N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_get(s, i, &out) == SEQ_OK);
+        CHECK(seq_get(s, i, &out) == ERR_OK);
         CHECK(out == ip(i));
     }
 
@@ -608,7 +608,7 @@ static void test_large_push_pop(void)
     for (size_t i = 0; i < N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_pop_front(s, &out) == SEQ_OK);
+        CHECK(seq_pop_front(s, &out) == ERR_OK);
         CHECK(out == ip(i));
     }
     CHECK(seq_length(s) == 0);
@@ -633,7 +633,7 @@ static void test_large_push_front_pop_back(void)
     for (size_t i = 0; i < N; i++)
     {
         uint32_t out = 0;
-        CHECK(seq_pop_back(s, &out) == SEQ_OK);
+        CHECK(seq_pop_back(s, &out) == ERR_OK);
         CHECK(out == ip(i));
     }
     CHECK(seq_length(s) == 0);
@@ -660,12 +660,12 @@ static void test_concat_split_roundtrip(void)
         seq_push_back(right, ip(i));
 
     /* Concat into one big sequence */
-    CHECK(seq_concat(left, right) == SEQ_OK);
+    CHECK(seq_concat(left, right) == ERR_OK);
     CHECK(seq_length(left) == A + B);
 
     /* Split it back at A */
     Seq *l2 = NULL, *r2 = NULL;
-    CHECK(seq_split_at(left, A, &l2, &r2) == SEQ_OK);
+    CHECK(seq_split_at(left, A, &l2, &r2) == ERR_OK);
     CHECK(seq_length(l2) == A);
     CHECK(seq_length(r2) == B);
 
@@ -792,10 +792,10 @@ static void test_split_concat_identity(void)
     /* Pick an arbitrary split point */
     size_t mid = N * 2 / 3;
     Seq *l = NULL, *r = NULL;
-    CHECK(seq_split_at(s, mid, &l, &r) == SEQ_OK);
+    CHECK(seq_split_at(s, mid, &l, &r) == ERR_OK);
 
     /* Re-concat */
-    CHECK(seq_concat(l, r) == SEQ_OK);
+    CHECK(seq_concat(l, r) == ERR_OK);
     CHECK(seq_length(l) == N);
 
     for (size_t i = 0; i < N; i++)
@@ -845,14 +845,14 @@ static void test_model_randomized(void)
             case 0: /* push_front */
             {
                 uint32_t v = prng_u32(&seed);
-                CHECK(seq_push_front(seq, v) == SEQ_OK);
+                CHECK(seq_push_front(seq, v) == ERR_OK);
                 CHECK(model_push_front(&model, v));
                 break;
             }
             case 1: /* push_back */
             {
                 uint32_t v = prng_u32(&seed);
-                CHECK(seq_push_back(seq, v) == SEQ_OK);
+                CHECK(seq_push_back(seq, v) == ERR_OK);
                 CHECK(model_push_back(&model, v));
                 break;
             }
@@ -862,11 +862,11 @@ static void test_model_randomized(void)
                 uint32_t exp = 0;
                 if (model.len == 0)
                 {
-                    CHECK(seq_pop_front(seq, &got) == SEQ_EMPTY);
+                    CHECK(seq_pop_front(seq, &got) == ERR_EMPTY);
                 }
                 else
                 {
-                    CHECK(seq_pop_front(seq, &got) == SEQ_OK);
+                    CHECK(seq_pop_front(seq, &got) == ERR_OK);
                     CHECK(model_pop_front(&model, &exp));
                     CHECK(got == exp);
                 }
@@ -878,11 +878,11 @@ static void test_model_randomized(void)
                 uint32_t exp = 0;
                 if (model.len == 0)
                 {
-                    CHECK(seq_pop_back(seq, &got) == SEQ_EMPTY);
+                    CHECK(seq_pop_back(seq, &got) == ERR_EMPTY);
                 }
                 else
                 {
-                    CHECK(seq_pop_back(seq, &got) == SEQ_OK);
+                    CHECK(seq_pop_back(seq, &got) == ERR_OK);
                     CHECK(model_pop_back(&model, &exp));
                     CHECK(got == exp);
                 }
@@ -894,13 +894,13 @@ static void test_model_randomized(void)
                 if (model.len > 0 && (prng_u32(&seed) & 1u))
                 {
                     size_t idx = (size_t)(prng_u32(&seed) % model.len);
-                    CHECK(seq_get(seq, idx, &out) == SEQ_OK);
+                    CHECK(seq_get(seq, idx, &out) == ERR_OK);
                     CHECK(out == model.data[idx]);
                 }
                 else
                 {
                     size_t idx = model.len + (size_t)(prng_u32(&seed) % 4u);
-                    CHECK(seq_get(seq, idx, &out) == SEQ_RANGE);
+                    CHECK(seq_get(seq, idx, &out) == ERR_RANGE);
                 }
                 break;
             }
@@ -909,15 +909,15 @@ static void test_model_randomized(void)
                 size_t idx = (model.len == 0) ? 0 : (size_t)(prng_u32(&seed) % (model.len + 1));
                 Seq *l = NULL;
                 Seq *r = NULL;
-                CHECK(seq_split_at(seq, idx, &l, &r) == SEQ_OK);
+                CHECK(seq_split_at(seq, idx, &l, &r) == ERR_OK);
                 CHECK(l != NULL && r != NULL);
                 if (l && r)
                 {
                     CHECK(seq_length(seq) == 0);
                     CHECK(seq_matches_model_slice(l, &model, 0, idx));
                     CHECK(seq_matches_model_slice(r, &model, idx, model.len - idx));
-                    CHECK(seq_concat(seq, l) == SEQ_OK);
-                    CHECK(seq_concat(seq, r) == SEQ_OK);
+                    CHECK(seq_concat(seq, l) == ERR_OK);
+                    CHECK(seq_concat(seq, r) == ERR_OK);
                 }
                 seq_free(l);
                 seq_free(r);
@@ -942,31 +942,31 @@ static void test_model_randomized(void)
                     uint32_t v = prng_u32(&seed);
                     if (prng_u32(&seed) & 1u)
                     {
-                        CHECK(seq_push_front(chunk, v) == SEQ_OK);
+                        CHECK(seq_push_front(chunk, v) == ERR_OK);
                         CHECK(model_push_front(&chunk_model, v));
                     }
                     else
                     {
-                        CHECK(seq_push_back(chunk, v) == SEQ_OK);
+                        CHECK(seq_push_back(chunk, v) == ERR_OK);
                         CHECK(model_push_back(&chunk_model, v));
                     }
                 }
 
-                CHECK(seq_concat(seq, chunk) == SEQ_OK);
+                CHECK(seq_concat(seq, chunk) == ERR_OK);
                 CHECK(model_concat(&model, &chunk_model));
                 seq_free(chunk);
                 model_free(&chunk_model);
                 break;
             }
             case 7: /* reset */
-                CHECK(seq_reset(seq) == SEQ_OK);
+                CHECK(seq_reset(seq) == ERR_OK);
                 model.len = 0;
                 break;
             case 8: /* split out-of-range */
             {
                 Seq *l = (Seq *)(uintptr_t)1;
                 Seq *r = (Seq *)(uintptr_t)2;
-                CHECK(seq_split_at(seq, model.len + 1, &l, &r) == SEQ_RANGE);
+                CHECK(seq_split_at(seq, model.len + 1, &l, &r) == ERR_RANGE);
                 CHECK(l == (Seq *)(uintptr_t)1);
                 CHECK(r == (Seq *)(uintptr_t)2);
                 break;
@@ -998,20 +998,20 @@ static void test_invalid_args(void)
     Seq *r = NULL;
 
     CHECK(s != NULL);
-    CHECK(seq_push_front(NULL, ip(1)) == SEQ_INVALID);
-    CHECK(seq_push_back(NULL, ip(1)) == SEQ_INVALID);
-    CHECK(seq_pop_front(NULL, &out) == SEQ_INVALID);
-    CHECK(seq_pop_back(NULL, &out) == SEQ_INVALID);
-    CHECK(seq_get(NULL, 0, &out) == SEQ_INVALID);
-    CHECK(seq_concat(NULL, s) == SEQ_INVALID);
-    CHECK(seq_concat(s, NULL) == SEQ_INVALID);
-    CHECK(seq_split_at(NULL, 0, &l, &r) == SEQ_INVALID);
-    CHECK(seq_split_at(s, 0, NULL, &r) == SEQ_INVALID);
-    CHECK(seq_split_at(s, 0, &l, NULL) == SEQ_INVALID);
-    CHECK(seq_pop_front(s, NULL) == SEQ_INVALID);
-    CHECK(seq_pop_back(s, NULL) == SEQ_INVALID);
-    CHECK(seq_get(s, 0, NULL) == SEQ_INVALID);
-    CHECK(seq_reset(NULL) == SEQ_INVALID);
+    CHECK(seq_push_front(NULL, ip(1)) == ERR_INVALID);
+    CHECK(seq_push_back(NULL, ip(1)) == ERR_INVALID);
+    CHECK(seq_pop_front(NULL, &out) == ERR_INVALID);
+    CHECK(seq_pop_back(NULL, &out) == ERR_INVALID);
+    CHECK(seq_get(NULL, 0, &out) == ERR_INVALID);
+    CHECK(seq_concat(NULL, s) == ERR_INVALID);
+    CHECK(seq_concat(s, NULL) == ERR_INVALID);
+    CHECK(seq_split_at(NULL, 0, &l, &r) == ERR_INVALID);
+    CHECK(seq_split_at(s, 0, NULL, &r) == ERR_INVALID);
+    CHECK(seq_split_at(s, 0, &l, NULL) == ERR_INVALID);
+    CHECK(seq_pop_front(s, NULL) == ERR_INVALID);
+    CHECK(seq_pop_back(s, NULL) == ERR_INVALID);
+    CHECK(seq_get(s, 0, NULL) == ERR_INVALID);
+    CHECK(seq_reset(NULL) == ERR_INVALID);
     CHECK(seq_is_valid(NULL) == 0);
     CHECK(seq_is_valid(s) == 1);
 
@@ -1026,14 +1026,14 @@ static void test_fault_injection_push(void)
     CHECK(s != NULL);
     CHECK(seq_is_valid(s) == 1);
 
-    CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
+    CHECK(seq_push_back(s, ip(1)) == ERR_OK);
     seq_test_fail_alloc_after(0);
-    CHECK(seq_push_back(s, ip(2)) == SEQ_OOM);
+    CHECK(seq_push_back(s, ip(2)) == ERR_OOM);
     seq_test_clear_alloc_fail();
 
     CHECK(seq_is_valid(s) == 0);
-    CHECK(seq_push_back(s, ip(3)) == SEQ_INVALID);
-    CHECK(seq_reset(s) == SEQ_OK);
+    CHECK(seq_push_back(s, ip(3)) == ERR_INVALID);
+    CHECK(seq_reset(s) == ERR_OK);
     CHECK(seq_is_valid(s) == 1);
     CHECK(seq_length(s) == 0);
 
@@ -1046,19 +1046,19 @@ static void test_fault_injection_concat(void)
     Seq *a = seq_new();
     Seq *b = seq_new();
     CHECK(a != NULL && b != NULL);
-    CHECK(seq_push_back(a, ip(10)) == SEQ_OK);
-    CHECK(seq_push_back(b, ip(20)) == SEQ_OK);
+    CHECK(seq_push_back(a, ip(10)) == ERR_OK);
+    CHECK(seq_push_back(b, ip(20)) == ERR_OK);
 
     seq_test_fail_alloc_after(0);
-    CHECK(seq_concat(a, b) == SEQ_OOM);
+    CHECK(seq_concat(a, b) == ERR_OOM);
     seq_test_clear_alloc_fail();
 
     CHECK(seq_is_valid(a) == 0);
     CHECK(seq_is_valid(b) == 0);
-    CHECK(seq_concat(a, b) == SEQ_INVALID);
+    CHECK(seq_concat(a, b) == ERR_INVALID);
 
-    CHECK(seq_reset(a) == SEQ_OK);
-    CHECK(seq_reset(b) == SEQ_OK);
+    CHECK(seq_reset(a) == ERR_OK);
+    CHECK(seq_reset(b) == ERR_OK);
     CHECK(seq_is_valid(a) == 1);
     CHECK(seq_is_valid(b) == 1);
 
@@ -1071,9 +1071,9 @@ static void test_fault_injection_split(void)
     SECTION("fault injection: split oom marks invalid");
     Seq *s = seq_new();
     CHECK(s != NULL);
-    CHECK(seq_push_back(s, ip(0)) == SEQ_OK);
-    CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
-    CHECK(seq_push_back(s, ip(2)) == SEQ_OK);
+    CHECK(seq_push_back(s, ip(0)) == ERR_OK);
+    CHECK(seq_push_back(s, ip(1)) == ERR_OK);
+    CHECK(seq_push_back(s, ip(2)) == ERR_OK);
 
     Seq *l = (Seq *)(uintptr_t)1;
     Seq *r = (Seq *)(uintptr_t)2;
@@ -1082,15 +1082,15 @@ static void test_fault_injection_split(void)
      * internal split-tree allocation failure (which poisons seq).
      */
     seq_test_fail_alloc_after(4);
-    CHECK(seq_split_at(s, 1, &l, &r) == SEQ_OOM);
+    CHECK(seq_split_at(s, 1, &l, &r) == ERR_OOM);
     seq_test_clear_alloc_fail();
 
     CHECK(l == (Seq *)(uintptr_t)1);
     CHECK(r == (Seq *)(uintptr_t)2);
     CHECK(seq_is_valid(s) == 0);
-    CHECK(seq_split_at(s, 0, &l, &r) == SEQ_INVALID);
+    CHECK(seq_split_at(s, 0, &l, &r) == ERR_INVALID);
 
-    CHECK(seq_reset(s) == SEQ_OK);
+    CHECK(seq_reset(s) == ERR_OK);
     CHECK(seq_is_valid(s) == 1);
     CHECK(seq_length(s) == 0);
 
@@ -1106,29 +1106,29 @@ static void test_fault_injection_push_sweep(void)
     {
         Seq *s = seq_new();
         CHECK(s != NULL);
-        CHECK(seq_push_back(s, ip(1)) == SEQ_OK);
+        CHECK(seq_push_back(s, ip(1)) == ERR_OK);
 
         seq_test_fail_alloc_after(fail_after);
         int rc = seq_push_back(s, ip(2));
         seq_test_clear_alloc_fail();
 
-        if (rc == SEQ_OOM)
+        if (rc == ERR_OOM)
         {
             saw_oom = 1;
             CHECK(seq_is_valid(s) == 0);
-            CHECK(seq_reset(s) == SEQ_OK);
+            CHECK(seq_reset(s) == ERR_OK);
             CHECK(seq_is_valid(s) == 1);
             CHECK(seq_length(s) == 0);
         }
-        else if (rc == SEQ_OK)
+        else if (rc == ERR_OK)
         {
             uint32_t out = 0;
             saw_ok = 1;
             CHECK(seq_is_valid(s) == 1);
             CHECK(seq_length(s) == 2);
-            CHECK(seq_get(s, 0, &out) == SEQ_OK);
+            CHECK(seq_get(s, 0, &out) == ERR_OK);
             CHECK(out == ip(1));
-            CHECK(seq_get(s, 1, &out) == SEQ_OK);
+            CHECK(seq_get(s, 1, &out) == ERR_OK);
             CHECK(out == ip(2));
         }
         else
@@ -1152,32 +1152,32 @@ static void test_fault_injection_concat_sweep(void)
         Seq *b = seq_new();
         CHECK(a != NULL && b != NULL);
         for (size_t i = 0; i < 32; i++)
-            CHECK(seq_push_back(a, ip(i)) == SEQ_OK);
+            CHECK(seq_push_back(a, ip(i)) == ERR_OK);
         for (size_t i = 32; i < 64; i++)
-            CHECK(seq_push_back(b, ip(i)) == SEQ_OK);
+            CHECK(seq_push_back(b, ip(i)) == ERR_OK);
 
         seq_test_fail_alloc_after(fail_after);
         int rc = seq_concat(a, b);
         seq_test_clear_alloc_fail();
 
-        if (rc == SEQ_OOM)
+        if (rc == ERR_OOM)
         {
             saw_oom = 1;
             CHECK(seq_is_valid(a) == 0 || seq_is_valid(b) == 0);
-            CHECK(seq_reset(a) == SEQ_OK);
-            CHECK(seq_reset(b) == SEQ_OK);
+            CHECK(seq_reset(a) == ERR_OK);
+            CHECK(seq_reset(b) == ERR_OK);
             CHECK(seq_is_valid(a) == 1);
             CHECK(seq_is_valid(b) == 1);
         }
-        else if (rc == SEQ_OK)
+        else if (rc == ERR_OK)
         {
             uint32_t out = 0;
             saw_ok = 1;
             CHECK(seq_length(a) == 64);
             CHECK(seq_length(b) == 0);
-            CHECK(seq_get(a, 0, &out) == SEQ_OK);
+            CHECK(seq_get(a, 0, &out) == ERR_OK);
             CHECK(out == ip(0));
-            CHECK(seq_get(a, 63, &out) == SEQ_OK);
+            CHECK(seq_get(a, 63, &out) == ERR_OK);
             CHECK(out == ip(63));
         }
         else
@@ -1201,29 +1201,29 @@ static void test_fault_injection_push_front_sweep(void)
     {
         Seq *s = seq_new();
         CHECK(s != NULL);
-        CHECK(seq_push_front(s, ip(1)) == SEQ_OK);
+        CHECK(seq_push_front(s, ip(1)) == ERR_OK);
 
         seq_test_fail_alloc_after(fail_after);
         int rc = seq_push_front(s, ip(2));
         seq_test_clear_alloc_fail();
 
-        if (rc == SEQ_OOM)
+        if (rc == ERR_OOM)
         {
             saw_oom = 1;
             CHECK(seq_is_valid(s) == 0);
-            CHECK(seq_reset(s) == SEQ_OK);
+            CHECK(seq_reset(s) == ERR_OK);
             CHECK(seq_is_valid(s) == 1);
             CHECK(seq_length(s) == 0);
         }
-        else if (rc == SEQ_OK)
+        else if (rc == ERR_OK)
         {
             uint32_t out = 0;
             saw_ok = 1;
             CHECK(seq_is_valid(s) == 1);
             CHECK(seq_length(s) == 2);
-            CHECK(seq_get(s, 0, &out) == SEQ_OK);
+            CHECK(seq_get(s, 0, &out) == ERR_OK);
             CHECK(out == ip(2));
-            CHECK(seq_get(s, 1, &out) == SEQ_OK);
+            CHECK(seq_get(s, 1, &out) == ERR_OK);
             CHECK(out == ip(1));
         }
         else
@@ -1246,7 +1246,7 @@ static void test_fault_injection_split_sweep(void)
         Seq *s = seq_new();
         CHECK(s != NULL);
         for (size_t i = 0; i < 24; i++)
-            CHECK(seq_push_back(s, ip(i)) == SEQ_OK);
+            CHECK(seq_push_back(s, ip(i)) == ERR_OK);
 
         Seq *l = (Seq *)(uintptr_t)11;
         Seq *r = (Seq *)(uintptr_t)22;
@@ -1254,7 +1254,7 @@ static void test_fault_injection_split_sweep(void)
         int rc = seq_split_at(s, 11, &l, &r);
         seq_test_clear_alloc_fail();
 
-        if (rc == SEQ_OOM)
+        if (rc == ERR_OOM)
         {
             uint32_t out = 0;
             saw_oom = 1;
@@ -1262,19 +1262,19 @@ static void test_fault_injection_split_sweep(void)
             CHECK(r == (Seq *)(uintptr_t)22);
             if (seq_is_valid(s) == 0)
             {
-                CHECK(seq_reset(s) == SEQ_OK);
+                CHECK(seq_reset(s) == ERR_OK);
                 CHECK(seq_length(s) == 0);
             }
             else
             {
                 CHECK(seq_length(s) == 24);
-                CHECK(seq_get(s, 0, &out) == SEQ_OK);
+                CHECK(seq_get(s, 0, &out) == ERR_OK);
                 CHECK(out == ip(0));
-                CHECK(seq_get(s, 23, &out) == SEQ_OK);
+                CHECK(seq_get(s, 23, &out) == ERR_OK);
                 CHECK(out == ip(23));
             }
         }
-        else if (rc == SEQ_OK)
+        else if (rc == ERR_OK)
         {
             uint32_t out = 0;
             saw_ok = 1;
@@ -1282,13 +1282,13 @@ static void test_fault_injection_split_sweep(void)
             CHECK(seq_length(s) == 0);
             CHECK(seq_length(l) == 11);
             CHECK(seq_length(r) == 13);
-            CHECK(seq_get(l, 0, &out) == SEQ_OK);
+            CHECK(seq_get(l, 0, &out) == ERR_OK);
             CHECK(out == ip(0));
-            CHECK(seq_get(l, 10, &out) == SEQ_OK);
+            CHECK(seq_get(l, 10, &out) == ERR_OK);
             CHECK(out == ip(10));
-            CHECK(seq_get(r, 0, &out) == SEQ_OK);
+            CHECK(seq_get(r, 0, &out) == ERR_OK);
             CHECK(out == ip(11));
-            CHECK(seq_get(r, 12, &out) == SEQ_OK);
+            CHECK(seq_get(r, 12, &out) == ERR_OK);
             CHECK(out == ip(23));
             seq_free(l);
             seq_free(r);
@@ -1313,21 +1313,21 @@ static void test_fault_injection_reset_sweep(void)
     {
         Seq *s = seq_new();
         CHECK(s != NULL);
-        CHECK(seq_push_back(s, ip(7)) == SEQ_OK);
+        CHECK(seq_push_back(s, ip(7)) == ERR_OK);
 
         seq_test_fail_alloc_after(fail_after);
         int rc = seq_reset(s);
         seq_test_clear_alloc_fail();
 
-        if (rc == SEQ_OOM)
+        if (rc == ERR_OOM)
         {
             saw_oom = 1;
             CHECK(seq_is_valid(s) == 0);
-            CHECK(seq_reset(s) == SEQ_OK);
+            CHECK(seq_reset(s) == ERR_OK);
             CHECK(seq_is_valid(s) == 1);
             CHECK(seq_length(s) == 0);
         }
-        else if (rc == SEQ_OK)
+        else if (rc == ERR_OK)
         {
             saw_ok = 1;
             CHECK(seq_is_valid(s) == 1);

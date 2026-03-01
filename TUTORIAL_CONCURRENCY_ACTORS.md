@@ -53,7 +53,7 @@ Sapling itself serializes top-level writers, so host-side systems usually apply
 OCC around Sapling operations when coordinating multiple worker threads:
 - read/compute optimistically
 - do short write transactions
-- retry on transient conflicts (`SAP_BUSY`) or logical conflicts (for CAS-like
+- retry on transient conflicts (`ERR_BUSY`) or logical conflicts (for CAS-like
   patterns)
 
 ## CAS and related conflict patterns
@@ -71,9 +71,9 @@ int txn_put_if(Txn *txn, uint32_t dbi,
 ```
 
 Important return codes:
-- `SAP_OK`: update applied
-- `SAP_CONFLICT`: expected value mismatch
-- `SAP_NOTFOUND`: key missing
+- `ERR_OK`: update applied
+- `ERR_CONFLICT`: expected value mismatch
+- `ERR_NOT_FOUND`: key missing
 
 Use CAS for:
 - leases
@@ -82,7 +82,7 @@ Use CAS for:
 
 ### Write-write conflict vs logical conflict
 
-- Write-write conflict: two writers contend for the writer slot (`SAP_BUSY`).
+- Write-write conflict: two writers contend for the writer slot (`ERR_BUSY`).
 - Logical conflict: business precondition changed (CAS mismatch).
 
 Both can trigger retry, but logical conflicts may require re-reading and
@@ -120,7 +120,7 @@ Because threads share no memory and all communication occurs through records and
 - An Actor wakes up when a message arrives via a mailbox or timer intent.
 - It deterministically processes the message within an optimistic transaction.
 - It atomically commits state changes to the database AND zero or more new messages to an outbox.
-- If contention occurs (`SAP_BUSY` or `SAP_CONFLICT`), the statically side-effect free actor logic is cleanly rolled back and replayed against fresh database state.
+- If contention occurs (`ERR_BUSY` or `ERR_CONFLICT`), the statically side-effect free actor logic is cleanly rolled back and replayed against fresh database state.
 
 ## Designing host-level atomic blocks for Wasm workers
 
@@ -142,8 +142,8 @@ Avoid long write transactions around guest execution.
 ## Retry policy guidelines
 
 Good automatic retry cases:
-- `SAP_BUSY`
-- `SAP_CONFLICT` in known idempotent transition loops
+- `ERR_BUSY`
+- `ERR_CONFLICT` in known idempotent transition loops
 - transient lease-race failures
 
 Do not blindly retry:
@@ -173,8 +173,8 @@ int db_unwatch_dbi(DB *db, uint32_t dbi,
 Current behavior highlights:
 - DBI-scoped and prefix-scoped.
 - Triggered after top-level commit.
-- Duplicate registration returns `SAP_EXISTS`.
-- Register/unregister while a write txn is active returns `SAP_BUSY`.
+- Duplicate registration returns `ERR_EXISTS`.
+- Register/unregister while a write txn is active returns `ERR_BUSY`.
 
 Use watches as wake-up hints, not as the sole source of truth. The DB remains
 the source of truth.
@@ -185,7 +185,7 @@ the source of truth.
 
 1. Read task row.
 2. CAS state from `queued` to `leased(worker, deadline)`.
-3. On `SAP_CONFLICT`, retry with backoff.
+3. On `ERR_CONFLICT`, retry with backoff.
 
 ### Pattern: outbox commit
 

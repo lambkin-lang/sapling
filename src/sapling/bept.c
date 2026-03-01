@@ -102,7 +102,7 @@ static int find_diff_bit(const uint32_t *k1, uint32_t k1_len,
 
 static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out) {
     TxnState *state = malloc(sizeof(TxnState));
-    if (!state) return SAP_ERROR;
+    if (!state) return ERR_OOM;
 
     state->txn = txn;
     state->env_state = (EnvState *)sap_env_subsystem_state(sap_txn_env(txn), BEPT_SUBSYSTEM_ID);
@@ -116,7 +116,7 @@ static int on_begin(SapTxnCtx *txn, void *parent_state, void **state_out) {
     }
 
     *state_out = state;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int on_commit(SapTxnCtx *txn, void *state) {
@@ -130,7 +130,7 @@ static int on_commit(SapTxnCtx *txn, void *state) {
     }
     
     free(s);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void on_abort(SapTxnCtx *txn, void *state) {
@@ -152,28 +152,28 @@ int sap_bept_subsystem_init(SapEnv *env) {
         .on_env_destroy = on_env_destroy,
     };
 
-    if (!env) return SAP_ERROR;
+    if (!env) return ERR_INVALID;
 
     EnvState *state = malloc(sizeof(EnvState));
-    if (!state) return SAP_ERROR;
+    if (!state) return ERR_OOM;
 
     state->env = env;
     state->root = NULL;
 
     /* Using a single ID for the generic subsystem */
     int rc = sap_env_register_subsystem(env, BEPT_SUBSYSTEM_ID, &callbacks);
-    if (rc != SAP_OK) {
+    if (rc != ERR_OK) {
         free(state);
         return rc;
     }
 
     rc = sap_env_set_subsystem_state(env, BEPT_SUBSYSTEM_ID, state);
-    if (rc != SAP_OK) {
+    if (rc != ERR_OK) {
         free(state);
         return rc;
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -190,7 +190,7 @@ static int alloc_leaf(SapMemArena *arena, const uint32_t *key, uint32_t key_len,
     uint32_t nodeno;
     
     int rc = sap_arena_alloc_node(arena, total_size, (void**)&node, &nodeno);
-    if (rc != SAP_OK) return rc;
+    if (rc != ERR_OK) return rc;
     
     node->header.type = BEPT_NODE_LEAF;
     node->key_len_words = key_len;
@@ -208,7 +208,7 @@ static int alloc_leaf(SapMemArena *arena, const uint32_t *key, uint32_t key_len,
     }
     
     *out = (Node*)node;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int alloc_internal(SapMemArena *arena, uint32_t bit, Node *left, Node *right, Node **out) {
@@ -216,7 +216,7 @@ static int alloc_internal(SapMemArena *arena, uint32_t bit, Node *left, Node *ri
     uint32_t nodeno;
     
     int rc = sap_arena_alloc_node(arena, sizeof(Internal), (void**)&node, &nodeno);
-    if (rc != SAP_OK) return rc;
+    if (rc != ERR_OK) return rc;
     
     node->header.type = BEPT_NODE_INTERNAL;
     node->bit = bit;
@@ -224,7 +224,7 @@ static int alloc_internal(SapMemArena *arena, uint32_t bit, Node *left, Node *ri
     node->right = right;
     
     *out = (Node*)node;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -243,20 +243,20 @@ static int insert_recursive(SapMemArena *arena, Node *node, const uint32_t *key,
             Internal *internal = (Internal *)node;
             Node *new_internal;
             int rc = alloc_internal(arena, internal->bit, internal->left, internal->right, &new_internal);
-            if (rc != SAP_OK) return rc;
+            if (rc != ERR_OK) return rc;
             
             if (check_bit(key, key_len, internal->bit)) {
                 rc = insert_recursive(arena, internal->right, key, key_len, new_leaf, (uint32_t)-1, &((Internal*)new_internal)->right);
             } else {
                 rc = insert_recursive(arena, internal->left, key, key_len, new_leaf, (uint32_t)-1, &((Internal*)new_internal)->left);
             }
-            if (rc != SAP_OK) return rc;
+            if (rc != ERR_OK) return rc;
             *out = new_internal;
-            return SAP_OK;
+            return ERR_OK;
         } else {
             /* Leaf case: replaced by new_leaf */
             *out = new_leaf;
-            return SAP_OK;
+            return ERR_OK;
         }
     } else {
         /* Insert branching */
@@ -266,16 +266,16 @@ static int insert_recursive(SapMemArena *arena, Node *node, const uint32_t *key,
                 /* We are strictly above the diff point, recurse down */
                 Node *new_internal;
                 int rc = alloc_internal(arena, internal->bit, internal->left, internal->right, &new_internal);
-                if (rc != SAP_OK) return rc;
+                if (rc != ERR_OK) return rc;
                 
                 if (check_bit(key, key_len, internal->bit)) {
                     rc = insert_recursive(arena, internal->right, key, key_len, new_leaf, diff_bit, &((Internal*)new_internal)->right);
                 } else {
                     rc = insert_recursive(arena, internal->left, key, key_len, new_leaf, diff_bit, &((Internal*)new_internal)->left);
                 }
-                if (rc != SAP_OK) return rc;
+                if (rc != ERR_OK) return rc;
                 *out = new_internal;
-                return SAP_OK;
+                return ERR_OK;
             }
         }
         
@@ -289,9 +289,9 @@ static int insert_recursive(SapMemArena *arena, Node *node, const uint32_t *key,
             rc = alloc_internal(arena, diff_bit, new_leaf, node, &new_branch);
         }
         
-        if (rc != SAP_OK) return rc;
+        if (rc != ERR_OK) return rc;
         *out = new_branch;
-        return SAP_OK;
+        return ERR_OK;
     }
 }
 
@@ -302,17 +302,17 @@ static int insert_recursive(SapMemArena *arena, Node *node, const uint32_t *key,
 int sap_bept_put(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words, 
                  const void *val, uint32_t val_len, unsigned flags, void **reserved_out)
 {
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     
     TxnState *state = (TxnState *)sap_txn_subsystem_state(txn, BEPT_SUBSYSTEM_ID);
-    if (!state) return SAP_ERROR;
+    if (!state) return ERR_INVALID;
     
     SapMemArena *arena = sap_txn_arena(txn);
-    if (!arena) return SAP_ERROR;
+    if (!arena) return ERR_INVALID;
     
     Node *new_leaf_node;
     int rc = alloc_leaf(arena, key, key_len_words, val, val_len, &new_leaf_node);
-    if (rc != SAP_OK) return rc;
+    if (rc != ERR_OK) return rc;
     
     Leaf *new_leaf = (Leaf *)new_leaf_node;
 
@@ -322,7 +322,7 @@ int sap_bept_put(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words,
              uint8_t *val_ptr = (uint8_t *)(new_leaf->data + new_leaf->key_len_words);
              *reserved_out = val_ptr;
         }
-        return SAP_OK;
+        return ERR_OK;
     }
     
     /* Find best match to calculate diff bit */
@@ -344,7 +344,7 @@ int sap_bept_put(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words,
     
     if (diff_idx == -1) {
         /* Exact match */
-        if (flags & SAP_NOOVERWRITE) return SAP_EXISTS;
+        if (flags & SAP_NOOVERWRITE) return ERR_EXISTS;
         diff_bit_val = (uint32_t)-1;
     } else {
         diff_bit_val = (uint32_t)diff_idx;
@@ -361,10 +361,10 @@ int sap_bept_put(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words,
 int sap_bept_get(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words, 
                  const void **val_out, uint32_t *val_len_out)
 {
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     
     TxnState *state = (TxnState *)sap_txn_subsystem_state(txn, BEPT_SUBSYSTEM_ID);
-    if (!state || !state->root) return SAP_NOTFOUND;
+    if (!state || !state->root) return ERR_NOT_FOUND;
     
     Node *node = state->root;
     while (node->type == BEPT_NODE_INTERNAL) {
@@ -379,15 +379,15 @@ int sap_bept_get(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words,
     Leaf *leaf = (Leaf *)node;
     
     /* Check exact match */
-    if (key_len_words != leaf->key_len_words) return SAP_NOTFOUND;
-    if (memcmp(key, leaf->data, key_len_words * 4) != 0) return SAP_NOTFOUND;
+    if (key_len_words != leaf->key_len_words) return ERR_NOT_FOUND;
+    if (memcmp(key, leaf->data, key_len_words * 4) != 0) return ERR_NOT_FOUND;
     
     if (val_out) {
         *val_out = leaf->data + leaf->key_len_words;
     }
     if (val_len_out) *val_len_out = leaf->val_len;
     
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int delete_recursive(SapMemArena *arena, Node *node, const uint32_t *key, uint32_t key_len, Node **out) {
@@ -396,9 +396,9 @@ static int delete_recursive(SapMemArena *arena, Node *node, const uint32_t *key,
         /* Check match */
         if (key_len == leaf->key_len_words && memcmp(key, leaf->data, key_len * 4) == 0) {
             *out = NULL;
-            return SAP_OK;
+            return ERR_OK;
         } else {
-            return SAP_NOTFOUND;
+            return ERR_NOT_FOUND;
         }
     } else {
         Internal *internal = (Internal *)node;
@@ -407,44 +407,44 @@ static int delete_recursive(SapMemArena *arena, Node *node, const uint32_t *key,
         
         if (check_bit(key, key_len, internal->bit)) {
             rc = delete_recursive(arena, internal->right, key, key_len, &new_child);
-            if (rc != SAP_OK) return rc;
+            if (rc != ERR_OK) return rc;
             
             if (new_child == NULL) {
                 *out = internal->left;
             } else {
                 rc = alloc_internal(arena, internal->bit, internal->left, new_child, out);
-                if (rc != SAP_OK) return rc;
+                if (rc != ERR_OK) return rc;
             }
         } else {
             rc = delete_recursive(arena, internal->left, key, key_len, &new_child);
-            if (rc != SAP_OK) return rc;
+            if (rc != ERR_OK) return rc;
             
             if (new_child == NULL) {
                 *out = internal->right;
             } else {
                 rc = alloc_internal(arena, internal->bit, new_child, internal->right, out);
-                if (rc != SAP_OK) return rc;
+                if (rc != ERR_OK) return rc;
             }
         }
-        return SAP_OK;
+        return ERR_OK;
     }
 }
 
 int sap_bept_del(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words) {
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     
     TxnState *state = (TxnState *)sap_txn_subsystem_state(txn, BEPT_SUBSYSTEM_ID);
-    if (!state) return SAP_ERROR;
+    if (!state) return ERR_INVALID;
     
-    if (!state->root) return SAP_NOTFOUND;
+    if (!state->root) return ERR_NOT_FOUND;
 
     SapMemArena *arena = sap_txn_arena(txn);
-    if (!arena) return SAP_ERROR;
+    if (!arena) return ERR_INVALID;
 
     Node *new_root;
     int rc = delete_recursive(arena, state->root, key, key_len_words, &new_root);
     
-    if (rc == SAP_OK) {
+    if (rc == ERR_OK) {
         state->root = new_root;
     }
     
@@ -454,10 +454,10 @@ int sap_bept_del(SapTxnCtx *txn, const uint32_t *key, uint32_t key_len_words) {
 int sap_bept_min(SapTxnCtx *txn, uint32_t *key_out_buf, uint32_t key_len_words, 
                  const void **val_out, uint32_t *val_len_out)
 {
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     
     TxnState *state = (TxnState *)sap_txn_subsystem_state(txn, BEPT_SUBSYSTEM_ID);
-    if (!state || !state->root) return SAP_NOTFOUND;
+    if (!state || !state->root) return ERR_NOT_FOUND;
     
     Node *node = state->root;
     while (node->type == BEPT_NODE_INTERNAL) {
@@ -473,5 +473,5 @@ int sap_bept_min(SapTxnCtx *txn, uint32_t *key_out_buf, uint32_t key_len_words,
     if (val_out) *val_out = leaf->data + leaf->key_len_words;
     if (val_len_out) *val_len_out = leaf->val_len;
     
-    return SAP_OK;
+    return ERR_OK;
 }

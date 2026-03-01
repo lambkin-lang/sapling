@@ -44,12 +44,12 @@ typedef struct ThatchTxnState {
 
 static int thatch_on_begin(SapTxnCtx *txn, void *parent_state, void **state_out) {
     ThatchTxnState *state = sap_txn_scratch_alloc(txn, sizeof(ThatchTxnState));
-    if (!state) return THATCH_OOM;
+    if (!state) return ERR_OOM;
 
     state->active_regions = NULL;
     state->parent_state = (ThatchTxnState *)parent_state;
     *state_out = state;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 static int thatch_on_commit(SapTxnCtx *txn, void *state_ptr) {
@@ -76,7 +76,7 @@ static int thatch_on_commit(SapTxnCtx *txn, void *state_ptr) {
     }
 
     state->active_regions = NULL;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 static void thatch_on_abort(SapTxnCtx *txn, void *state_ptr) {
@@ -117,10 +117,10 @@ int sap_thatch_subsystem_init(SapEnv *env) {
 /* ------------------------------------------------------------------ */
 
 int thatch_region_new(SapTxnCtx *txn, ThatchRegion **region_out) {
-    if (!txn || !region_out) return THATCH_INVALID;
+    if (!txn || !region_out) return ERR_INVALID;
 
     ThatchTxnState *state = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_THATCH);
-    if (!state) return THATCH_INVALID;
+    if (!state) return ERR_INVALID;
 
     SapMemArena *arena = sap_txn_arena(txn);
 
@@ -132,12 +132,12 @@ int thatch_region_new(SapTxnCtx *txn, ThatchRegion **region_out) {
     uint32_t region_nodeno = 0;
     int rc = sap_arena_alloc_node(arena, sizeof(ThatchRegion),
                                   (void **)&region, &region_nodeno);
-    if (rc != 0) return THATCH_OOM;
+    if (rc != 0) return ERR_OOM;
 
     rc = sap_arena_alloc_page(arena, &region->page_ptr, &region->pgno);
     if (rc != 0) {
         sap_arena_free_node(arena, region_nodeno, sizeof(ThatchRegion));
-        return THATCH_OOM;
+        return ERR_OOM;
     }
 
     region->arena    = arena;
@@ -151,48 +151,48 @@ int thatch_region_new(SapTxnCtx *txn, ThatchRegion **region_out) {
     state->active_regions   = region;
 
     *region_out = region;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_write_tag(ThatchRegion *region, uint8_t tag) {
-    if (!region || region->sealed) return THATCH_INVALID;
-    if (region->head + 1 > region->capacity) return THATCH_OOM;
+    if (!region || region->sealed) return ERR_INVALID;
+    if (region->head + 1 > region->capacity) return ERR_OOM;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     mem[region->head] = tag;
     region->head += 1;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_write_data(ThatchRegion *region, const void *data, uint32_t len) {
-    if (!region || region->sealed) return THATCH_INVALID;
-    if (!data || len == 0) return len == 0 ? THATCH_OK : THATCH_INVALID;
-    if (region->head + len > region->capacity) return THATCH_OOM;
+    if (!region || region->sealed) return ERR_INVALID;
+    if (!data || len == 0) return len == 0 ? ERR_OK : ERR_INVALID;
+    if (region->head + len > region->capacity) return ERR_OOM;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     memcpy(mem + region->head, data, len);
     region->head += len;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_reserve_skip(ThatchRegion *region, ThatchCursor *skip_loc_out) {
-    if (!region || region->sealed || !skip_loc_out) return THATCH_INVALID;
-    if (region->head + sizeof(uint32_t) > region->capacity) return THATCH_OOM;
+    if (!region || region->sealed || !skip_loc_out) return ERR_INVALID;
+    if (region->head + sizeof(uint32_t) > region->capacity) return ERR_OOM;
 
     *skip_loc_out = region->head;
     /* Advance the head to leave a 4-byte gap for the lookahead marker */
     region->head += sizeof(uint32_t);
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_commit_skip(ThatchRegion *region, ThatchCursor skip_loc) {
-    if (!region || region->sealed) return THATCH_INVALID;
+    if (!region || region->sealed) return ERR_INVALID;
 
     /* Validate that skip_loc is within bounds and the reserved 4-byte
      * slot fits within the data written so far. */
     if (skip_loc > region->head ||
         region->head - skip_loc < sizeof(uint32_t))
-        return THATCH_BOUNDS;
+        return ERR_RANGE;
 
     /* Calculate the total bytes written since the reservation */
     uint32_t skip_len = region->head - skip_loc - sizeof(uint32_t);
@@ -201,21 +201,21 @@ int thatch_commit_skip(ThatchRegion *region, ThatchCursor skip_loc) {
     /* Backpatch the 4-byte integer into the reserved slot */
     memcpy(mem + skip_loc, &skip_len, sizeof(uint32_t));
 
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_seal(SapTxnCtx *txn, ThatchRegion *region) {
     (void)txn;
-    if (!region) return THATCH_INVALID;
+    if (!region) return ERR_INVALID;
     region->sealed = 1;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_region_release(SapTxnCtx *txn, ThatchRegion *region) {
-    if (!txn || !region) return THATCH_INVALID;
+    if (!txn || !region) return ERR_INVALID;
 
     ThatchTxnState *state = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_THATCH);
-    if (!state) return THATCH_INVALID;
+    if (!state) return ERR_INVALID;
 
     /* Unlink from the active region list — only free if actually found */
     int found = 0;
@@ -229,12 +229,12 @@ int thatch_region_release(SapTxnCtx *txn, ThatchRegion *region) {
         pp = &(*pp)->next;
     }
 
-    if (!found) return THATCH_INVALID;
+    if (!found) return ERR_INVALID;
 
     SapMemArena *arena = region->arena;
     sap_arena_free_page(arena, region->pgno);
     sap_arena_free_node(arena, region->nodeno, sizeof(ThatchRegion));
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -242,53 +242,53 @@ int thatch_region_release(SapTxnCtx *txn, ThatchRegion *region) {
 /* ------------------------------------------------------------------ */
 
 int thatch_read_tag(const ThatchRegion *region, ThatchCursor *cursor, uint8_t *tag_out) {
-    if (!region || !cursor || !tag_out) return THATCH_INVALID;
-    if (*cursor + 1 > region->head) return THATCH_BOUNDS;
+    if (!region || !cursor || !tag_out) return ERR_INVALID;
+    if (*cursor + 1 > region->head) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     *tag_out = mem[*cursor];
     *cursor += 1;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_read_data(const ThatchRegion *region, ThatchCursor *cursor, uint32_t len, void *data_out) {
-    if (!region || !cursor || !data_out) return THATCH_INVALID;
-    if (*cursor + len > region->head) return THATCH_BOUNDS;
+    if (!region || !cursor || !data_out) return ERR_INVALID;
+    if (*cursor + len > region->head) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     memcpy(data_out, mem + *cursor, len);
     *cursor += len;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_read_skip_len(const ThatchRegion *region, ThatchCursor *cursor, uint32_t *skip_len_out) {
-    if (!region || !cursor || !skip_len_out) return THATCH_INVALID;
-    if (*cursor + sizeof(uint32_t) > region->head) return THATCH_BOUNDS;
+    if (!region || !cursor || !skip_len_out) return ERR_INVALID;
+    if (*cursor + sizeof(uint32_t) > region->head) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     memcpy(skip_len_out, mem + *cursor, sizeof(uint32_t));
     *cursor += sizeof(uint32_t);
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_advance_cursor(const ThatchRegion *region, ThatchCursor *cursor, uint32_t skip_len) {
-    if (!region || !cursor) return THATCH_INVALID;
-    if (*cursor + skip_len > region->head) return THATCH_BOUNDS;
+    if (!region || !cursor) return ERR_INVALID;
+    if (*cursor + skip_len > region->head) return ERR_RANGE;
 
     /* The core of the O(1) jq-style bypass mechanism */
     *cursor += skip_len;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 int thatch_read_ptr(const ThatchRegion *region, ThatchCursor *cursor,
                     uint32_t len, const void **ptr_out) {
-    if (!region || !cursor || !ptr_out) return THATCH_INVALID;
-    if (*cursor + len > region->head) return THATCH_BOUNDS;
+    if (!region || !cursor || !ptr_out) return ERR_INVALID;
+    if (*cursor + len > region->head) return ERR_RANGE;
 
     uint8_t *mem = (uint8_t *)region->page_ptr;
     *ptr_out = mem + *cursor;
     *cursor += len;
-    return THATCH_OK;
+    return ERR_OK;
 }
 
 uint32_t thatch_region_used(const ThatchRegion *region) {

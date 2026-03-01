@@ -29,7 +29,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi0_app_state_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi0_app_state_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi0_app_state_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -44,7 +44,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi0_app_state_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi0_app_state_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi0_app_state_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -56,7 +56,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi1_inbox_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi1_inbox_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi1_inbox_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -67,7 +67,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi1_inbox_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi1_inbox_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi1_inbox_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -78,7 +78,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi2_outbox_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi2_outbox_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi2_outbox_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -90,7 +90,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi2_outbox_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi2_outbox_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi2_outbox_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -102,7 +102,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi3_leases_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi3_leases_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi3_leases_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -113,7 +113,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi3_leases_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi3_leases_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi3_leases_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -126,7 +126,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi4_timers_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi4_timers_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi4_timers_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -137,7 +137,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi4_timers_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi4_timers_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi4_timers_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -149,7 +149,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi5_dedupe_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi5_dedupe_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi5_dedupe_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -163,7 +163,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi5_dedupe_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi5_dedupe_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi5_dedupe_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -175,7 +175,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi6_dead_letter_key(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi6_dead_letter_key)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi6_dead_letter_key)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }
@@ -189,7 +189,7 @@ typedef struct __attribute__((packed)) {
 
 static inline int sap_wit_validate_dbi6_dead_letter_value(const void *data, uint32_t len) {
     if (data == NULL || len == 0) return 0; /* Deletion or empty payload bypass */
-    if (len < sizeof(SapWit_dbi6_dead_letter_value)) return -1; /* SAP_INVALID_DATA */
+    if (len < sizeof(SapWit_dbi6_dead_letter_value)) return -1; /* ERR_CORRUPT */
     (void)data; /* No refinement constraints */
     return 0;
 }

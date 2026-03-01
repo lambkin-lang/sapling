@@ -49,7 +49,7 @@ static int shim_push_reply_intent(SapRunnerTxStackV0 *stack, SapWasiShimV0 *shim
 
     if (!stack || !shim || !runner || !msg)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     out.kind = SAP_RUNNER_MESSAGE_KIND_EVENT;
@@ -72,18 +72,18 @@ static int shim_push_reply_intent(SapRunnerTxStackV0 *stack, SapWasiShimV0 *shim
     frame_len = sap_runner_message_v0_size(&out);
     if (frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     frame = (uint8_t *)malloc((size_t)frame_len);
     if (!frame)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     rc = sap_runner_message_v0_encode(&out, frame, frame_len, &frame_len);
     if (rc != SAP_RUNNER_WIRE_OK)
     {
         free(frame);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
@@ -106,7 +106,7 @@ static int shim_atomic_execute(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
 
     if (!stack || !atomic || !atomic->shim || !atomic->runner || !atomic->msg)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     shim = atomic->shim;
 
@@ -117,15 +117,15 @@ static int shim_atomic_execute(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
         SapRunnerDedupeV0 dedupe = {0};
         rc = sap_runner_dedupe_v0_get(read_txn, atomic->msg->message_id,
                                       atomic->msg->message_id_len, &dedupe);
-        if (rc == SAP_OK && dedupe.accepted)
+        if (rc == ERR_OK && dedupe.accepted)
         {
-            return SAP_OK;
+            return ERR_OK;
         }
     }
 
     rc = sap_wasi_runtime_v0_invoke(shim->runtime, &host_ctx, atomic->msg, shim->reply_buf,
                                     shim->reply_buf_cap, &reply_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -139,18 +139,18 @@ static int shim_atomic_execute(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
         // For now, we leave it zeroed.
         rc = sap_runner_dedupe_v0_stage_put(stack, atomic->msg->message_id,
                                             atomic->msg->message_id_len, &dedupe);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
     }
     if (!shim->emit_outbox_events || reply_len == 0u)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
     if (reply_len > shim->reply_buf_cap)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     return shim_push_reply_intent(stack, shim, atomic->runner, atomic->msg, reply_len);
 }
@@ -180,7 +180,7 @@ int sap_wasi_shim_v0_init_with_options(SapWasiShimV0 *shim, DB *db, SapWasiRunti
 
     if (!shim || !db || !runtime)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_wasi_shim_v0_options_default(&local);
     if (options)
@@ -188,7 +188,7 @@ int sap_wasi_shim_v0_init_with_options(SapWasiShimV0 *shim, DB *db, SapWasiRunti
         local = *options;
         if (local.reply_buf && local.reply_buf_cap == 0u)
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
         if (local.reply_buf_cap == 0u)
         {
@@ -205,7 +205,7 @@ int sap_wasi_shim_v0_init_with_options(SapWasiShimV0 *shim, DB *db, SapWasiRunti
     reply_buf_cap = local.reply_buf_cap;
     if (reply_buf_cap == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (local.reply_buf)
     {
@@ -217,21 +217,21 @@ int sap_wasi_shim_v0_init_with_options(SapWasiShimV0 *shim, DB *db, SapWasiRunti
     }
     else
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     shim->reply_buf = reply_buf;
     shim->reply_buf_cap = reply_buf_cap;
     rc = sap_runner_intent_sink_v0_init(&shim->intent_sink, db, initial_outbox_seq, 0u);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     sap_runner_attempt_v0_policy_default(&shim->attempt_policy);
-    shim->last_attempt_stats.last_rc = SAP_OK;
+    shim->last_attempt_stats.last_rc = ERR_OK;
     shim->next_outbox_seq = initial_outbox_seq;
     shim->emit_outbox_events = emit_outbox_events;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_wasi_shim_v0_init(SapWasiShimV0 *shim, DB *db, SapWasiRuntimeV0 *runtime,
@@ -268,7 +268,7 @@ int sap_wasi_shim_v0_runner_handler(SapRunnerV0 *runner, const SapRunnerMessageV
 
     if (!runner || !msg || !shim || !shim->db || !shim->runtime)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     atomic_ctx.shim = shim;
@@ -280,11 +280,11 @@ int sap_wasi_shim_v0_runner_handler(SapRunnerV0 *runner, const SapRunnerMessageV
                                   sap_runner_intent_sink_v0_publish, &shim->intent_sink, &stats);
     shim->last_attempt_stats = stats;
     shim->next_outbox_seq = shim->intent_sink.outbox.next_seq;
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_wasi_shim_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Config *cfg,
@@ -292,7 +292,7 @@ int sap_wasi_shim_v0_worker_init(SapRunnerV0Worker *worker, const SapRunnerV0Con
 {
     if (!worker || !cfg || !shim)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_v0_worker_init(worker, cfg, sap_wasi_shim_v0_runner_handler, shim, max_batch);
 }

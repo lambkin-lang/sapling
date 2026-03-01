@@ -57,18 +57,18 @@ void *sap_env_subsystem_state(SapEnv *env, uint32_t sys_id) {
 }
 
 int sap_env_set_subsystem_state(SapEnv *env, uint32_t sys_id, void *state) {
-    if (!env || sys_id >= SAP_MAX_SUBSYSTEMS) return SAP_ERROR;
+    if (!env || sys_id >= SAP_MAX_SUBSYSTEMS) return ERR_INVALID;
     env->subsystem_env_states[sys_id] = state;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_env_register_subsystem(SapEnv *env, uint32_t sys_id, const SapTxnSubsystemCallbacks *cbs) {
-    if (!env || !cbs || sys_id >= SAP_MAX_SUBSYSTEMS) return SAP_ERROR;
+    if (!env || !cbs || sys_id >= SAP_MAX_SUBSYSTEMS) return ERR_INVALID;
     env->subsystems[sys_id] = *cbs;
     if (sys_id >= env->active_subs) {
         env->active_subs = sys_id + 1;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 SapMemArena *sap_txn_arena(SapTxnCtx *txn) {
@@ -89,9 +89,9 @@ void *sap_txn_subsystem_state(SapTxnCtx *txn, uint32_t sys_id) {
 }
 
 int sap_txn_set_subsystem_state(SapTxnCtx *txn, uint32_t sys_id, void *state) {
-    if (!txn || sys_id >= SAP_MAX_SUBSYSTEMS) return SAP_ERROR;
+    if (!txn || sys_id >= SAP_MAX_SUBSYSTEMS) return ERR_INVALID;
     txn->subsystem_states[sys_id] = state;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 SapTxnCtx *sap_txn_begin(SapEnv *env, SapTxnCtx *parent, unsigned int flags)
@@ -112,7 +112,7 @@ SapTxnCtx *sap_txn_begin(SapEnv *env, SapTxnCtx *parent, unsigned int flags)
             int rc = env->subsystems[i].on_begin(txn, 
                 parent ? parent->subsystem_states[i] : NULL, &state);
             txn->subsystem_states[i] = state;
-            if (rc != SAP_OK) {
+            if (rc != ERR_OK) {
                 sap_txn_abort(txn);
                 return NULL;
             }
@@ -124,14 +124,15 @@ SapTxnCtx *sap_txn_begin(SapEnv *env, SapTxnCtx *parent, unsigned int flags)
 
 int sap_txn_commit(SapTxnCtx *txn)
 {
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     SapEnv *env = txn->env;
 
     for (uint32_t i = 0; i < env->active_subs; i++) {
         if (env->subsystems[i].on_commit) {
-            if (env->subsystems[i].on_commit(txn, txn->subsystem_states[i]) != SAP_OK) {
+            int rc = env->subsystems[i].on_commit(txn, txn->subsystem_states[i]);
+            if (rc != ERR_OK) {
                 sap_txn_abort(txn);
-                return SAP_ERROR;
+                return rc;
             }
         }
     }
@@ -140,7 +141,7 @@ int sap_txn_commit(SapTxnCtx *txn)
         sap_arena_free_page(env->arena, txn->scratch_pgno);
     }
     free(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 void sap_txn_abort(SapTxnCtx *txn)
@@ -168,7 +169,7 @@ void *sap_txn_scratch_alloc(SapTxnCtx *txn, uint32_t len)
     if (!txn->scratch_page) {
         void *page = NULL;
         uint32_t pgno = 0;
-        if (sap_arena_alloc_page(txn->env->arena, &page, &pgno) != SAP_OK) {
+        if (sap_arena_alloc_page(txn->env->arena, &page, &pgno) != ERR_OK) {
             return NULL;
         }
         txn->scratch_page = (uint8_t *)page;

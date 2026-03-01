@@ -70,7 +70,7 @@ static int encode_message_frame(uint32_t worker_id, uint64_t seq, uint8_t *out, 
 
     if (!out || !frame_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     for (i = 0u; i < 8u; i++)
@@ -94,9 +94,9 @@ static int encode_message_frame(uint32_t worker_id, uint64_t seq, uint8_t *out, 
 
     if (sap_runner_message_v0_encode(&msg, out, out_len, frame_len_out) != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static DB *open_bench_db(void)
@@ -106,12 +106,12 @@ static DB *open_bench_db(void)
     {
         return NULL;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
         db_close(db);
         return NULL;
     }
-    if (sap_runner_v0_ensure_schema_version(db, 0u, 0u, 1) != SAP_OK)
+    if (sap_runner_v0_ensure_schema_version(db, 0u, 0u, 1) != ERR_OK)
     {
         db_close(db);
         return NULL;
@@ -126,13 +126,13 @@ static int populate_inbox(DB *db, uint32_t worker_id, uint32_t count)
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     for (i = 0u; i < count; i++)
@@ -145,13 +145,13 @@ static int populate_inbox(DB *db, uint32_t worker_id, uint32_t count)
 
         sap_runner_v0_inbox_key_encode((uint64_t)worker_id, seq, key);
         rc = encode_message_frame(worker_id, seq, frame, sizeof(frame), &frame_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
         }
         rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), frame, frame_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
@@ -172,14 +172,14 @@ static int bench_noop_handler(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg
 
     if (!runner || !msg || !state)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (msg->to_worker != (int64_t)runner->worker_id)
     {
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     state->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int run_baseline_round(uint32_t count, uint32_t batch, double *seconds_out)
@@ -194,19 +194,19 @@ static int run_baseline_round(uint32_t count, uint32_t batch, double *seconds_ou
 
     if (!seconds_out || batch == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *seconds_out = 0.0;
 
     db = open_bench_db();
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
-    if (populate_inbox(db, BENCH_WORKER_ID, count) != SAP_OK)
+    if (populate_inbox(db, BENCH_WORKER_ID, count) != ERR_OK)
     {
         db_close(db);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     cfg.db = db;
@@ -214,10 +214,10 @@ static int run_baseline_round(uint32_t count, uint32_t batch, double *seconds_ou
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    if (sap_runner_v0_init(&runner, &cfg) != SAP_OK)
+    if (sap_runner_v0_init(&runner, &cfg) != ERR_OK)
     {
         db_close(db);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     t0 = now_seconds();
@@ -226,7 +226,7 @@ static int run_baseline_round(uint32_t count, uint32_t batch, double *seconds_ou
         uint32_t processed = 0u;
         int rc =
             sap_runner_v0_poll_inbox(&runner, batch, bench_noop_handler, &dispatch, &processed);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             db_close(db);
             return rc;
@@ -242,10 +242,10 @@ static int run_baseline_round(uint32_t count, uint32_t batch, double *seconds_ou
     db_close(db);
     if (total != count || dispatch.calls != count)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *seconds_out = t1 - t0;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *processed_out)
@@ -255,7 +255,7 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
 
     if (!db || !processed_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *processed_out = 0u;
 
@@ -280,23 +280,23 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
 
         if (!txn)
         {
-            return SAP_BUSY;
+            return ERR_BUSY;
         }
         cur = cursor_open_dbi(txn, SAP_WIT_DBI_INBOX);
         if (!cur)
         {
             txn_abort(txn);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
 
         rc = cursor_seek_prefix(cur, prefix, 8u);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             cursor_close(cur);
             txn_abort(txn);
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -304,7 +304,7 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
         }
 
         rc = cursor_get(cur, &key, &key_len, &val, &val_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -315,14 +315,14 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
         {
             cursor_close(cur);
             txn_abort(txn);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         memcpy(key_copy, key, sizeof(key_copy));
         memcpy(frame_copy, val, val_len);
         cursor_close(cur);
 
         rc = sap_runner_v0_inbox_key_decode(key_copy, sizeof(key_copy), &key_worker, &key_seq);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
@@ -336,12 +336,12 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
         if (sap_runner_message_v0_decode(frame_copy, val_len, &msg) != SAP_RUNNER_WIRE_OK)
         {
             txn_abort(txn);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         if (msg.to_worker != (int64_t)worker_id)
         {
             txn_abort(txn);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
 
         lease.owner_worker = (uint64_t)worker_id;
@@ -351,28 +351,28 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
 
         rc = txn_put_dbi(txn, SAP_WIT_DBI_LEASES, key_copy, sizeof(key_copy), lease_raw,
                          sizeof(lease_raw));
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
         }
 
         rc = txn_del_dbi(txn, SAP_WIT_DBI_INBOX, key_copy, sizeof(key_copy));
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
         }
 
         rc = txn_del_dbi(txn, SAP_WIT_DBI_LEASES, key_copy, sizeof(key_copy));
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
         }
 
         rc = txn_commit(txn);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
@@ -380,7 +380,7 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
     }
 
     *processed_out = processed;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int run_candidate_round(uint32_t count, double *seconds_out)
@@ -393,17 +393,17 @@ static int run_candidate_round(uint32_t count, double *seconds_out)
 
     if (!seconds_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *seconds_out = 0.0;
 
     db = open_bench_db();
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     rc = populate_inbox(db, BENCH_WORKER_ID, count);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         db_close(db);
         return rc;
@@ -413,16 +413,16 @@ static int run_candidate_round(uint32_t count, double *seconds_out)
     rc = drain_fused_storage_candidate(db, BENCH_WORKER_ID, &processed);
     t1 = now_seconds();
     db_close(db);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     if (processed != count)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *seconds_out = t1 - t0;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int main(int argc, char **argv)
@@ -482,13 +482,13 @@ int main(int argc, char **argv)
         int rc;
 
         rc = run_baseline_round(count, batch, &baseline_sec);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             fprintf(stderr, "baseline round failed (round=%u rc=%d)\n", r + 1u, rc);
             return 1;
         }
         rc = run_candidate_round(count, &candidate_sec);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             fprintf(stderr, "candidate round failed (round=%u rc=%d)\n", r + 1u, rc);
             return 1;

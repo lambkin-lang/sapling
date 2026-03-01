@@ -62,11 +62,11 @@ static int ensure_runner_schema(DB *db)
 {
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_v0_ensure_schema_version(db, 0u, 0u, 1);
 }
@@ -79,7 +79,7 @@ static int app_state_get(DB *db, const void *key, uint32_t key_len, const void *
 
     if (!db || !key || key_len == 0u || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     *val_out = NULL;
@@ -87,7 +87,7 @@ static int app_state_get(DB *db, const void *key, uint32_t key_len, const void *
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
@@ -99,12 +99,12 @@ static int capture_sink(const uint8_t *frame, uint32_t frame_len, void *ctx)
     SinkCtx *sink = (SinkCtx *)ctx;
     if (!sink || !frame || frame_len == 0u || frame_len > sizeof(sink->frame))
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memcpy(sink->frame, frame, frame_len);
     sink->frame_len = frame_len;
     sink->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *runner,
@@ -118,19 +118,19 @@ static int atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *r
     (void)runner;
     if (!stack || !msg || !atomic)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     atomic->calls++;
     if (atomic->fail_conflicts_remaining > 0u)
     {
         atomic->fail_conflicts_remaining--;
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     rc = sap_runner_txstack_v0_stage_put_dbi(stack, 10u, key, sizeof(key), msg->payload,
                                              msg->payload_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -144,13 +144,13 @@ static int atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *r
         intent.message = msg->payload;
         intent.message_len = msg->payload_len;
         rc = sap_runner_txstack_v0_push_intent(stack, &intent);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void make_message(SapRunnerMessageV0 *msg, const uint8_t *payload, uint32_t payload_len)
@@ -178,7 +178,7 @@ static int encode_frame_for_worker(uint32_t to_worker, const uint8_t *payload, u
     SapRunnerMessageV0 msg = {0};
     if (!payload || payload_len == 0u || !dst || !written_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     make_message(&msg, payload, payload_len);
     msg.to_worker = (int64_t)to_worker;
@@ -202,29 +202,29 @@ static int test_attempt_handler_commits_and_emits_intent(void)
     const uint8_t key[] = {'k'};
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
     cfg.db = db;
     cfg.worker_id = 7u;
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     atomic.calls = 0u;
     atomic.fail_conflicts_remaining = 0u;
     atomic.emit_intent = 1;
     CHECK(sap_runner_attempt_handler_v0_init(&handler, db, atomic_apply, &atomic, capture_sink,
-                                             &sink) == SAP_OK);
+                                             &sink) == ERR_OK);
 
     make_message(&msg, payload, sizeof(payload));
-    CHECK(sap_runner_attempt_handler_v0_runner_handler(&runner, &msg, &handler) == SAP_OK);
+    CHECK(sap_runner_attempt_handler_v0_runner_handler(&runner, &msg, &handler) == ERR_OK);
     CHECK(atomic.calls == 1u);
     CHECK(handler.last_stats.attempts == 1u);
     CHECK(handler.last_stats.retries == 0u);
-    CHECK(handler.last_stats.last_rc == SAP_OK);
+    CHECK(handler.last_stats.last_rc == ERR_OK);
     CHECK(sink.calls == 1u);
 
-    CHECK(app_state_get(db, key, sizeof(key), &stored, &stored_len) == SAP_OK);
+    CHECK(app_state_get(db, key, sizeof(key), &stored, &stored_len) == ERR_OK);
     CHECK(stored_len == sizeof(payload));
     CHECK(memcmp(stored, payload, sizeof(payload)) == 0);
 
@@ -253,19 +253,19 @@ static int test_attempt_handler_retries_conflicts(void)
     uint32_t stored_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
     cfg.db = db;
     cfg.worker_id = 7u;
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     atomic.calls = 0u;
     atomic.fail_conflicts_remaining = 1u;
     atomic.emit_intent = 0;
     CHECK(sap_runner_attempt_handler_v0_init(&handler, db, atomic_apply, &atomic, NULL, NULL) ==
-          SAP_OK);
+          ERR_OK);
 
     sap_runner_attempt_v0_policy_default(&policy);
     policy.max_retries = 2u;
@@ -276,14 +276,14 @@ static int test_attempt_handler_retries_conflicts(void)
     sap_runner_attempt_handler_v0_set_policy(&handler, &policy);
 
     make_message(&msg, payload, sizeof(payload));
-    CHECK(sap_runner_attempt_handler_v0_runner_handler(&runner, &msg, &handler) == SAP_OK);
+    CHECK(sap_runner_attempt_handler_v0_runner_handler(&runner, &msg, &handler) == ERR_OK);
     CHECK(atomic.calls == 2u);
     CHECK(handler.last_stats.attempts == 2u);
     CHECK(handler.last_stats.retries == 1u);
     CHECK(handler.last_stats.conflict_retries == 1u);
-    CHECK(handler.last_stats.last_rc == SAP_OK);
+    CHECK(handler.last_stats.last_rc == ERR_OK);
 
-    CHECK(app_state_get(db, key, sizeof(key), &stored, &stored_len) == SAP_OK);
+    CHECK(app_state_get(db, key, sizeof(key), &stored, &stored_len) == ERR_OK);
     CHECK(stored_len == sizeof(payload));
     CHECK(memcmp(stored, payload, sizeof(payload)) == 0);
 
@@ -307,7 +307,7 @@ static int test_attempt_handler_worker_tick_path(void)
     uint32_t stored_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(ensure_runner_schema(db) == SAP_OK);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
     cfg.db = db;
     cfg.worker_id = 7u;
     cfg.schema_major = 0u;
@@ -318,20 +318,20 @@ static int test_attempt_handler_worker_tick_path(void)
     atomic.fail_conflicts_remaining = 0u;
     atomic.emit_intent = 0;
     CHECK(sap_runner_attempt_handler_v0_init(&handler, db, atomic_apply, &atomic, NULL, NULL) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(sap_runner_v0_worker_init(&worker, &cfg, sap_runner_attempt_handler_v0_runner_handler,
-                                    &handler, 1u) == SAP_OK);
+                                    &handler, 1u) == ERR_OK);
 
     CHECK(encode_frame_for_worker(7u, payload, sizeof(payload), frame, sizeof(frame), &frame_len) ==
           SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(atomic.calls == 1u);
     CHECK(handler.last_stats.attempts == 1u);
-    CHECK(handler.last_stats.last_rc == SAP_OK);
+    CHECK(handler.last_stats.last_rc == ERR_OK);
 
-    CHECK(app_state_get(db, key, sizeof(key), &stored, &stored_len) == SAP_OK);
+    CHECK(app_state_get(db, key, sizeof(key), &stored, &stored_len) == ERR_OK);
     CHECK(stored_len == sizeof(payload));
     CHECK(memcmp(stored, payload, sizeof(payload)) == 0);
 

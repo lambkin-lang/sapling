@@ -26,7 +26,7 @@ int sap_host_v0_get(SapHostV0 *host, uint32_t dbi, const void *key, uint32_t key
 {
     if (!host || !host->stack || !host->read_txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_txstack_v0_read_dbi(host->stack, host->read_txn, dbi, key, key_len, val_out,
                                           val_len_out);
@@ -37,7 +37,7 @@ int sap_host_v0_put(SapHostV0 *host, uint32_t dbi, const void *key, uint32_t key
 {
     if (!host || !host->stack)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_txstack_v0_stage_put_dbi(host->stack, dbi, key, key_len, val, val_len);
 }
@@ -46,7 +46,7 @@ int sap_host_v0_del(SapHostV0 *host, uint32_t dbi, const void *key, uint32_t key
 {
     if (!host || !host->stack)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_txstack_v0_stage_del_dbi(host->stack, dbi, key, key_len);
 }
@@ -57,7 +57,7 @@ int sap_host_v0_emit(SapHostV0 *host, const void *msg, uint32_t msg_len)
 
     if (!host || !host->stack || !msg || msg_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
@@ -75,7 +75,7 @@ int sap_host_v0_arm(SapHostV0 *host, int64_t due_ts, const void *msg, uint32_t m
 
     if (!host || !host->stack || !msg || msg_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     intent.kind = SAP_RUNNER_INTENT_KIND_TIMER_ARM;
@@ -93,7 +93,7 @@ int sap_host_v0_lease_acquire(SapHostV0 *host, const void *key, uint32_t key_len
     SapRunnerLeaseV0 lease = {0};
     if (!host || !host->stack || !host->read_txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_lease_v0_stage_acquire(host->stack, host->read_txn, key, key_len,
                                              host->worker_id, host->now_ms, duration_ms, &lease);
@@ -103,7 +103,7 @@ int sap_host_v0_lease_release(SapHostV0 *host, const void *key, uint32_t key_len
 {
     if (!host || !host->stack || !host->read_txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_lease_v0_stage_release(host->stack, host->read_txn, key, key_len,
                                              host->worker_id);

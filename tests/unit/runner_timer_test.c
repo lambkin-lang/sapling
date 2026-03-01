@@ -30,13 +30,13 @@ static DB *new_db(void)
     {
         return NULL;
     }
-    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
+    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         /* db_close destroys env, which is enough */
         db_close(db);
         return NULL;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
         db_close(db);
         return NULL;
@@ -63,7 +63,7 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -71,7 +71,7 @@ static int timer_get(DB *db, int64_t due_ts, uint64_t seq, const void **val_out,
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     timer_to_bept_key(due_ts, seq, key);
     rc = sap_bept_get(txn, key, 4, val_out, val_len_out);
@@ -94,14 +94,14 @@ static int collect_due(int64_t due_ts, uint64_t seq, const uint8_t *payload, uin
     DueCtx *due = (DueCtx *)ctx;
     if (!due || !payload || payload_len == 0u || payload_len > 16u || due->calls >= 8u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     due->due_ts[due->calls] = due_ts;
     due->seq[due->calls] = seq;
     memcpy(due->payloads[due->calls], payload, payload_len);
     due->payload_lens[due->calls] = payload_len;
     due->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int test_timer_append_and_drain_due(void)
@@ -116,10 +116,10 @@ static int test_timer_append_and_drain_due(void)
     const uint8_t c[] = {'c'};
 
     CHECK(db != NULL);
-    CHECK(sap_runner_timer_v0_append(db, 100, 2u, a, sizeof(a)) == SAP_OK);
-    CHECK(sap_runner_timer_v0_append(db, 90, 1u, b, sizeof(b)) == SAP_OK);
-    CHECK(sap_runner_timer_v0_append(db, 110, 1u, c, sizeof(c)) == SAP_OK);
-    CHECK(sap_runner_timer_v0_drain_due(db, 100, 8u, collect_due, &due, &processed) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 100, 2u, a, sizeof(a)) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 90, 1u, b, sizeof(b)) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 110, 1u, c, sizeof(c)) == ERR_OK);
+    CHECK(sap_runner_timer_v0_drain_due(db, 100, 8u, collect_due, &due, &processed) == ERR_OK);
     CHECK(processed == 2u);
     CHECK(due.calls == 2u);
     CHECK(due.due_ts[0] == 90);
@@ -131,9 +131,9 @@ static int test_timer_append_and_drain_due(void)
     CHECK(due.payload_lens[1] == 1u);
     CHECK(due.payloads[1][0] == 'a');
 
-    CHECK(timer_get(db, 90, 1u, &val, &val_len) == SAP_NOTFOUND);
-    CHECK(timer_get(db, 100, 2u, &val, &val_len) == SAP_NOTFOUND);
-    CHECK(timer_get(db, 110, 1u, &val, &val_len) == SAP_OK);
+    CHECK(timer_get(db, 90, 1u, &val, &val_len) == ERR_NOT_FOUND);
+    CHECK(timer_get(db, 100, 2u, &val, &val_len) == ERR_NOT_FOUND);
+    CHECK(timer_get(db, 110, 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 1u);
     CHECK(((const uint8_t *)val)[0] == 'c');
 
@@ -157,7 +157,7 @@ static int atomic_emit_timer(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx
     (void)read_txn;
     if (!stack || !atomic)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     atomic->calls++;
 
@@ -192,7 +192,7 @@ static int test_timer_publisher_with_attempt_engine(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_timer_v0_publisher_init(&publisher, db, 50u) == SAP_OK);
+    CHECK(sap_runner_timer_v0_publisher_init(&publisher, db, 50u) == ERR_OK);
     sap_runner_attempt_v0_policy_default(&policy);
     policy.max_retries = 0u;
     policy.initial_backoff_us = 0u;
@@ -202,11 +202,11 @@ static int test_timer_publisher_with_attempt_engine(void)
     atomic.timer_only = 1;
     CHECK(sap_runner_attempt_v0_run(db, &policy, atomic_emit_timer, &atomic,
                                     sap_runner_timer_v0_publish_intent, &publisher,
-                                    &stats) == SAP_OK);
+                                    &stats) == ERR_OK);
     CHECK(stats.attempts == 1u);
-    CHECK(stats.last_rc == SAP_OK);
+    CHECK(stats.last_rc == ERR_OK);
     CHECK(publisher.next_seq == 51u);
-    CHECK(timer_get(db, 123, 50u, &val, &val_len) == SAP_OK);
+    CHECK(timer_get(db, 123, 50u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 2u);
     CHECK(memcmp(val, "tm", 2u) == 0);
 
@@ -225,7 +225,7 @@ static int test_timer_publisher_rejects_outbox_intent(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_timer_v0_publisher_init(&publisher, db, 80u) == SAP_OK);
+    CHECK(sap_runner_timer_v0_publisher_init(&publisher, db, 80u) == ERR_OK);
     sap_runner_attempt_v0_policy_default(&policy);
     policy.max_retries = 0u;
     policy.initial_backoff_us = 0u;
@@ -235,10 +235,10 @@ static int test_timer_publisher_rejects_outbox_intent(void)
     atomic.timer_only = 0;
     CHECK(sap_runner_attempt_v0_run(db, &policy, atomic_emit_timer, &atomic,
                                     sap_runner_timer_v0_publish_intent, &publisher,
-                                    &stats) == SAP_ERROR);
+                                    &stats) == ERR_INVALID);
     CHECK(stats.attempts == 1u);
-    CHECK(stats.last_rc == SAP_ERROR);
-    CHECK(timer_get(db, 123, 80u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(stats.last_rc == ERR_INVALID);
+    CHECK(timer_get(db, 123, 80u, &val, &val_len) == ERR_NOT_FOUND);
 
     db_close(db);
     return 0;

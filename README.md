@@ -270,12 +270,12 @@ need attention under load.
 
 ### Cross-project quality issues
 
-- **Error code families are disjoint.** Sapling uses `SAP_*`, Seq uses `SEQ_*`,
-  Thatch uses `THATCH_*`, and Thatch JSON uses `TJ_*`. BEPT silently reuses
-  `SAP_*` without its own family. There is no mapping layer, so callers
-  combining multiple subsystems must manually translate between families. A
-  unified error taxonomy (or at minimum a cross-reference table and explicit
-  mapping functions) would reduce friction.
+- **~~Error code families are disjoint.~~** Resolved. All subsystems now share a
+  unified `ERR_*` taxonomy defined in `include/sapling/err.h`. The former
+  `SAP_*`, `SEQ_*`, `THATCH_*`, and `TJ_*` families have been replaced. The
+  generic `SAP_ERROR` has been decomposed into specific codes (`ERR_OOM`,
+  `ERR_INVALID`, `ERR_CORRUPT`) at each call site. A diagnostic helper
+  `err_to_string()` is available for logging.
 
 - **Allocator usage is asymmetric.** All companion structures (Seq, BEPT, Text)
   use `sap_arena_alloc_node` for persistent nodes but fall back to raw

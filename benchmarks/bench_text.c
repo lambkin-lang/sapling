@@ -95,31 +95,31 @@ static int bench_resolve_literal_utf8(uint32_t literal_id, const uint8_t **utf8_
 {
     BenchResolverCtx *resolver = (BenchResolverCtx *)ctx;
     if (!resolver || !utf8_out || !utf8_len_out)
-        return SEQ_INVALID;
+        return ERR_INVALID;
     for (size_t i = 0; i < resolver->literal_count; i++)
     {
         if (resolver->literals[i].id != literal_id)
             continue;
         *utf8_out = resolver->literals[i].utf8;
         *utf8_len_out = resolver->literals[i].utf8_len;
-        return SEQ_OK;
+        return ERR_OK;
     }
-    return SEQ_INVALID;
+    return ERR_INVALID;
 }
 
 static int bench_resolve_tree_text(uint32_t tree_id, const Text **tree_out, void *ctx)
 {
     BenchResolverCtx *resolver = (BenchResolverCtx *)ctx;
     if (!resolver || !tree_out)
-        return SEQ_INVALID;
+        return ERR_INVALID;
     for (size_t i = 0; i < resolver->tree_count; i++)
     {
         if (resolver->trees[i].id != tree_id)
             continue;
         *tree_out = resolver->trees[i].text;
-        return SEQ_OK;
+        return ERR_OK;
     }
-    return SEQ_INVALID;
+    return ERR_INVALID;
 }
 
 static int run_append_pop(uint32_t count)
@@ -133,13 +133,13 @@ static int run_append_pop(uint32_t count)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        if (text_push_back(txn, text, pattern_ascii(i)) != SEQ_OK)
+        if (text_push_back(txn, text, pattern_ascii(i)) != ERR_OK)
             goto fail;
     }
     for (uint32_t i = 0; i < count; i++)
     {
         uint32_t out = 0;
-        if (text_pop_front(txn, text, &out) != SEQ_OK || out != pattern_ascii(i))
+        if (text_pop_front(txn, text, &out) != ERR_OK || out != pattern_ascii(i))
             goto fail;
     }
     sap_txn_commit(txn);
@@ -163,7 +163,7 @@ static int run_mid_edits(uint32_t count)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        if (text_push_back(txn, text, pattern_multibyte(i)) != SEQ_OK)
+        if (text_push_back(txn, text, pattern_multibyte(i)) != ERR_OK)
             goto fail;
     }
 
@@ -172,11 +172,11 @@ static int run_mid_edits(uint32_t count)
         for (uint32_t i = 0; i < count; i++)
         {
             size_t idx = text_length(text) / 2u;
-            if (text_set(txn, text, idx, pattern_multibyte(i + 11u)) != SEQ_OK)
+            if (text_set(txn, text, idx, pattern_multibyte(i + 11u)) != ERR_OK)
                 goto fail;
-            if (text_insert(txn, text, idx, pattern_multibyte(i + 29u)) != SEQ_OK)
+            if (text_insert(txn, text, idx, pattern_multibyte(i + 29u)) != ERR_OK)
                 goto fail;
-            if (text_delete(txn, text, idx + 1u, NULL) != SEQ_OK)
+            if (text_delete(txn, text, idx + 1u, NULL) != ERR_OK)
                 goto fail;
         }
     }
@@ -209,18 +209,18 @@ static int run_utf8_roundtrip(uint32_t count)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        if (text_push_back(txn, text, pattern_multibyte(i)) != SEQ_OK)
+        if (text_push_back(txn, text, pattern_multibyte(i)) != ERR_OK)
             goto abort;
     }
 
-    if (text_utf8_length(text, &need) != SEQ_OK)
+    if (text_utf8_length(text, &need) != ERR_OK)
         goto abort;
     buf = (uint8_t *)malloc(need > 0 ? need : 1u);
     if (!buf)
         goto abort;
-    if (text_to_utf8(text, buf, need, &wrote) != SEQ_OK || wrote != need)
+    if (text_to_utf8(text, buf, need, &wrote) != ERR_OK || wrote != need)
         goto abort;
-    if (text_from_utf8(txn, roundtrip, buf, wrote) != SEQ_OK)
+    if (text_from_utf8(txn, roundtrip, buf, wrote) != ERR_OK)
         goto abort;
     // NOTE: text_length is read-only, no txn required? The API says const Text*
     if (text_length(roundtrip) != text_length(text))
@@ -255,7 +255,7 @@ static int run_clone_detach(uint32_t count)
 
     for (uint32_t i = 0; i < seed_len; i++)
     {
-        if (text_push_back(txn, base, pattern_multibyte(i)) != SEQ_OK)
+        if (text_push_back(txn, base, pattern_multibyte(i)) != ERR_OK)
         {
             sap_txn_abort(txn);
             text_free(g_env, base);
@@ -277,7 +277,7 @@ static int run_clone_detach(uint32_t count)
         txn = sap_txn_begin(g_env, NULL, 0);
         if (!txn) { text_free(g_env, clone); text_free(g_env, base); return 0; }
 
-        if (text_set(txn, clone, idx, pattern_multibyte(i + 17u)) != SEQ_OK)
+        if (text_set(txn, clone, idx, pattern_multibyte(i + 17u)) != ERR_OK)
         {
             sap_txn_abort(txn);
             text_free(g_env, clone);
@@ -327,40 +327,40 @@ static int run_utf8_resolved(uint32_t count)
     SapTxnCtx *txn = sap_txn_begin(g_env, NULL, 0);
     if (!txn) goto fail;
 
-    if (text_push_back_handle(txn, tree, text_handle_make(TEXT_HANDLE_LITERAL, 2u)) != SEQ_OK)
+    if (text_push_back_handle(txn, tree, text_handle_make(TEXT_HANDLE_LITERAL, 2u)) != ERR_OK)
         goto abort;
-    if (text_handle_from_codepoint((uint32_t)'!', &cp_handle) != SEQ_OK)
+    if (text_handle_from_codepoint((uint32_t)'!', &cp_handle) != ERR_OK)
         goto abort;
-    if (text_push_back_handle(txn, tree, cp_handle) != SEQ_OK)
+    if (text_push_back_handle(txn, tree, cp_handle) != ERR_OK)
         goto abort;
     trees[0].text = tree;
 
     for (uint32_t i = 0; i < count; i++)
     {
-        if (text_handle_from_codepoint(pattern_ascii(i), &cp_handle) != SEQ_OK)
+        if (text_handle_from_codepoint(pattern_ascii(i), &cp_handle) != ERR_OK)
             goto abort;
-        if (text_push_back_handle(txn, root, cp_handle) != SEQ_OK)
+        if (text_push_back_handle(txn, root, cp_handle) != ERR_OK)
             goto abort;
-        if (text_push_back_handle(txn, root, text_handle_make(TEXT_HANDLE_LITERAL, 1u)) != SEQ_OK)
+        if (text_push_back_handle(txn, root, text_handle_make(TEXT_HANDLE_LITERAL, 1u)) != ERR_OK)
             goto abort;
-        if (text_push_back_handle(txn, root, text_handle_make(TEXT_HANDLE_TREE, 7u)) != SEQ_OK)
+        if (text_push_back_handle(txn, root, text_handle_make(TEXT_HANDLE_TREE, 7u)) != ERR_OK)
             goto abort;
     }
 
     // Resolved APIs do not need txn
     if (text_codepoint_length_resolved(root, text_expand_runtime_handle, &resolver, &cp_len) !=
-        SEQ_OK)
+        ERR_OK)
         goto abort;
     if (cp_len == 0u)
         goto abort;
 
-    if (text_utf8_length_resolved(root, text_expand_runtime_handle, &resolver, &need) != SEQ_OK)
+    if (text_utf8_length_resolved(root, text_expand_runtime_handle, &resolver, &need) != ERR_OK)
         goto abort;
     buf = (uint8_t *)malloc(need > 0u ? need : 1u);
     if (!buf)
         goto abort;
     if (text_to_utf8_resolved(root, text_expand_runtime_handle, &resolver, buf, need, &wrote) !=
-            SEQ_OK ||
+            ERR_OK ||
         wrote != need)
         goto abort;
 

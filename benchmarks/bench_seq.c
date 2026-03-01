@@ -23,7 +23,7 @@ static void setup_env(void)
     SapArenaOptions opts = {0};
     opts.type = SAP_ARENA_BACKING_MALLOC;
     opts.page_size = 4096;
-    if (sap_arena_init(&g_arena, &opts) != SAP_OK)
+    if (sap_arena_init(&g_arena, &opts) != ERR_OK)
     {
         fprintf(stderr, "failed to init arena\n");
         exit(1);
@@ -79,13 +79,13 @@ static int run_push_pop(uint32_t count)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        if (seq_push_back(txn, s, i) != SEQ_OK)
+        if (seq_push_back(txn, s, i) != ERR_OK)
             goto fail;
     }
     for (uint32_t i = 0; i < count; i++)
     {
         uint32_t out = 0;
-        if (seq_pop_front(txn, s, &out) != SEQ_OK || out != i)
+        if (seq_pop_front(txn, s, &out) != ERR_OK || out != i)
             goto fail;
     }
     sap_txn_commit(txn);
@@ -112,12 +112,12 @@ static int run_mixed(uint32_t count)
         uint32_t v = pattern_u32(i);
         if ((i & 1u) == 0)
         {
-            if (seq_push_front(txn, s, v) != SEQ_OK)
+            if (seq_push_front(txn, s, v) != ERR_OK)
                 goto fail;
         }
         else
         {
-            if (seq_push_back(txn, s, v) != SEQ_OK)
+            if (seq_push_back(txn, s, v) != ERR_OK)
                 goto fail;
         }
     }
@@ -125,14 +125,14 @@ static int run_mixed(uint32_t count)
     for (uint32_t i = 0; i < count; i++)
     {
         uint32_t out = 0;
-        if (seq_get(s, i, &out) != SEQ_OK)
+        if (seq_get(s, i, &out) != ERR_OK)
             goto fail;
     }
 
     while (seq_length(s) > 0)
     {
         uint32_t out = 0;
-        if (seq_pop_back(txn, s, &out) != SEQ_OK)
+        if (seq_pop_back(txn, s, &out) != ERR_OK)
             goto fail;
     }
 
@@ -166,21 +166,21 @@ static int run_concat_split(uint32_t count)
 
     for (uint32_t i = 0; i < left_count; i++)
     {
-        if (seq_push_back(txn, left, pattern_u32(i)) != SEQ_OK)
+        if (seq_push_back(txn, left, pattern_u32(i)) != ERR_OK)
             goto fail;
     }
     for (uint32_t i = 0; i < right_count; i++)
     {
-        if (seq_push_back(txn, right, pattern_u32(left_count + i)) != SEQ_OK)
+        if (seq_push_back(txn, right, pattern_u32(left_count + i)) != ERR_OK)
             goto fail;
     }
 
-    if (seq_concat(txn, left, right) != SEQ_OK)
+    if (seq_concat(txn, left, right) != ERR_OK)
         goto fail;
     if (seq_length(left) != count || seq_length(right) != 0)
         goto fail;
 
-    if (seq_split_at(txn, left, left_count, &a, &b) != SEQ_OK)
+    if (seq_split_at(txn, left, left_count, &a, &b) != ERR_OK)
         goto fail;
     if (seq_length(a) != left_count || seq_length(b) != right_count)
         goto fail;
@@ -190,16 +190,16 @@ static int run_concat_split(uint32_t count)
         uint32_t out = 0;
         if (left_count > 0)
         {
-            if (seq_get(a, 0, &out) != SEQ_OK || out != pattern_u32(0))
+            if (seq_get(a, 0, &out) != ERR_OK || out != pattern_u32(0))
                 goto fail;
-            if (seq_get(a, left_count - 1u, &out) != SEQ_OK || out != pattern_u32(left_count - 1u))
+            if (seq_get(a, left_count - 1u, &out) != ERR_OK || out != pattern_u32(left_count - 1u))
                 goto fail;
         }
         if (right_count > 0)
         {
-            if (seq_get(b, 0, &out) != SEQ_OK || out != pattern_u32(left_count))
+            if (seq_get(b, 0, &out) != ERR_OK || out != pattern_u32(left_count))
                 goto fail;
-            if (seq_get(b, right_count - 1u, &out) != SEQ_OK || out != pattern_u32(count - 1u))
+            if (seq_get(b, right_count - 1u, &out) != ERR_OK || out != pattern_u32(count - 1u))
                 goto fail;
         }
     }

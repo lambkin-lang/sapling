@@ -61,18 +61,18 @@ static int mock_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *request,
 
     /* 1. Acquire lease */
     rc = sap_host_v0_lease_acquire(host, lease_key, (uint32_t)strlen(lease_key), 5000);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     /* 2. Read counter (DBI 10) */
     rc = sap_host_v0_get(host, 10, counter_key, (uint32_t)strlen(counter_key), &val, &val_len);
-    if (rc == SAP_OK && val_len == 4)
+    if (rc == ERR_OK && val_len == 4)
     {
         memcpy(&counter, val, 4);
     }
-    else if (rc != SAP_OK && rc != SAP_NOTFOUND)
+    else if (rc != ERR_OK && rc != ERR_NOT_FOUND)
     {
         return rc;
     }
@@ -80,20 +80,20 @@ static int mock_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *request,
     /* 3. Increment and Put */
     counter++;
     rc = sap_host_v0_put(host, 10, counter_key, (uint32_t)strlen(counter_key), &counter, 4);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     /* 4. Release lease */
     rc = sap_host_v0_lease_release(host, lease_key, (uint32_t)strlen(lease_key));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     *reply_len_out = 0;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int test_wasm_runner_end_to_end(void)
@@ -111,26 +111,26 @@ static int test_wasm_runner_end_to_end(void)
 
     CHECK(db != NULL);
     rc = sap_runner_v0_bootstrap_dbis(db);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         fprintf(stderr, "sap_runner_v0_bootstrap_dbis failed with rc=%d\n", rc);
         return 1;
     }
     /* Open a custom DBI for the counter to bypass WIT validation */
-    CHECK(dbi_open(db, 10, NULL, NULL, 0) == SAP_OK);
+    CHECK(dbi_open(db, 10, NULL, NULL, 0) == ERR_OK);
 
     /* Initialize Mock Wasm Runtime */
-    CHECK(sap_wasi_runtime_v0_init(&runtime, "mock_guest", mock_guest_logic, NULL) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "mock_guest", mock_guest_logic, NULL) == ERR_OK);
 
     /* Initialize WASI Shim */
-    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 1000u, 0) == SAP_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 1000u, 0) == ERR_OK);
 
     /* Initialize Worker */
     cfg.db = db;
     cfg.worker_id = 1u;
     cfg.bootstrap_schema_if_missing = 1;
     rc = sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 10u);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         fprintf(stderr, "sap_wasi_shim_v0_worker_init failed with rc=%d\n", rc);
         return 1;
@@ -147,12 +147,12 @@ static int test_wasm_runner_end_to_end(void)
     sap_runner_v0_inbox_key_encode(1u, 100u, msg_key);
     uint32_t written = 0;
     rc = sap_runner_message_v0_encode(&msg, msg_frame, sizeof(msg_frame), &written);
-    CHECK(rc == SAP_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 1u, 100u, msg_frame, written) == SAP_OK);
+    CHECK(rc == ERR_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 1u, 100u, msg_frame, written) == ERR_OK);
 
     /* 2. Run one step */
     rc = sap_runner_v0_worker_tick(&worker, &processed);
-    CHECK(rc == SAP_OK);
+    CHECK(rc == ERR_OK);
     CHECK(processed == 1u);
 
     /* 3. Verify counter in DB */
@@ -161,7 +161,7 @@ static int test_wasm_runner_end_to_end(void)
         const void *val = NULL;
         uint32_t val_len = 0;
         uint32_t counter = 0;
-        CHECK(txn_get_dbi(txn, 10, "counter", 7, &val, &val_len) == SAP_OK);
+        CHECK(txn_get_dbi(txn, 10, "counter", 7, &val, &val_len) == ERR_OK);
         CHECK(val_len == 4);
         memcpy(&counter, val, 4);
         CHECK(counter == 1);

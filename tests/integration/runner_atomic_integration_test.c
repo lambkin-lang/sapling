@@ -50,15 +50,15 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -74,7 +74,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -82,7 +82,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
@@ -101,12 +101,12 @@ static int capture_sink(const uint8_t *frame, uint32_t frame_len, void *ctx)
     SinkCtx *sink = (SinkCtx *)ctx;
     if (!sink || !frame || frame_len == 0u || sink->calls >= 4u || frame_len > 128u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memcpy(sink->frames[sink->calls], frame, frame_len);
     sink->frame_lens[sink->calls] = frame_len;
     sink->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 typedef struct
@@ -142,45 +142,45 @@ static int nested_retry_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
 
     if (!stack || !read_txn || !atomic || !atomic->db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     atomic->calls++;
 
     if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "state", 5u, &state_val, &state_len) !=
-        SAP_OK)
+        ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
-    if (sap_runner_txstack_v0_push(stack) != SAP_OK)
+    if (sap_runner_txstack_v0_push(stack) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "nested.commit", 13u, "yes", 3u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "nested.commit", 13u, "yes", 3u) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_commit_top(stack) != SAP_OK)
+    if (sap_runner_txstack_v0_commit_top(stack) != ERR_OK)
     {
-        return SAP_ERROR;
-    }
-
-    if (sap_runner_txstack_v0_push(stack) != SAP_OK)
-    {
-        return SAP_ERROR;
-    }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "nested.abort", 12u, "no", 2u) != SAP_OK)
-    {
-        return SAP_ERROR;
-    }
-    if (sap_runner_txstack_v0_abort_top(stack) != SAP_OK)
-    {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "state", 5u, "done", 4u) != SAP_OK)
+    if (sap_runner_txstack_v0_push(stack) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
+    }
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "nested.abort", 12u, "no", 2u) != ERR_OK)
+    {
+        return ERR_INVALID;
+    }
+    if (sap_runner_txstack_v0_abort_top(stack) != ERR_OK)
+    {
+        return ERR_INVALID;
+    }
+
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "state", 5u, "done", 4u) != ERR_OK)
+    {
+        return ERR_INVALID;
     }
 
     intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
@@ -188,21 +188,21 @@ static int nested_retry_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *c
     intent.due_ts = 0;
     intent.message = intent_payload;
     intent.message_len = sizeof(intent_payload);
-    if (sap_runner_txstack_v0_push_intent(stack, &intent) != SAP_OK)
+    if (sap_runner_txstack_v0_push_intent(stack, &intent) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     if (!atomic->injected_conflict)
     {
         atomic->injected_conflict = 1;
-        if (db_put(atomic->db, "state", 5u, "other", 5u) != SAP_OK)
+        if (db_put(atomic->db, "state", 5u, "other", 5u) != ERR_OK)
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
     }
 
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int test_retry_and_nested_closed_nesting(void)
@@ -218,7 +218,7 @@ static int test_retry_and_nested_closed_nesting(void)
     SapRunnerIntentV0 decoded = {0};
 
     CHECK(db != NULL);
-    CHECK(db_put(db, "state", 5u, "seed", 4u) == SAP_OK);
+    CHECK(db_put(db, "state", 5u, "seed", 4u) == ERR_OK);
 
     atomic.db = db;
     atomic.calls = 0u;
@@ -232,23 +232,23 @@ static int test_retry_and_nested_closed_nesting(void)
     policy.sleep_ctx = &sleep;
 
     CHECK(sap_runner_attempt_v0_run(db, &policy, nested_retry_atomic, &atomic, capture_sink, &sink,
-                                    &stats) == SAP_OK);
+                                    &stats) == ERR_OK);
     CHECK(atomic.calls == 2u);
     CHECK(stats.attempts == 2u);
     CHECK(stats.retries == 1u);
     CHECK(stats.conflict_retries == 1u);
     CHECK(stats.busy_retries == 0u);
-    CHECK(stats.last_rc == SAP_OK);
+    CHECK(stats.last_rc == ERR_OK);
     CHECK(sleep.calls == 1u);
     CHECK(sink.calls == 1u);
 
-    CHECK(db_get(db, "state", 5u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "state", 5u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 4u);
     CHECK(memcmp(val, "done", 4u) == 0);
-    CHECK(db_get(db, "nested.commit", 13u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "nested.commit", 13u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 3u);
     CHECK(memcmp(val, "yes", 3u) == 0);
-    CHECK(db_get(db, "nested.abort", 12u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(db_get(db, "nested.abort", 12u, &val, &val_len) == ERR_NOT_FOUND);
 
     CHECK(sap_runner_intent_v0_decode(sink.frames[0], sink.frame_lens[0], &decoded) ==
           SAP_RUNNER_WIRE_OK);

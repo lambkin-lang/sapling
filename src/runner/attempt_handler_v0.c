@@ -21,7 +21,7 @@ static int atomic_trampoline(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx
     if (!atomic || !atomic->handler || !atomic->runner || !atomic->msg ||
         !atomic->handler->atomic_fn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return atomic->handler->atomic_fn(stack, read_txn, atomic->runner, atomic->msg,
                                       atomic->handler->atomic_ctx);
@@ -35,7 +35,7 @@ int sap_runner_attempt_handler_v0_init(SapRunnerAttemptHandlerV0 *handler, DB *d
 {
     if (!handler || !db || !atomic_fn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memset(handler, 0, sizeof(*handler));
     handler->db = db;
@@ -44,8 +44,8 @@ int sap_runner_attempt_handler_v0_init(SapRunnerAttemptHandlerV0 *handler, DB *d
     handler->intent_sink = intent_sink;
     handler->intent_ctx = intent_ctx;
     sap_runner_attempt_v0_policy_default(&handler->policy);
-    handler->last_stats.last_rc = SAP_OK;
-    return SAP_OK;
+    handler->last_stats.last_rc = ERR_OK;
+    return ERR_OK;
 }
 
 void sap_runner_attempt_handler_v0_set_policy(SapRunnerAttemptHandlerV0 *handler,
@@ -73,7 +73,7 @@ int sap_runner_attempt_handler_v0_runner_handler(SapRunnerV0 *runner, const SapR
 
     if (!runner || !msg || !handler || !handler->db || !handler->atomic_fn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     atomic_ctx.handler = handler;

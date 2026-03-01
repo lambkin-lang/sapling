@@ -5,6 +5,46 @@ Top-level agent rules for this repository.
 If there is a conflict between this file and higher-priority system/developer
 instructions, follow higher-priority instructions.
 
+## Greenfield Project Policy
+
+This repository is a greenfield project in a very early stage.
+
+Default behavior for agents:
+- Do not add backward-compatibility shims, alias layers, migration wrappers, or
+  deprecation scaffolding unless the user explicitly asks for them.
+- Do not add "legacy" labels, naming, or compatibility clutter for code paths
+  that are part of the current design.
+- Prefer direct, simple implementations optimized for current requirements.
+- Apply software engineering principles based on project context; do not enforce
+  mature-project compatibility patterns by default.
+
+## Roadmap-Driven Architecture Policy
+
+This project has a known product vision and planned next steps. Agents must
+optimize for a conceptually coherent system, not just local short-term patches.
+
+Required mindset:
+- Do not apply YAGNI or "avoid over-engineering" as blanket rules.
+- Evaluate changes against near-term roadmap impact across multiple subsystems.
+- Prefer foundational, general solutions when upcoming work is likely to reuse
+  the same concepts, invariants, or interfaces.
+- Favor semantic correctness and whole-system consistency over local minimalism.
+
+Decision rubric (use explicitly in reasoning and plan reviews):
+- If a change will affect two or more subsystems in upcoming milestones, design
+  the shared abstraction now.
+- If a narrow fix is likely to create rework, conceptual mismatch, or duplicate
+  logic soon, do the broader structural change now.
+- If a proposed generalization is not connected to the roadmap, avoid it.
+
+Execution expectations:
+- Document cross-component implications (APIs, data model invariants, error
+  semantics, protocol boundaries, tests) before implementation.
+- When reviewing plans, challenge advice that is generically conservative but
+  misaligned with this project's stage, goals, or architecture trajectory.
+- Present tradeoffs in terms of project success risk, including the risk of
+  under-designing critical foundations.
+
 ## Git Honesty Policy
 
 Never use history-modifying git commands unless a user explicitly asks for them.

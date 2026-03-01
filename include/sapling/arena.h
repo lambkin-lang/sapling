@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <sapling/err.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,7 +60,7 @@ void sap_arena_destroy(SapMemArena *arena);
 
 /*
  * Page allocation: Retrieves an entire contiguous chunk (typically SAPLING_PAGE_SIZE)
- * Returns SAP_OK on success, SAP_FULL on capacity exhaustion.
+ * Returns ERR_OK on success, ERR_OOM on capacity exhaustion.
  */
 int sap_arena_alloc_page(SapMemArena *arena, void **page_out, uint32_t *pgno_out);
 

@@ -2,7 +2,7 @@
  * text.h — mutable code-point text built on top of Seq
  *
  * Text stores Unicode code points as uint32_t values.
- * Operations return SEQ_* status codes from seq.h.
+ * Operations return ERR_* status codes from err.h.
  *
  * SPDX-License-Identifier: MIT
  * Copyright (c) 2026 lambkin-lang
@@ -112,7 +112,7 @@ int text_delete_handle(SapTxnCtx *txn, Text *text, size_t idx, TextHandle *out);
  * Resolved code-point view:
  * - codepoint handles contribute one code point.
  * - non-codepoint handles are expanded through expand_fn.
- * - when non-codepoint handles exist and expand_fn is NULL, returns SEQ_INVALID.
+ * - when non-codepoint handles exist and expand_fn is NULL, returns ERR_INVALID.
  */
 int text_codepoint_length_resolved(const Text *text, TextHandleExpandFn expand_fn,
                                    void *resolver_ctx, size_t *codepoint_len_out);
@@ -154,5 +154,55 @@ int text_utf8_length_resolved(const Text *text, TextHandleExpandFn expand_fn, vo
                               size_t *utf8_len_out);
 int text_to_utf8_resolved(const Text *text, TextHandleExpandFn expand_fn, void *resolver_ctx,
                           uint8_t *out, size_t out_cap, size_t *utf8_len_out);
+
+/*
+ * Piece-table bulk loading:
+ * - text_from_utf8_bulk registers the UTF-8 data in a literal table and
+ *   replaces the text's content with a single LITERAL handle. O(1) in
+ *   handle count regardless of input size. The data is validated as UTF-8.
+ * - text_expand_handle_at expands a LITERAL handle at position handle_idx
+ *   into individual CODEPOINT handles. Used when editing within a literal's
+ *   span. Requires a resolve function to look up the literal's UTF-8 content.
+ */
+struct TextLiteralTable;
+int text_from_utf8_bulk(SapTxnCtx *txn, Text *text,
+                        const uint8_t *utf8, size_t utf8_len,
+                        struct TextLiteralTable *table);
+int text_expand_handle_at(SapTxnCtx *txn, Text *text, size_t handle_idx,
+                          TextResolveLiteralUtf8Fn resolve_fn, void *resolve_ctx);
+
+/*
+ * Convenience: build a TextRuntimeResolver from concrete table + registry.
+ * Either literals or trees may be NULL (handles of that kind will fail
+ * resolution). max_depth 0 => default 64; max_visits 0 => default 4096.
+ *
+ * ctx_storage must point to caller-owned memory that outlives the resolver.
+ * (Typically a stack variable in the same scope as the resolver use.)
+ */
+struct TextLiteralTable;
+struct TextTreeRegistry;
+
+typedef struct {
+    struct TextLiteralTable *literals;
+    struct TextTreeRegistry *trees;
+} TextResolverCtx;
+
+TextRuntimeResolver text_make_runtime_resolver(
+    struct TextLiteralTable *literals,
+    struct TextTreeRegistry *trees,
+    size_t max_depth,
+    size_t max_visits,
+    TextResolverCtx *ctx_storage);
+
+/*
+ * All-in-one: resolve all handles and produce UTF-8.
+ * Collapses the build-resolver / compute-length / allocate / encode
+ * boilerplate into one call. Caller frees *utf8_out via free().
+ * Returns ERR_OK on success.
+ */
+int text_to_utf8_full(const Text *text,
+                      struct TextLiteralTable *literals,
+                      struct TextTreeRegistry *trees,
+                      uint8_t **utf8_out, size_t *utf8_len_out);
 
 #endif /* SAPLING_TEXT_H */

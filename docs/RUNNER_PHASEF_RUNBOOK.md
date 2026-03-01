@@ -45,12 +45,12 @@ Track log events (`SapRunnerV0LogEvent`):
 
 ## Common Failures and Actions
 
-1. Busy spikes (`SAP_BUSY`)
+1. Busy spikes (`ERR_BUSY`)
 - Confirm transient writer contention first.
 - Check `busy_failures` trend and worker idle behavior.
 - If sustained, reduce concurrency pressure or raise batching tolerance.
 
-2. Conflict spikes (`SAP_CONFLICT`)
+2. Conflict spikes (`ERR_CONFLICT`)
 - Inspect atomic block contention patterns.
 - Evaluate retry budget / lease TTL tuning:
   - `retry_budget_max`
@@ -63,7 +63,7 @@ Track log events (`SapRunnerV0LogEvent`):
 - Replay selected records using `sap_runner_dead_letter_v0_replay(...)` only
   after validating root-cause fix.
 
-4. Worker hard error (`last_error != SAP_OK`)
+4. Worker hard error (`last_error != ERR_OK`)
 - Capture recent structured log events + replay events.
 - Stop worker cleanly (`sap_runner_v0_worker_request_stop`).
 - Preserve checkpoint before restart when possible.

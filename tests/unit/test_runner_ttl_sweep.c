@@ -65,7 +65,7 @@ static int mock_handler(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void
     (void)runner;
     (void)msg;
     (void)ctx;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void test_runner_ttl_sweep(void)
@@ -74,9 +74,9 @@ static void test_runner_ttl_sweep(void)
 
     DB *db = new_db();
     /* DB 0-9 = runner logic, DB 10 = data, DB 11 = ttl */
-    CHECK(sap_runner_v0_bootstrap_dbis(db) == SAP_OK);
-    CHECK(dbi_open(db, 10, NULL, NULL, 0) == SAP_OK);
-    CHECK(dbi_open(db, 11, NULL, NULL, DBI_TTL_META) == SAP_OK);
+    CHECK(sap_runner_v0_bootstrap_dbis(db) == ERR_OK);
+    CHECK(dbi_open(db, 10, NULL, NULL, 0) == ERR_OK);
+    CHECK(dbi_open(db, 11, NULL, NULL, DBI_TTL_META) == ERR_OK);
 
     SapRunnerV0Config cfg = {0};
     cfg.db = db;
@@ -86,7 +86,7 @@ static void test_runner_ttl_sweep(void)
     cfg.bootstrap_schema_if_missing = 1;
 
     SapRunnerV0Worker worker;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, mock_handler, NULL, 10) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, mock_handler, NULL, 10) == ERR_OK);
 
     SapRunnerV0Policy policy;
     sap_runner_v0_policy_default(&policy);
@@ -96,30 +96,30 @@ static void test_runner_ttl_sweep(void)
     sap_runner_v0_worker_set_time_hooks(&worker, mock_now_ms, NULL, NULL, NULL);
 
     /* Register the TTL pair */
-    CHECK(sap_runner_v0_worker_register_ttl_pair(&worker, 10, 11) == SAP_OK);
+    CHECK(sap_runner_v0_worker_register_ttl_pair(&worker, 10, 11) == ERR_OK);
 
     /* Insert some keys that will expire at t=12000 and t=16000 */
     Txn *w = txn_begin(db, NULL, 0);
     CHECK(w != NULL);
-    CHECK(txn_put_ttl_dbi(w, 10, 11, "A", 1, "VA", 2, 12000) == SAP_OK);
-    CHECK(txn_put_ttl_dbi(w, 10, 11, "B", 1, "VB", 2, 16000) == SAP_OK);
+    CHECK(txn_put_ttl_dbi(w, 10, 11, "A", 1, "VA", 2, 12000) == ERR_OK);
+    CHECK(txn_put_ttl_dbi(w, 10, 11, "B", 1, "VB", 2, 16000) == ERR_OK);
     CHECK(txn_put_ttl_dbi(w, 10, 11, "C", 1, "VC", 2, 20000) ==
-          SAP_OK); /* Doesn't expire until much later */
-    CHECK(txn_commit(w) == SAP_OK);
+          ERR_OK); /* Doesn't expire until much later */
+    CHECK(txn_commit(w) == ERR_OK);
 
     /* Tick the worker. Time is 10000. It will record the initial sweep time. */
     uint32_t processed = 0;
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(worker.runner.metrics.ttl_sweeps_run == 0);
 
     /* Advance time to 12000. 2000ms elapsed. policy cadence is 5000ms so no sweep. */
     g_mock_time_ms = 12000;
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(worker.runner.metrics.ttl_sweeps_run == 0);
 
     /* Advance time to 15000. 5000ms elapsed. A sweep happens. */
     g_mock_time_ms = 15000;
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(worker.runner.metrics.ttl_sweeps_run == 1);
     CHECK(worker.runner.metrics.ttl_expired_entries_deleted == 1); /* "A" expired */
 
@@ -127,27 +127,27 @@ static void test_runner_ttl_sweep(void)
     Txn *r = txn_begin(db, NULL, TXN_RDONLY);
     const void *v;
     uint32_t vl;
-    CHECK(txn_get_dbi(r, 10, "A", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 10, "B", 1, &v, &vl) == SAP_OK);
-    CHECK(txn_get_dbi(r, 10, "C", 1, &v, &vl) == SAP_OK);
+    CHECK(txn_get_dbi(r, 10, "A", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 10, "B", 1, &v, &vl) == ERR_OK);
+    CHECK(txn_get_dbi(r, 10, "C", 1, &v, &vl) == ERR_OK);
     txn_abort(r);
 
     /* Advance time to 19000. No sweep. */
     g_mock_time_ms = 19000;
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(worker.runner.metrics.ttl_sweeps_run == 1);
 
     /* Advance time to 21000. Sweep happens. B and C expire. */
     g_mock_time_ms = 21000;
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(worker.runner.metrics.ttl_sweeps_run == 2);
     CHECK(worker.runner.metrics.ttl_expired_entries_deleted ==
           3); /* 1 from before + 2 now = 3 total */
 
     r = txn_begin(db, NULL, TXN_RDONLY);
-    CHECK(txn_get_dbi(r, 10, "A", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 10, "B", 1, &v, &vl) == SAP_NOTFOUND);
-    CHECK(txn_get_dbi(r, 10, "C", 1, &v, &vl) == SAP_NOTFOUND);
+    CHECK(txn_get_dbi(r, 10, "A", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 10, "B", 1, &v, &vl) == ERR_NOT_FOUND);
+    CHECK(txn_get_dbi(r, 10, "C", 1, &v, &vl) == ERR_NOT_FOUND);
     txn_abort(r);
 
     sap_runner_v0_worker_shutdown(&worker);

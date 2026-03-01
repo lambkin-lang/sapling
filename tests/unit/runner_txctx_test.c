@@ -50,15 +50,15 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -74,7 +74,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -82,7 +82,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
@@ -99,32 +99,32 @@ static int test_read_set_validation_and_conflict(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(db_put(db, "k", 1u, "v1", 2u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_init(&ctx) == SAP_OK);
+    CHECK(db_put(db, "k", 1u, "v1", 2u) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_init(&ctx) == ERR_OK);
 
     rtxn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rtxn != NULL);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 2u);
     CHECK(memcmp(val, "v1", 2u) == 0);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == ERR_OK);
     CHECK(sap_runner_txctx_v0_read_count(&ctx) == 1u);
     CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "missing", 7u, &val, &val_len) ==
-          SAP_NOTFOUND);
+          ERR_NOT_FOUND);
     txn_abort(rtxn);
 
     CHECK(sap_runner_txctx_v0_read_count(&ctx) == 2u);
 
     wtxn = txn_begin(db, NULL, 0u);
     CHECK(wtxn != NULL);
-    CHECK(sap_runner_txctx_v0_validate_reads(&ctx, wtxn) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_validate_reads(&ctx, wtxn) == ERR_OK);
     txn_abort(wtxn);
 
-    CHECK(db_put(db, "k", 1u, "v2", 2u) == SAP_OK);
+    CHECK(db_put(db, "k", 1u, "v2", 2u) == ERR_OK);
 
     wtxn = txn_begin(db, NULL, 0u);
     CHECK(wtxn != NULL);
-    CHECK(sap_runner_txctx_v0_validate_reads(&ctx, wtxn) == SAP_CONFLICT);
+    CHECK(sap_runner_txctx_v0_validate_reads(&ctx, wtxn) == ERR_CONFLICT);
     txn_abort(wtxn);
 
     sap_runner_txctx_v0_dispose(&ctx);
@@ -141,23 +141,23 @@ static int test_write_set_apply_and_coalesce(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(db_put(db, "b", 1u, "old", 3u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_init(&ctx) == SAP_OK);
+    CHECK(db_put(db, "b", 1u, "old", 3u) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_init(&ctx) == ERR_OK);
 
-    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "a", 1u, "v1", 2u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "a", 1u, "v2", 2u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 10u, "b", 1u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "a", 1u, "v1", 2u) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "a", 1u, "v2", 2u) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 10u, "b", 1u) == ERR_OK);
     CHECK(sap_runner_txctx_v0_write_count(&ctx) == 2u);
 
     wtxn = txn_begin(db, NULL, 0u);
     CHECK(wtxn != NULL);
-    CHECK(sap_runner_txctx_v0_apply_writes(&ctx, wtxn) == SAP_OK);
-    CHECK(txn_commit(wtxn) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_apply_writes(&ctx, wtxn) == ERR_OK);
+    CHECK(txn_commit(wtxn) == ERR_OK);
 
-    CHECK(db_get(db, "a", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "a", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 2u);
     CHECK(memcmp(val, "v2", 2u) == 0);
-    CHECK(db_get(db, "b", 1u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(db_get(db, "b", 1u, &val, &val_len) == ERR_NOT_FOUND);
 
     sap_runner_txctx_v0_dispose(&ctx);
     db_close(db);
@@ -173,19 +173,19 @@ static int test_read_your_write_semantics(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(db_put(db, "k", 1u, "db", 2u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_init(&ctx) == SAP_OK);
+    CHECK(db_put(db, "k", 1u, "db", 2u) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_init(&ctx) == ERR_OK);
 
-    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "k", 1u, "local", 5u) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_stage_put_dbi(&ctx, 10u, "k", 1u, "local", 5u) == ERR_OK);
     rtxn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rtxn != NULL);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "local", 5u) == 0);
     CHECK(sap_runner_txctx_v0_read_count(&ctx) == 0u);
 
-    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 10u, "k", 1u) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(sap_runner_txctx_v0_stage_del_dbi(&ctx, 10u, "k", 1u) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_read_dbi(&ctx, rtxn, 10u, "k", 1u, &val, &val_len) == ERR_NOT_FOUND);
     txn_abort(rtxn);
 
     sap_runner_txctx_v0_dispose(&ctx);
@@ -204,7 +204,7 @@ static int test_intent_buffer_roundtrip(void)
     const uint8_t *frame;
     uint32_t frame_len;
 
-    CHECK(sap_runner_txctx_v0_init(&ctx) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_init(&ctx) == ERR_OK);
 
     outbox.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
     outbox.flags = 0u;
@@ -218,8 +218,8 @@ static int test_intent_buffer_roundtrip(void)
     timer.message = msg_b;
     timer.message_len = sizeof(msg_b);
 
-    CHECK(sap_runner_txctx_v0_push_intent(&ctx, &outbox) == SAP_OK);
-    CHECK(sap_runner_txctx_v0_push_intent(&ctx, &timer) == SAP_OK);
+    CHECK(sap_runner_txctx_v0_push_intent(&ctx, &outbox) == ERR_OK);
+    CHECK(sap_runner_txctx_v0_push_intent(&ctx, &timer) == ERR_OK);
     CHECK(sap_runner_txctx_v0_intent_count(&ctx) == 2u);
 
     frame = sap_runner_txctx_v0_intent_frame(&ctx, 0u, &frame_len);

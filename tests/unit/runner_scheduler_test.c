@@ -41,12 +41,12 @@ static DB *new_db(void)
     {
         return NULL;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
         db_close(db);
         return NULL;
     }
-    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
+    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         db_close(db);
         return NULL;
@@ -60,10 +60,10 @@ static int test_next_due_empty_and_present(void)
     int64_t due = 0;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == SAP_NOTFOUND);
-    CHECK(sap_runner_timer_v0_append(db, 200, 1u, (const uint8_t *)"a", 1u) == SAP_OK);
-    CHECK(sap_runner_timer_v0_append(db, 100, 1u, (const uint8_t *)"b", 1u) == SAP_OK);
-    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == SAP_OK);
+    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_NOT_FOUND);
+    CHECK(sap_runner_timer_v0_append(db, 200, 1u, (const uint8_t *)"a", 1u) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 100, 1u, (const uint8_t *)"b", 1u) == ERR_OK);
+    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_OK);
     CHECK(due == 100);
 
     db_close(db);
@@ -74,11 +74,11 @@ static int test_compute_sleep_ms(void)
 {
     uint32_t sleep_ms = 0u;
 
-    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 150, 1000u, &sleep_ms) == SAP_OK);
+    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 150, 1000u, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 50u);
-    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 90, 1000u, &sleep_ms) == SAP_OK);
+    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 90, 1000u, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 0u);
-    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 5000, 200u, &sleep_ms) == SAP_OK);
+    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 5000, 200u, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 200u);
     return 0;
 }

@@ -86,23 +86,23 @@ static int app_state_read_counter(DB *db, uint64_t *counter_out)
 
     if (!db || !counter_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *counter_out = 0u;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = txn_get_dbi(txn, 10u, k_counter_key, sizeof(k_counter_key), &val, &val_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -110,11 +110,11 @@ static int app_state_read_counter(DB *db, uint64_t *counter_out)
     if (!val || val_len != 8u)
     {
         txn_abort(txn);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
     *counter_out = rd64be((const uint8_t *)val);
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int app_state_read_blob(DB *db, const uint8_t *key, uint32_t key_len, uint8_t *dst,
@@ -127,17 +127,17 @@ static int app_state_read_blob(DB *db, const uint8_t *key, uint32_t key_len, uin
 
     if (!db || !key || key_len == 0u || !dst || dst_cap == 0u || !dst_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *dst_len_out = 0u;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     rc = txn_get_dbi(txn, 10u, key, key_len, &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -145,12 +145,12 @@ static int app_state_read_blob(DB *db, const uint8_t *key, uint32_t key_len, uin
     if (!val || val_len > dst_cap)
     {
         txn_abort(txn);
-        return SAP_FULL;
+        return ERR_FULL;
     }
     memcpy(dst, val, val_len);
     *dst_len_out = val_len;
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int inbox_read_frame(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst,
@@ -164,18 +164,18 @@ static int inbox_read_frame(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *d
 
     if (!db || !dst || dst_cap == 0u || !dst_len_out)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     *dst_len_out = 0u;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -183,12 +183,12 @@ static int inbox_read_frame(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *d
     if (!val || val_len > dst_cap)
     {
         txn_abort(txn);
-        return SAP_FULL;
+        return ERR_FULL;
     }
     memcpy(dst, val, val_len);
     *dst_len_out = val_len;
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int collect_outbox_frame(const uint8_t *frame, uint32_t frame_len, void *ctx)
@@ -198,12 +198,12 @@ static int collect_outbox_frame(const uint8_t *frame, uint32_t frame_len, void *
     if (!outbox || !frame || frame_len == 0u || frame_len > sizeof(outbox->frames[0]) ||
         outbox->calls >= 4u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     memcpy(outbox->frames[outbox->calls], frame, frame_len);
     outbox->frame_lens[outbox->calls] = frame_len;
     outbox->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int collect_timer_due(int64_t due_ts, uint64_t seq, const uint8_t *payload,
@@ -214,14 +214,14 @@ static int collect_timer_due(int64_t due_ts, uint64_t seq, const uint8_t *payloa
     if (!timers || !payload || payload_len == 0u || payload_len > sizeof(timers->payloads[0]) ||
         timers->calls >= 4u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     timers->due_ts[timers->calls] = due_ts;
     timers->seq[timers->calls] = seq;
     memcpy(timers->payloads[timers->calls], payload, payload_len);
     timers->payload_lens[timers->calls] = payload_len;
     timers->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunnerV0 *runner,
@@ -242,21 +242,21 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     (void)runner;
     if (!stack || !read_txn || !msg || !atomic || !msg->payload || msg->payload_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     atomic->calls++;
 
     rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, k_counter_key, sizeof(k_counter_key),
                                         &cur, &cur_len);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         if (!cur || cur_len != 8u)
         {
-            return SAP_CONFLICT;
+            return ERR_CONFLICT;
         }
         count = rd64be((const uint8_t *)cur);
     }
-    else if (rc != SAP_NOTFOUND)
+    else if (rc != ERR_NOT_FOUND)
     {
         return rc;
     }
@@ -265,26 +265,26 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     wr64be(raw_count, count);
     rc = sap_runner_txstack_v0_stage_put_dbi(stack, 10u, k_counter_key, sizeof(k_counter_key),
                                              raw_count, sizeof(raw_count));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     /* Demonstrate a closed-nested child frame inside the atomic handler. */
     rc = sap_runner_txstack_v0_push(stack);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     rc = sap_runner_txstack_v0_stage_put_dbi(stack, 10u, k_last_key, sizeof(k_last_key),
                                              msg->payload, msg->payload_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         (void)sap_runner_txstack_v0_abort_top(stack);
         return rc;
     }
     rc = sap_runner_txstack_v0_commit_top(stack);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         (void)sap_runner_txstack_v0_abort_top(stack);
         return rc;
@@ -296,7 +296,7 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     outbox_intent.message = msg->payload;
     outbox_intent.message_len = msg->payload_len;
     rc = sap_runner_txstack_v0_push_intent(stack, &outbox_intent);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -309,12 +309,12 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     timer_msg.route_timestamp = atomic->due_ts;
     if (sap_runner_message_v0_size(&timer_msg) > sizeof(timer_frame))
     {
-        return SAP_FULL;
+        return ERR_FULL;
     }
     if (sap_runner_message_v0_encode(&timer_msg, timer_frame, sizeof(timer_frame),
                                      &timer_frame_len) != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     timer_intent.message = timer_frame;
     timer_intent.message_len = timer_frame_len;
@@ -372,14 +372,14 @@ int main(void)
     atomic.calls = 0u;
     atomic.due_ts = 4102444800000LL;
 
-    if (sap_runner_intent_sink_v0_init(&intent_sink, db, 1u, 1u) != SAP_OK)
+    if (sap_runner_intent_sink_v0_init(&intent_sink, db, 1u, 1u) != ERR_OK)
     {
         fprintf(stderr, "runner-native-example: intent sink init failed\n");
         goto done;
     }
     if (sap_runner_attempt_handler_v0_init(&handler, db, native_atomic_apply, &atomic,
                                            sap_runner_intent_sink_v0_publish,
-                                           &intent_sink) != SAP_OK)
+                                           &intent_sink) != ERR_OK)
     {
         fprintf(stderr, "runner-native-example: attempt handler init failed\n");
         goto done;
@@ -394,7 +394,7 @@ int main(void)
     sap_runner_attempt_handler_v0_set_policy(&handler, &policy);
 
     if (sap_runner_v0_worker_init(&worker, &cfg, sap_runner_attempt_handler_v0_runner_handler,
-                                  &handler, 4u) != SAP_OK)
+                                  &handler, 4u) != ERR_OK)
     {
         fprintf(stderr, "runner-native-example: worker init failed\n");
         goto done;
@@ -424,13 +424,13 @@ int main(void)
         fprintf(stderr, "runner-native-example: immediate decode check failed\n");
         goto done;
     }
-    if (sap_runner_v0_inbox_put(db, 42u, 1u, frame, frame_len) != SAP_OK)
+    if (sap_runner_v0_inbox_put(db, 42u, 1u, frame, frame_len) != ERR_OK)
     {
         fprintf(stderr, "runner-native-example: inbox_put failed\n");
         goto done;
     }
     if (inbox_read_frame(db, 42u, 1u, inbox_frame, sizeof(inbox_frame), &inbox_frame_len) !=
-            SAP_OK ||
+            ERR_OK ||
         inbox_frame_len != frame_len ||
         sap_runner_message_v0_decode(inbox_frame, inbox_frame_len, &msg) != SAP_RUNNER_WIRE_OK)
     {
@@ -439,7 +439,7 @@ int main(void)
     }
     {
         int tick_rc = sap_runner_v0_worker_tick(&worker, &processed);
-        if (tick_rc != SAP_OK || processed != 1u)
+        if (tick_rc != ERR_OK || processed != 1u)
         {
             fprintf(
                 stderr,
@@ -449,13 +449,13 @@ int main(void)
         }
     }
 
-    if (app_state_read_counter(db, &counter) != SAP_OK || counter != 1u)
+    if (app_state_read_counter(db, &counter) != ERR_OK || counter != 1u)
     {
         fprintf(stderr, "runner-native-example: counter check failed\n");
         goto done;
     }
     if (app_state_read_blob(db, k_last_key, sizeof(k_last_key), last_blob, sizeof(last_blob),
-                            &last_blob_len) != SAP_OK ||
+                            &last_blob_len) != ERR_OK ||
         last_blob_len != sizeof(payload) || memcmp(last_blob, payload, sizeof(payload)) != 0)
     {
         fprintf(stderr, "runner-native-example: last payload check failed\n");
@@ -463,7 +463,7 @@ int main(void)
     }
 
     processed = 0u;
-    if (sap_runner_outbox_v0_drain(db, 4u, collect_outbox_frame, &outbox, &processed) != SAP_OK ||
+    if (sap_runner_outbox_v0_drain(db, 4u, collect_outbox_frame, &outbox, &processed) != ERR_OK ||
         processed != 1u || outbox.calls != 1u || outbox.frame_lens[0] != sizeof(payload) ||
         memcmp(outbox.frames[0], payload, sizeof(payload)) != 0)
     {
@@ -473,7 +473,7 @@ int main(void)
 
     processed = 0u;
     if (sap_runner_timer_v0_drain_due(db, atomic.due_ts, 4u, collect_timer_due, &timers,
-                                      &processed) != SAP_OK ||
+                                      &processed) != ERR_OK ||
         processed != 1u || timers.calls != 1u || timers.due_ts[0] != atomic.due_ts ||
         timers.seq[0] != 1u)
     {
@@ -494,7 +494,7 @@ int main(void)
     }
 
     if (handler.last_stats.attempts != 1u || handler.last_stats.retries != 0u ||
-        handler.last_stats.last_rc != SAP_OK || atomic.calls != 1u)
+        handler.last_stats.last_rc != ERR_OK || atomic.calls != 1u)
     {
         fprintf(stderr, "runner-native-example: attempt stats check failed\n");
         goto done;

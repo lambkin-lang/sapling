@@ -61,17 +61,17 @@ int sap_runner_lease_v0_decode(const uint8_t *raw, uint32_t raw_len, SapRunnerLe
 {
     if (!raw || !lease_out || raw_len != SAP_RUNNER_LEASE_V0_VALUE_SIZE)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (memcmp(raw, k_lease_magic, sizeof(k_lease_magic)) != 0)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     lease_out->owner_worker = rd64(raw + 4);
     lease_out->deadline_ts = (int64_t)rd64(raw + 12);
     lease_out->attempts = rd32(raw + 20);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
@@ -86,30 +86,30 @@ int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn, 
 
     if (!stack || !read_txn || !key || !lease_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_LEASES, key, key_len, &val,
                                         &val_len);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         SapRunnerLeaseV0 cur = {0};
         rc = sap_runner_lease_v0_decode((const uint8_t *)val, val_len, &cur);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
 
         if (now_ts <= cur.deadline_ts && cur.owner_worker != owner_worker)
         {
-            return SAP_BUSY;
+            return ERR_BUSY;
         }
 
         next.owner_worker = owner_worker;
         next.deadline_ts = now_ts + duration_ms;
         next.attempts = cur.attempts + 1u;
     }
-    else if (rc == SAP_NOTFOUND)
+    else if (rc == ERR_NOT_FOUND)
     {
         next.owner_worker = owner_worker;
         next.deadline_ts = now_ts + duration_ms;
@@ -123,7 +123,7 @@ int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn, 
     sap_runner_lease_v0_encode(&next, raw);
     rc = sap_runner_txstack_v0_stage_put_dbi(stack, SAP_WIT_DBI_LEASES, key, key_len, raw,
                                              sizeof(raw));
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *lease_out = next;
     }
@@ -140,25 +140,25 @@ int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn, 
 
     if (!stack || !read_txn || !key)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_txstack_v0_read_dbi(stack, read_txn, SAP_WIT_DBI_LEASES, key, key_len, &val,
                                         &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     rc = sap_runner_lease_v0_decode((const uint8_t *)val, val_len, &cur);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     if (cur.owner_worker != owner_worker)
     {
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     return sap_runner_txstack_v0_stage_del_dbi(stack, SAP_WIT_DBI_LEASES, key, key_len);

@@ -23,7 +23,7 @@ static int expect_kv(Txn *txn, const char *key, const char *val)
     uint32_t key_len = (uint32_t)strlen(key);
     uint32_t val_len = (uint32_t)strlen(val);
 
-    if (txn_get(txn, key, key_len, &got, &got_len) != SAP_OK)
+    if (txn_get(txn, key, key_len, &got, &got_len) != ERR_OK)
         return 0;
     if (got_len != val_len)
         return 0;
@@ -58,7 +58,7 @@ int main(void)
         goto done;
     }
 
-    if (txn_put(outer, "outer", 5, "A", 1) != SAP_OK)
+    if (txn_put(outer, "outer", 5, "A", 1) != ERR_OK)
     {
         rc = 3;
         goto done;
@@ -71,7 +71,7 @@ int main(void)
         rc = 4;
         goto done;
     }
-    if (txn_put(inner, "child_ok", 8, "B", 1) != SAP_OK)
+    if (txn_put(inner, "child_ok", 8, "B", 1) != ERR_OK)
     {
         rc = 5;
         goto done;
@@ -81,7 +81,7 @@ int main(void)
         rc = 6;
         goto done;
     }
-    if (txn_commit(inner) != SAP_OK)
+    if (txn_commit(inner) != ERR_OK)
     {
         inner = NULL;
         rc = 7;
@@ -101,20 +101,20 @@ int main(void)
         rc = 9;
         goto done;
     }
-    if (txn_put(inner, "child_no", 8, "X", 1) != SAP_OK)
+    if (txn_put(inner, "child_no", 8, "X", 1) != ERR_OK)
     {
         rc = 10;
         goto done;
     }
     txn_abort(inner);
     inner = NULL;
-    if (txn_get(outer, "child_no", 8, &tmp, &tmp_len) != SAP_NOTFOUND)
+    if (txn_get(outer, "child_no", 8, &tmp, &tmp_len) != ERR_NOT_FOUND)
     {
         rc = 11;
         goto done;
     }
 
-    if (txn_commit(outer) != SAP_OK)
+    if (txn_commit(outer) != ERR_OK)
     {
         outer = NULL;
         rc = 12;
@@ -138,7 +138,7 @@ int main(void)
         rc = 15;
         goto done;
     }
-    if (txn_get(r, "child_no", 8, &tmp, &tmp_len) != SAP_NOTFOUND)
+    if (txn_get(r, "child_no", 8, &tmp, &tmp_len) != ERR_NOT_FOUND)
     {
         rc = 16;
         goto done;

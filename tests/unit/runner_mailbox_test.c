@@ -43,12 +43,12 @@ static DB *new_db(void)
     {
         return NULL;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
         db_close(db);
         return NULL;
     }
-    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
+    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         db_close(db);
         return NULL;
@@ -71,7 +71,7 @@ static int inbox_get(DB *db, uint64_t worker_id, uint64_t seq, const void **val_
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -79,7 +79,7 @@ static int inbox_get(DB *db, uint64_t worker_id, uint64_t seq, const void **val_
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), val_out, val_len_out);
@@ -96,7 +96,7 @@ static int lease_get(DB *db, uint64_t worker_id, uint64_t seq, const void **val_
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -104,7 +104,7 @@ static int lease_get(DB *db, uint64_t worker_id, uint64_t seq, const void **val_
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), val_out, val_len_out);
@@ -119,15 +119,15 @@ static int test_claim_busy_and_takeover(void)
     const uint8_t frame[] = {'m', 's', 'g'};
 
     CHECK(db != NULL);
-    CHECK(inbox_put(db, 7u, 1u, frame, sizeof(frame)) == SAP_OK);
+    CHECK(inbox_put(db, 7u, 1u, frame, sizeof(frame)) == ERR_OK);
 
-    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 7u, 100, 150, &lease) == SAP_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 7u, 100, 150, &lease) == ERR_OK);
     CHECK(lease.owner_worker == 7u);
     CHECK(lease.deadline_ts == 150);
     CHECK(lease.attempts == 1u);
 
-    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 8u, 120, 220, &lease) == SAP_BUSY);
-    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 8u, 200, 260, &lease) == SAP_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 8u, 120, 220, &lease) == ERR_BUSY);
+    CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 8u, 200, 260, &lease) == ERR_OK);
     CHECK(lease.owner_worker == 8u);
     CHECK(lease.deadline_ts == 260);
     CHECK(lease.attempts == 2u);
@@ -145,12 +145,12 @@ static int test_ack_removes_inbox_and_lease(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(inbox_put(db, 9u, 5u, frame, sizeof(frame)) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_claim(db, 9u, 5u, 9u, 10, 20, &lease) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_ack(db, 9u, 5u, &lease) == SAP_OK);
+    CHECK(inbox_put(db, 9u, 5u, frame, sizeof(frame)) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 9u, 5u, 9u, 10, 20, &lease) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_ack(db, 9u, 5u, &lease) == ERR_OK);
 
-    CHECK(inbox_get(db, 9u, 5u, &val, &val_len) == SAP_NOTFOUND);
-    CHECK(lease_get(db, 9u, 5u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(inbox_get(db, 9u, 5u, &val, &val_len) == ERR_NOT_FOUND);
+    CHECK(lease_get(db, 9u, 5u, &val, &val_len) == ERR_NOT_FOUND);
 
     db_close(db);
     return 0;
@@ -164,11 +164,11 @@ static int test_ack_rejects_stale_lease_token(void)
     const uint8_t frame[] = {'s', 't', 'a', 'l', 'e'};
 
     CHECK(db != NULL);
-    CHECK(inbox_put(db, 3u, 11u, frame, sizeof(frame)) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_claim(db, 3u, 11u, 3u, 0, 5, &lease1) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_claim(db, 3u, 11u, 4u, 10, 20, &lease2) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_ack(db, 3u, 11u, &lease1) == SAP_CONFLICT);
-    CHECK(sap_runner_mailbox_v0_ack(db, 3u, 11u, &lease2) == SAP_OK);
+    CHECK(inbox_put(db, 3u, 11u, frame, sizeof(frame)) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 3u, 11u, 3u, 0, 5, &lease1) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 3u, 11u, 4u, 10, 20, &lease2) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_ack(db, 3u, 11u, &lease1) == ERR_CONFLICT);
+    CHECK(sap_runner_mailbox_v0_ack(db, 3u, 11u, &lease2) == ERR_OK);
 
     db_close(db);
     return 0;
@@ -185,13 +185,13 @@ static int test_requeue_moves_message_and_clears_lease(void)
     uint32_t new_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(inbox_put(db, 12u, 50u, frame, sizeof(frame)) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_claim(db, 12u, 50u, 12u, 100, 150, &lease) == SAP_OK);
-    CHECK(sap_runner_mailbox_v0_requeue(db, 12u, 50u, &lease, 60u) == SAP_OK);
+    CHECK(inbox_put(db, 12u, 50u, frame, sizeof(frame)) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_claim(db, 12u, 50u, 12u, 100, 150, &lease) == ERR_OK);
+    CHECK(sap_runner_mailbox_v0_requeue(db, 12u, 50u, &lease, 60u) == ERR_OK);
 
-    CHECK(inbox_get(db, 12u, 50u, &old_val, &old_len) == SAP_NOTFOUND);
-    CHECK(lease_get(db, 12u, 50u, &old_val, &old_len) == SAP_NOTFOUND);
-    CHECK(inbox_get(db, 12u, 60u, &new_val, &new_len) == SAP_OK);
+    CHECK(inbox_get(db, 12u, 50u, &old_val, &old_len) == ERR_NOT_FOUND);
+    CHECK(lease_get(db, 12u, 50u, &old_val, &old_len) == ERR_NOT_FOUND);
+    CHECK(inbox_get(db, 12u, 60u, &new_val, &new_len) == ERR_OK);
     CHECK(new_len == sizeof(frame));
     CHECK(memcmp(new_val, frame, sizeof(frame)) == 0);
 

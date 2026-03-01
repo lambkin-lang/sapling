@@ -92,12 +92,12 @@ int my_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *req, uint32_t req_
     const char *lease_name = "critical-section";
     
     // 1. Acquire a lease for 5 seconds
-    if (sap_host_v0_lease_acquire(host, lease_name, strlen(lease_name), 5000) != SAP_OK) {
-        return SAP_BUSY;
+    if (sap_host_v0_lease_acquire(host, lease_name, strlen(lease_name), 5000) != ERR_OK) {
+        return ERR_BUSY;
     }
 
     // 2. Read state from DBI 0 (app_state)
-    if (sap_host_v0_get(host, 0, "key", 3, &val, &len) == SAP_OK) {
+    if (sap_host_v0_get(host, 0, "key", 3, &val, &len) == ERR_OK) {
         // ...
     }
     
@@ -110,6 +110,6 @@ int my_guest_logic(void *ctx, SapHostV0 *host, const uint8_t *req, uint32_t req_
     // 5. Release the lease
     sap_host_v0_lease_release(host, lease_name, strlen(lease_name));
     
-    return SAP_OK;
+    return ERR_OK;
 }
 ```

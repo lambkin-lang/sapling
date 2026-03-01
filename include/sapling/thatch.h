@@ -21,18 +21,11 @@
 #include <stdint.h>
 #include "sapling/arena.h"
 #include "sapling/txn.h"
+#include "sapling/err.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ------------------------------------------------------------------ */
-/* Return codes                                                       */
-/* ------------------------------------------------------------------ */
-#define THATCH_OK      0 /* success                                   */
-#define THATCH_OOM     1 /* arena page allocation failure             */
-#define THATCH_BOUNDS  2 /* cursor attempted to read past region      */
-#define THATCH_INVALID 3 /* invalid argument / bad subsystem state    */
 
 /* ------------------------------------------------------------------ */
 /* Types and Handles                                                  */
@@ -67,7 +60,7 @@ int sap_thatch_subsystem_init(SapEnv *env);
 /*
  * thatch_region_new — allocate a new, mutable region for bump-allocation.
  * Acquires pages from the transaction's arena.
- * Returns THATCH_OK or THATCH_OOM.
+ * Returns ERR_OK or ERR_OOM.
  */
 int thatch_region_new(SapTxnCtx *txn, ThatchRegion **region_out);
 

@@ -26,16 +26,16 @@ static int copy_bytes(const uint8_t *src, uint32_t len, uint8_t **dst_out)
 
     if (!src || !dst_out || len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     dst = (uint8_t *)malloc((size_t)len);
     if (!dst)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     memcpy(dst, src, len);
     *dst_out = dst;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int read_next_outbox_frame(DB *db, uint8_t **key_out, uint32_t *key_len_out,
@@ -51,7 +51,7 @@ static int read_next_outbox_frame(DB *db, uint8_t **key_out, uint32_t *key_len_o
 
     if (!db || !key_out || !key_len_out || !frame_out || !frame_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *key_out = NULL;
     *frame_out = NULL;
@@ -61,18 +61,18 @@ static int read_next_outbox_frame(DB *db, uint8_t **key_out, uint32_t *key_len_o
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     cur = cursor_open_dbi(txn, SAP_WIT_DBI_OUTBOX);
     if (!cur)
     {
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     rc = cursor_first(cur);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -80,7 +80,7 @@ static int read_next_outbox_frame(DB *db, uint8_t **key_out, uint32_t *key_len_o
     }
 
     rc = cursor_get(cur, &key, &key_len, &val, &val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -90,18 +90,18 @@ static int read_next_outbox_frame(DB *db, uint8_t **key_out, uint32_t *key_len_o
     {
         cursor_close(cur);
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     rc = copy_bytes((const uint8_t *)key, key_len, key_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
         return rc;
     }
     rc = copy_bytes((const uint8_t *)val, val_len, frame_out);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         free(*key_out);
         *key_out = NULL;
@@ -114,7 +114,7 @@ static int read_next_outbox_frame(DB *db, uint8_t **key_out, uint32_t *key_len_o
 
     cursor_close(cur);
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int delete_outbox_if_match(DB *db, const uint8_t *key, uint32_t key_len,
@@ -127,16 +127,16 @@ static int delete_outbox_if_match(DB *db, const uint8_t *key, uint32_t key_len,
 
     if (!db || !key || key_len == 0u || !frame || frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, key_len, &current_val, &current_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -144,10 +144,10 @@ static int delete_outbox_if_match(DB *db, const uint8_t *key, uint32_t key_len,
     if (current_len != frame_len || memcmp(current_val, frame, frame_len) != 0)
     {
         txn_abort(txn);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
     rc = txn_del_dbi(txn, SAP_WIT_DBI_OUTBOX, key, key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -174,7 +174,7 @@ int sap_runner_outbox_v0_append_frame(DB *db, uint64_t seq, const uint8_t *frame
 
     if (!db || !frame || frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     sap_runner_outbox_v0_key_encode(seq, key);
@@ -182,11 +182,11 @@ int sap_runner_outbox_v0_append_frame(DB *db, uint64_t seq, const uint8_t *frame
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     rc = txn_put_flags_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), frame, frame_len,
                            SAP_NOOVERWRITE, NULL);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -208,11 +208,11 @@ int sap_runner_outbox_v0_drain(DB *db, uint32_t max_frames,
     }
     if (!db || !handler)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (max_frames == 0u)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
 
     for (i = 0u; i < max_frames; i++)
@@ -224,11 +224,11 @@ int sap_runner_outbox_v0_drain(DB *db, uint32_t max_frames,
         int rc;
 
         rc = read_next_outbox_frame(db, &key, &key_len, &frame, &frame_len);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(frame);
@@ -236,7 +236,7 @@ int sap_runner_outbox_v0_drain(DB *db, uint32_t max_frames,
         }
 
         rc = handler(frame, frame_len, ctx);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(key);
             free(frame);
@@ -246,7 +246,7 @@ int sap_runner_outbox_v0_drain(DB *db, uint32_t max_frames,
         rc = delete_outbox_if_match(db, key, key_len, frame, frame_len);
         free(key);
         free(frame);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             return rc;
         }
@@ -257,7 +257,7 @@ int sap_runner_outbox_v0_drain(DB *db, uint32_t max_frames,
     {
         *processed_out = processed;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_outbox_v0_publisher_init(SapRunnerOutboxV0Publisher *publisher, DB *db,
@@ -265,11 +265,11 @@ int sap_runner_outbox_v0_publisher_init(SapRunnerOutboxV0Publisher *publisher, D
 {
     if (!publisher || !db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     publisher->db = db;
     publisher->next_seq = initial_seq;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_outbox_v0_publish_intent(const uint8_t *intent_frame, uint32_t intent_frame_len,
@@ -281,24 +281,24 @@ int sap_runner_outbox_v0_publish_intent(const uint8_t *intent_frame, uint32_t in
 
     if (!publisher || !publisher->db || !intent_frame || intent_frame_len == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = sap_runner_intent_v0_decode(intent_frame, intent_frame_len, &intent);
     if (rc != SAP_RUNNER_WIRE_OK)
     {
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (intent.kind != SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = sap_runner_outbox_v0_append_frame(publisher->db, publisher->next_seq, intent.message,
                                            intent.message_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     publisher->next_seq++;
-    return SAP_OK;
+    return ERR_OK;
 }

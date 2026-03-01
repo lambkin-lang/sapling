@@ -117,7 +117,7 @@ static DB *create_bench_db(void)
     SapEnv *env = sap_env_create(g_alloc, SAPLING_PAGE_SIZE);
     if (!env) return NULL;
     /* Initialize B-Tree subsystem */
-    if (sap_btree_subsystem_init(env, NULL, NULL) != SAP_OK) {
+    if (sap_btree_subsystem_init(env, NULL, NULL) != ERR_OK) {
         sap_env_destroy(env);
         return NULL;
     }
@@ -141,7 +141,7 @@ static int run_put_sorted(uint32_t count, const void *const *keys, const uint32_
     for (uint32_t i = 0; i < count; i++)
     {
         int rc = txn_put_dbi(txn, 0, keys[i], key_lens[i], vals[i], val_lens[i]);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             db_close(db);
@@ -149,7 +149,7 @@ static int run_put_sorted(uint32_t count, const void *const *keys, const uint32_
         }
     }
 
-    if (txn_commit(txn) != SAP_OK)
+    if (txn_commit(txn) != ERR_OK)
     {
         db_close(db);
         return 0;
@@ -173,14 +173,14 @@ static int run_load_sorted(uint32_t count, const void *const *keys, const uint32
         return 0;
     }
 
-    if (txn_load_sorted(txn, 0, keys, key_lens, vals, val_lens, count) != SAP_OK)
+    if (txn_load_sorted(txn, 0, keys, key_lens, vals, val_lens, count) != ERR_OK)
     {
         txn_abort(txn);
         db_close(db);
         return 0;
     }
 
-    if (txn_commit(txn) != SAP_OK)
+    if (txn_commit(txn) != ERR_OK)
     {
         db_close(db);
         return 0;
@@ -196,12 +196,12 @@ static int preload_sorted(DB *db, uint32_t count, const void *const *keys, const
     Txn *txn = txn_begin(db, NULL, 0);
     if (!txn)
         return 0;
-    if (txn_load_sorted(txn, 0, keys, key_lens, vals, val_lens, count) != SAP_OK)
+    if (txn_load_sorted(txn, 0, keys, key_lens, vals, val_lens, count) != ERR_OK)
     {
         txn_abort(txn);
         return 0;
     }
-    return txn_commit(txn) == SAP_OK;
+    return txn_commit(txn) == ERR_OK;
 }
 
 static int run_put_sorted_nonempty(uint32_t base_count, uint32_t delta_count,
@@ -229,14 +229,14 @@ static int run_put_sorted_nonempty(uint32_t base_count, uint32_t delta_count,
     {
         int rc =
             txn_put_dbi(txn, 0, delta_keys[i], delta_key_lens[i], delta_vals[i], delta_val_lens[i]);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             db_close(db);
             return 0;
         }
     }
-    if (txn_commit(txn) != SAP_OK)
+    if (txn_commit(txn) != ERR_OK)
     {
         db_close(db);
         return 0;
@@ -267,13 +267,13 @@ static int run_load_sorted_nonempty(uint32_t base_count, uint32_t delta_count,
         return 0;
     }
     if (txn_load_sorted(txn, 0, delta_keys, delta_key_lens, delta_vals, delta_val_lens,
-                        delta_count) != SAP_OK)
+                        delta_count) != ERR_OK)
     {
         txn_abort(txn);
         db_close(db);
         return 0;
     }
-    if (txn_commit(txn) != SAP_OK)
+    if (txn_commit(txn) != ERR_OK)
     {
         db_close(db);
         return 0;

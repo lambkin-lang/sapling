@@ -29,7 +29,7 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
 
     if (!db || !lease_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     lease_key_encode(inbox_worker_id, seq, key);
@@ -37,18 +37,18 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &frame, &frame_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), &lease_val, &lease_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         uint8_t raw[SAP_RUNNER_LEASE_V0_VALUE_SIZE];
         void *reserved_out = NULL;
@@ -61,24 +61,24 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
         rc = txn_put_flags_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), raw, sizeof(raw),
                                SAP_NOOVERWRITE, &reserved_out);
         (void)reserved_out;
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
-            if (rc == SAP_EXISTS)
+            if (rc == ERR_EXISTS)
             {
-                return SAP_BUSY;
+                return ERR_BUSY;
             }
             return rc;
         }
     }
-    else if (rc == SAP_OK)
+    else if (rc == ERR_OK)
     {
         SapRunnerLeaseV0 cur = {0};
         uint8_t expected_raw[SAP_RUNNER_LEASE_V0_VALUE_SIZE];
         uint8_t replacement_raw[SAP_RUNNER_LEASE_V0_VALUE_SIZE];
 
         rc = sap_runner_lease_v0_decode((const uint8_t *)lease_val, lease_len, &cur);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
             return rc;
@@ -86,7 +86,7 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
         if (now_ts <= cur.deadline_ts)
         {
             txn_abort(txn);
-            return SAP_BUSY;
+            return ERR_BUSY;
         }
 
         next.owner_worker = claimant_worker_id;
@@ -97,12 +97,12 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
 
         rc = txn_put_if(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), replacement_raw,
                         sizeof(replacement_raw), expected_raw, sizeof(expected_raw));
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             txn_abort(txn);
-            if (rc == SAP_CONFLICT || rc == SAP_NOTFOUND)
+            if (rc == ERR_CONFLICT || rc == ERR_NOT_FOUND)
             {
-                return SAP_BUSY;
+                return ERR_BUSY;
             }
             return rc;
         }
@@ -114,13 +114,13 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
     }
 
     rc = txn_commit(txn);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     *lease_out = next;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_mailbox_v0_ack(DB *db, uint64_t worker_id, uint64_t seq,
@@ -135,7 +135,7 @@ int sap_runner_mailbox_v0_ack(DB *db, uint64_t worker_id, uint64_t seq,
 
     if (!db || !expected_lease)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     lease_key_encode(worker_id, seq, key);
@@ -145,11 +145,11 @@ int sap_runner_mailbox_v0_ack(DB *db, uint64_t worker_id, uint64_t seq,
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), &lease_val, &lease_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -158,17 +158,17 @@ int sap_runner_mailbox_v0_ack(DB *db, uint64_t worker_id, uint64_t seq,
         memcmp(lease_val, expected_raw, sizeof(expected_raw)) != 0)
     {
         txn_abort(txn);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     rc = txn_del_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
     }
     rc = txn_del_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -192,7 +192,7 @@ int sap_runner_mailbox_v0_requeue(DB *db, uint64_t worker_id, uint64_t seq,
 
     if (!db || !expected_lease || seq == new_seq)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     lease_key_encode(worker_id, seq, old_key);
@@ -202,11 +202,11 @@ int sap_runner_mailbox_v0_requeue(DB *db, uint64_t worker_id, uint64_t seq,
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, old_key, sizeof(old_key), &lease_val, &lease_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -215,11 +215,11 @@ int sap_runner_mailbox_v0_requeue(DB *db, uint64_t worker_id, uint64_t seq,
         memcmp(lease_val, expected_raw, sizeof(expected_raw)) != 0)
     {
         txn_abort(txn);
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, old_key, sizeof(old_key), &frame, &frame_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -227,20 +227,20 @@ int sap_runner_mailbox_v0_requeue(DB *db, uint64_t worker_id, uint64_t seq,
 
     rc = txn_put_flags_dbi(txn, SAP_WIT_DBI_INBOX, new_key, sizeof(new_key), frame, frame_len,
                            SAP_NOOVERWRITE, NULL);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
     }
 
     rc = txn_del_dbi(txn, SAP_WIT_DBI_INBOX, old_key, sizeof(old_key));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
     }
     rc = txn_del_dbi(txn, SAP_WIT_DBI_LEASES, old_key, sizeof(old_key));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;

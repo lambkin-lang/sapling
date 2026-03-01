@@ -57,7 +57,7 @@ static int guest_call(void *ctx, SapHostV0 *host, const uint8_t *request, uint32
     (void)reply_len_out;
 
     g->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int encode_message(uint8_t *buf, uint32_t buf_len, uint32_t *out_len)
@@ -89,8 +89,8 @@ static int test_shim_dedupe_skips_invoke(void)
     uint32_t processed = 0u;
 
     CHECK(db != NULL);
-    CHECK(dbi_open(db, SAP_WIT_DBI_INBOX, NULL, NULL, 0u) == SAP_OK);
-    CHECK(dbi_open(db, SAP_WIT_DBI_DEDUPE, NULL, NULL, 0u) == SAP_OK);
+    CHECK(dbi_open(db, SAP_WIT_DBI_INBOX, NULL, NULL, 0u) == ERR_OK);
+    CHECK(dbi_open(db, SAP_WIT_DBI_DEDUPE, NULL, NULL, 0u) == ERR_OK);
 
     cfg.db = db;
     cfg.worker_id = 7u;
@@ -98,21 +98,21 @@ static int test_shim_dedupe_skips_invoke(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 0) == SAP_OK);
-    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == SAP_OK);
+    CHECK(sap_wasi_runtime_v0_init(&runtime, "guest.main", guest_call, &guest) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_init(&shim, db, &runtime, 0u, 0) == ERR_OK);
+    CHECK(sap_wasi_shim_v0_worker_init(&worker, &cfg, &shim, 1u) == ERR_OK);
 
     CHECK(encode_message(frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
 
     // Attempt 1: New message
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(guest.calls == 1u);
 
     // Attempt 2: Duplicate message (with same ID and dedupe flag)
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 2u, frame, frame_len) == SAP_OK);
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 2u, frame, frame_len) == ERR_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(guest.calls == 1u); // Should still be 1!
 

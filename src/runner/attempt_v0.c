@@ -8,7 +8,7 @@
 #include <string.h>
 #include <time.h>
 
-static int is_retryable(int rc) { return rc == SAP_BUSY || rc == SAP_CONFLICT; }
+static int is_retryable(int rc) { return rc == ERR_BUSY || rc == ERR_CONFLICT; }
 
 static void default_sleep(uint32_t backoff_us, void *ctx)
 {
@@ -74,11 +74,11 @@ static void stats_note_retry(SapRunnerAttemptV0Stats *stats, int rc)
         return;
     }
     stats->retries++;
-    if (rc == SAP_CONFLICT)
+    if (rc == ERR_CONFLICT)
     {
         stats->conflict_retries++;
     }
-    else if (rc == SAP_BUSY)
+    else if (rc == ERR_BUSY)
     {
         stats->busy_retries++;
     }
@@ -107,11 +107,11 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
     SapRunnerAttemptV0Stats stats = {0};
     SapRunnerTxStackV0 stack;
     uint32_t attempt_no = 0u;
-    int rc = SAP_ERROR;
+    int rc = ERR_INVALID;
 
     if (!db || !atomic_fn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (!policy)
     {
@@ -120,7 +120,7 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
     }
 
     rc = sap_runner_txstack_v0_init(&stack);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
@@ -135,7 +135,7 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
         stats.attempts++;
         sap_runner_txstack_v0_reset(&stack);
         rc = sap_runner_txstack_v0_push(&stack);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             break;
         }
@@ -143,13 +143,13 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
         rtxn = txn_begin(db, NULL, TXN_RDONLY);
         if (!rtxn)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             break;
         }
 
         rc = atomic_fn(&stack, rtxn, atomic_ctx);
         txn_abort(rtxn);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             if (is_retryable(rc) && attempt_no < policy->max_retries)
             {
@@ -164,16 +164,16 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
         wtxn = txn_begin(db, NULL, 0u);
         if (!wtxn)
         {
-            rc = SAP_BUSY;
+            rc = ERR_BUSY;
         }
         else
         {
             rc = sap_runner_txstack_v0_validate_root_reads(&stack, wtxn);
-            if (rc == SAP_OK)
+            if (rc == ERR_OK)
             {
                 rc = sap_runner_txstack_v0_apply_root_writes(&stack, wtxn);
             }
-            if (rc == SAP_OK)
+            if (rc == ERR_OK)
             {
                 rc = txn_commit(wtxn);
             }
@@ -183,7 +183,7 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
             }
         }
 
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             if (is_retryable(rc) && attempt_no < policy->max_retries)
             {
@@ -200,7 +200,7 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
             root = sap_runner_txstack_v0_root(&stack);
             if (!root)
             {
-                rc = SAP_ERROR;
+                rc = ERR_INVALID;
                 break;
             }
 
@@ -210,22 +210,22 @@ int sap_runner_attempt_v0_run(DB *db, const SapRunnerAttemptV0Policy *policy,
                 const uint8_t *frame = sap_runner_txctx_v0_intent_frame(root, i, &frame_len);
                 if (!frame || frame_len == 0u)
                 {
-                    rc = SAP_ERROR;
+                    rc = ERR_CORRUPT;
                     break;
                 }
                 rc = intent_sink(frame, frame_len, intent_ctx);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                 {
                     break;
                 }
             }
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
             {
                 break;
             }
         }
 
-        rc = SAP_OK;
+        rc = ERR_OK;
         break;
     }
 

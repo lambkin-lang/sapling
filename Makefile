@@ -61,6 +61,8 @@ LIB      = $(LIB_DIR)/libsapling.a
 TEST_BIN := $(BIN_DIR)/test_sapling
 TEST_SEQ_BIN := $(BIN_DIR)/test_seq
 TEST_TEXT_BIN := $(BIN_DIR)/test_text
+TEST_TEXT_LITERAL_BIN := $(BIN_DIR)/test_text_literal
+TEST_TEXT_TREE_REG_BIN := $(BIN_DIR)/test_text_tree_registry
 TEST_BEPT_BIN := $(BIN_DIR)/test_bept
 TEST_HAMT_BIN := $(BIN_DIR)/test_hamt
 TEST_ARENA_BIN := $(BIN_DIR)/test_arena
@@ -167,12 +169,16 @@ PHASE0_TIDY_FILES := $(filter-out generated/%, $(C_SOURCES))
 LINT_WARNING_SOURCES := $(filter src/%, $(C_SOURCES))
 LINT_TIDY_SOURCES := $(filter src/%, $(PHASE0_TIDY_FILES))
 
-SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c src/sapling/hamt.c
-SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h include/sapling/hamt.h
+SAPLING_SRC := src/sapling/sapling.c src/sapling/arena.c src/sapling/txn.c src/sapling/bept.c src/sapling/hamt.c src/sapling/err.c
+SAPLING_HDR := include/sapling/sapling.h include/sapling/arena.h include/sapling/txn.h include/sapling/bept.h include/sapling/hamt.h include/sapling/err.h
 SEQ_SRC := src/sapling/seq.c
 SEQ_HDR := include/sapling/seq.h
 TEXT_SRC := src/sapling/text.c
 TEXT_HDR := include/sapling/text.h
+TEXT_LITERAL_SRC := src/sapling/text_literal.c
+TEXT_LITERAL_HDR := include/sapling/text_literal.h
+TEXT_TREE_REG_SRC := src/sapling/text_tree_registry.c
+TEXT_TREE_REG_HDR := include/sapling/text_tree_registry.h
 THATCH_SRC := src/sapling/thatch.c
 THATCH_HDR := include/sapling/thatch.h
 THATCH_JSON_SRC := src/sapling/thatch_json.c
@@ -199,7 +205,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ)
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test seq-test test-arena thatch-test thatch-json-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
+.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness phase0-check phasea-check phaseb-check phasec-check clean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -213,10 +219,12 @@ $(LIB): $(OBJ)
 
 
 test: CFLAGS += -O2 -g
-test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
+test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_TEXT_LITERAL_BIN) $(TEST_TEXT_TREE_REG_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
 	./$(TEST_BIN)
 	./$(TEST_SEQ_BIN)
 	./$(TEST_TEXT_BIN)
+	./$(TEST_TEXT_LITERAL_BIN)
+	./$(TEST_TEXT_TREE_REG_BIN)
 	./$(TEST_BEPT_BIN)
 	./$(TEST_HAMT_BIN)
 	./$(TEST_ARENA_BIN)
@@ -304,8 +312,10 @@ text-fuzz:
 	$(CC) $(CFLAGS) $(INCLUDES) -c src/sapling/bept.c -o $(OBJ_DIR)/src/sapling/bept_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c tests/fuzz/fuzz_text.c -o $(OBJ_DIR)/tests/fuzz/fuzz_text.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_SRC) -o $(OBJ_DIR)/src/sapling/text_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_LITERAL_SRC) -o $(OBJ_DIR)/src/sapling/text_literal_fuzz.o
+	$(CC) $(CFLAGS) $(INCLUDES) -c $(TEXT_TREE_REG_SRC) -o $(OBJ_DIR)/src/sapling/text_tree_registry_fuzz.o
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(SEQ_SRC) -o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o
-	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_text.o $(OBJ_DIR)/src/sapling/text_fuzz.o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o -o $(TEXT_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
+	$(CXX) $(OBJ_DIR)/tests/fuzz/fuzz_text.o $(OBJ_DIR)/src/sapling/text_fuzz.o $(OBJ_DIR)/src/sapling/text_literal_fuzz.o $(OBJ_DIR)/src/sapling/text_tree_registry_fuzz.o $(OBJ_DIR)/src/sapling/seq_text_fuzz.o $(OBJ_DIR)/src/sapling/sapling_fuzz.o $(OBJ_DIR)/src/sapling/txn_fuzz.o $(OBJ_DIR)/src/sapling/arena_fuzz.o $(OBJ_DIR)/src/sapling/bept_fuzz.o -o $(TEXT_FUZZ_BIN) $(LDFLAGS) $(SEQ_FUZZ_CXXLIB_FLAGS)
 	$(SEQ_FUZZ_SYMBOLIZER_ENV) ./$(TEXT_FUZZ_BIN) -runs=$(TEXT_FUZZ_RUNS) -max_len=$(TEXT_FUZZ_MAX_LEN) $(TEXT_FUZZ_CORPUS) $(TEXT_FUZZ_INPUT_CORPUS)
 
 bench-ci:
@@ -385,9 +395,25 @@ $(TEST_THATCH_JSON_BIN): tests/unit/test_thatch_json.c $(THATCH_JSON_SRC) $(THAT
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_thatch_json.c $(THATCH_JSON_SRC) $(THATCH_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS) -lm
 
-$(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_SRC)
+$(TEST_TEXT_BIN): tests/unit/test_text.c $(TEXT_SRC) $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(SEQ_SRC) $(TEXT_HDR) $(TEXT_LITERAL_HDR) $(TEXT_TREE_REG_HDR) $(SEQ_HDR) $(SAPLING_SRC)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text.c $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text.c $(TEXT_SRC) $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+text-literal-test: CFLAGS += -O2 -g
+text-literal-test: $(TEST_TEXT_LITERAL_BIN)
+	./$(TEST_TEXT_LITERAL_BIN)
+
+$(TEST_TEXT_LITERAL_BIN): tests/unit/test_text_literal.c $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(TEXT_SRC) $(SEQ_SRC) $(TEXT_LITERAL_HDR) $(TEXT_TREE_REG_HDR) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text_literal.c $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+
+text-tree-registry-test: CFLAGS += -O2 -g
+text-tree-registry-test: $(TEST_TEXT_TREE_REG_BIN)
+	./$(TEST_TEXT_TREE_REG_BIN)
+
+$(TEST_TEXT_TREE_REG_BIN): tests/unit/test_text_tree_registry.c $(TEXT_TREE_REG_SRC) $(TEXT_LITERAL_SRC) $(TEXT_SRC) $(SEQ_SRC) $(TEXT_TREE_REG_HDR) $(TEXT_LITERAL_HDR) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_SRC)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_text_tree_registry.c $(TEXT_TREE_REG_SRC) $(TEXT_LITERAL_SRC) $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 $(TEST_SEQ_BIN): tests/unit/test_seq.c $(SEQ_SRC) $(SEQ_HDR) $(SAPLING_SRC)
 	@mkdir -p $(dir $@)
@@ -417,9 +443,9 @@ $(BENCH_SEQ_BIN): benchmarks/bench_seq.c $(SEQ_SRC) $(SAPLING_SRC) $(SEQ_HDR) $(
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_seq.c $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
-$(BENCH_TEXT_BIN): benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) $(TEXT_HDR) $(SEQ_HDR) $(SAPLING_HDR)
+$(BENCH_TEXT_BIN): benchmarks/bench_text.c $(TEXT_SRC) $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(SEQ_SRC) $(SAPLING_SRC) $(TEXT_HDR) $(TEXT_LITERAL_HDR) $(TEXT_TREE_REG_HDR) $(SEQ_HDR) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_text.c $(TEXT_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) benchmarks/bench_text.c $(TEXT_SRC) $(TEXT_LITERAL_SRC) $(TEXT_TREE_REG_SRC) $(SEQ_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
 $(BENCH_BEPT_BIN): benchmarks/bench_bept.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)

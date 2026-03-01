@@ -55,17 +55,6 @@ extern "C" {
 #define TJ_TAG_KEY     0x09
 
 /* ------------------------------------------------------------------ */
-/* Return codes (extends THATCH_OK/OOM/BOUNDS/INVALID)                */
-/* ------------------------------------------------------------------ */
-#define TJ_OK          THATCH_OK
-#define TJ_OOM         THATCH_OOM
-#define TJ_BOUNDS      THATCH_BOUNDS
-#define TJ_INVALID     THATCH_INVALID
-#define TJ_PARSE_ERROR 4   /* JSON syntax error                      */
-#define TJ_NOT_FOUND   5   /* field / index does not exist           */
-#define TJ_TYPE_ERROR  6   /* wrong JSON type for the operation      */
-
-/* ------------------------------------------------------------------ */
 /* JSON type enumeration                                              */
 /* ------------------------------------------------------------------ */
 typedef enum {
@@ -114,7 +103,7 @@ int tj_parse(SapTxnCtx *txn, const char *json, uint32_t len,
 /*
  * Parse newline-delimited JSONL.  Calls on_value for each successfully
  * parsed line.  Each line gets its own ThatchRegion.  Blank lines are
- * silently skipped.  Returns TJ_OK if all lines parsed, or the first
+ * silently skipped.  Returns ERR_OK if all lines parsed, or the first
  * error code encountered (remaining lines are not parsed).
  */
 typedef int (*TjOnValue)(ThatchVal val, ThatchRegion *region,
@@ -139,10 +128,10 @@ int         tj_is_object(ThatchVal val);
 /* Value extraction                                                   */
 /* ------------------------------------------------------------------ */
 
-/* Boolean: returns 0 or 1 in *out.  TJ_TYPE_ERROR if not bool. */
+/* Boolean: returns 0 or 1 in *out.  ERR_TYPE if not bool. */
 int tj_bool(ThatchVal val, int *out);
 
-/* Integer: TJ_TYPE_ERROR if not TJ_TAG_INT. */
+/* Integer: ERR_TYPE if not TJ_TAG_INT. */
 int tj_int(ThatchVal val, int64_t *out);
 
 /* Double: accepts both INT and DOUBLE tags (int→double promotion). */
@@ -206,15 +195,15 @@ int tj_iter_array(ThatchVal val, TjIter *iter);
 int tj_iter_object(ThatchVal val, TjIter *iter);
 
 /*
- * Advance to the next array element.  Returns TJ_OK + sets *val_out,
- * or TJ_NOT_FOUND when iteration is exhausted.
+ * Advance to the next array element.  Returns ERR_OK + sets *val_out,
+ * or ERR_NOT_FOUND when iteration is exhausted.
  */
 int tj_iter_next(TjIter *iter, ThatchVal *val_out);
 
 /*
  * Advance to the next object entry.  Returns the key (zero-copy
  * pointer into the region) and the value.
- * Returns TJ_NOT_FOUND when iteration is exhausted.
+ * Returns ERR_NOT_FOUND when iteration is exhausted.
  */
 int tj_iter_next_kv(TjIter *iter,
                     const char **key_out, uint32_t *key_len_out,
@@ -234,8 +223,8 @@ int tj_iter_next_kv(TjIter *iter,
  *   .[N]           array index (unsigned integer)
  *   chaining:      .users[0].name   .data.items[2].id
  *
- * Returns TJ_OK on success, TJ_NOT_FOUND if any step fails,
- * TJ_TYPE_ERROR on type mismatch, or TJ_PARSE_ERROR for bad syntax.
+ * Returns ERR_OK on success, ERR_NOT_FOUND if any step fails,
+ * ERR_TYPE on type mismatch, or ERR_PARSE for bad syntax.
  */
 int tj_path(ThatchVal val, const char *path, ThatchVal *out);
 

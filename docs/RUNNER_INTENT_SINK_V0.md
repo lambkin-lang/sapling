@@ -19,4 +19,4 @@ directly as the attempt sink.
 2. Route by `intent.kind`:
 - `OUTBOX_EMIT` -> outbox publisher
 - `TIMER_ARM` -> timer publisher
-3. Reject unknown/invalid frames with `SAP_ERROR`.
+3. Reject unknown/invalid frames with `ERR_INVALID`.

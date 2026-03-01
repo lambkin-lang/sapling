@@ -14,7 +14,7 @@ loop and OCC runtime are added.
 2. schema-version guard check (or bootstrap-create, if configured)
 3. transition to `RUNNING` state
 
-If any step fails, initialization returns a non-`SAP_OK` status and the runner
+If any step fails, initialization returns a non-`ERR_OK` status and the runner
 remains stopped.
 
 ## DBI bootstrap
@@ -37,11 +37,11 @@ This gives a deterministic "known DB layout" precondition for Phase B/C logic.
   - bytes `[6..8)`: expected schema minor (`u16`, little-endian)
 
 Behavior:
-- marker present and matching: `SAP_OK`
-- marker present but invalid/mismatched: `SAP_CONFLICT`
+- marker present and matching: `ERR_OK`
+- marker present but invalid/mismatched: `ERR_CONFLICT`
 - marker missing:
-  - returns `SAP_NOTFOUND` when bootstrap is disabled
-  - writes marker and returns `SAP_OK` when bootstrap is enabled
+  - returns `ERR_NOT_FOUND` when bootstrap is disabled
+  - writes marker and returns `ERR_OK` when bootstrap is enabled
 
 ## Step dispatch scaffold
 
@@ -78,7 +78,7 @@ This keeps handler execution outside write transactions while still using inbox
 records as the source of truth and avoiding stale lease buildup.
 
 Retry behavior in the scaffold:
-- retryable callback errors (`SAP_BUSY`, `SAP_CONFLICT`) are requeued until
+- retryable callback errors (`ERR_BUSY`, `ERR_CONFLICT`) are requeued until
   retry budget is hit; then they are dead-lettered
 - non-retryable callback errors are also requeued for durability, then returned
   to the caller so worker policy can decide whether to stop/escalate
@@ -98,7 +98,7 @@ path and deleted with key/value match guards.
 
 `SapRunnerV0` now tracks lightweight reliability metrics:
 - step attempts/successes
-- retryable failures split by `SAP_CONFLICT` and `SAP_BUSY`
+- retryable failures split by `ERR_CONFLICT` and `ERR_BUSY`
 - non-retryable failures
 - requeue and dead-letter move counts
 - step latency samples/total/max (millisecond resolution)
@@ -188,10 +188,10 @@ Threaded helpers are also exposed:
 
 These launch a polling loop only when `SAPLING_THREADED` is enabled; idle
 sleep uses timer-aware budgeting from the scheduler helper. Without threaded
-support they return `SAP_ERROR`.
+support they return `ERR_INVALID`.
 
 Worker tick transient handling:
-- `SAP_BUSY` remains the canonical retryable idle signal
-- `SAP_NOTFOUND` and `SAP_CONFLICT` from worker poll/timer paths are now
-  normalized to `SAP_BUSY` in worker tick to avoid fatal thread exit under
+- `ERR_BUSY` remains the canonical retryable idle signal
+- `ERR_NOT_FOUND` and `ERR_CONFLICT` from worker poll/timer paths are now
+  normalized to `ERR_BUSY` in worker tick to avoid fatal thread exit under
   transient contention/reordering races

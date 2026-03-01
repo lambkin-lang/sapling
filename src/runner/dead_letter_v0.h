@@ -47,7 +47,7 @@ int sap_runner_dead_letter_v0_move(DB *db, uint64_t worker_id, uint64_t seq,
  * For each entry:
  *   1) decode dead-letter record
  *   2) invoke callback
- *   3) delete the entry if the callback returns SAP_OK
+ *   3) delete the entry if the callback returns ERR_OK
  */
 int sap_runner_dead_letter_v0_drain(DB *db, uint32_t max_records,
                                     sap_runner_dead_letter_v0_record_handler handler, void *ctx,
@@ -55,7 +55,7 @@ int sap_runner_dead_letter_v0_drain(DB *db, uint32_t max_records,
 
 /*
  * Replay one dead-letter entry back to inbox(worker_id,replay_seq) and remove
- * it from dead-letter DBI. Fails with SAP_EXISTS if destination inbox key
+ * it from dead-letter DBI. Fails with ERR_EXISTS if destination inbox key
  * already exists.
  */
 int sap_runner_dead_letter_v0_replay(DB *db, uint64_t worker_id, uint64_t seq, uint64_t replay_seq);

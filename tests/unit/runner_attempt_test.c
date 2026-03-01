@@ -50,15 +50,15 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -74,7 +74,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -82,7 +82,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
@@ -102,12 +102,12 @@ static int capture_sink(const uint8_t *frame, uint32_t frame_len, void *ctx)
 
     if (!sink || !frame || frame_len == 0u || sink->calls >= 8u || frame_len > 128u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memcpy(sink->frames[sink->calls], frame, frame_len);
     sink->frame_lens[sink->calls] = frame_len;
     sink->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 typedef struct
@@ -142,18 +142,18 @@ static int happy_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
 
     if (!stack || !read_txn || !happy)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     happy->calls++;
 
     if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "k", 1u, &val, &val_len) !=
-        SAP_NOTFOUND)
+        ERR_NOT_FOUND)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "k", 1u, "v", 1u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "k", 1u, "v", 1u) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
@@ -161,11 +161,11 @@ static int happy_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
     intent.due_ts = 0;
     intent.message = payload;
     intent.message_len = sizeof(payload);
-    if (sap_runner_txstack_v0_push_intent(stack, &intent) != SAP_OK)
+    if (sap_runner_txstack_v0_push_intent(stack, &intent) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 typedef struct
@@ -183,27 +183,27 @@ static int conflict_once_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *
 
     if (!stack || !read_txn || !cc || !cc->db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     cc->calls++;
 
-    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "k", 1u, &val, &val_len) != SAP_OK)
+    if (sap_runner_txstack_v0_read_dbi(stack, read_txn, 10u, "k", 1u, &val, &val_len) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "k", 1u, "final", 5u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "k", 1u, "final", 5u) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (!cc->injected)
     {
         cc->injected = 1;
-        if (db_put(cc->db, "k", 1u, "other", 5u) != SAP_OK)
+        if (db_put(cc->db, "k", 1u, "other", 5u) != ERR_OK)
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 typedef struct
@@ -217,36 +217,36 @@ static int nested_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
     (void)read_txn;
     if (!stack || !nested)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     nested->calls++;
 
-    if (sap_runner_txstack_v0_push(stack) != SAP_OK)
+    if (sap_runner_txstack_v0_push(stack) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "x", 1u, "1", 1u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "x", 1u, "1", 1u) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_commit_top(stack) != SAP_OK)
+    if (sap_runner_txstack_v0_commit_top(stack) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
-    if (sap_runner_txstack_v0_push(stack) != SAP_OK)
+    if (sap_runner_txstack_v0_push(stack) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "y", 1u, "tmp", 3u) != SAP_OK)
+    if (sap_runner_txstack_v0_stage_put_dbi(stack, 10u, "y", 1u, "tmp", 3u) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    if (sap_runner_txstack_v0_abort_top(stack) != SAP_OK)
+    if (sap_runner_txstack_v0_abort_top(stack) != ERR_OK)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int always_conflict_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ctx)
@@ -254,7 +254,7 @@ static int always_conflict_atomic(SapRunnerTxStackV0 *stack, Txn *read_txn, void
     (void)stack;
     (void)read_txn;
     (void)ctx;
-    return SAP_CONFLICT;
+    return ERR_CONFLICT;
 }
 
 static int test_attempt_success_and_intent_sink(void)
@@ -275,10 +275,10 @@ static int test_attempt_success_and_intent_sink(void)
     policy.max_backoff_us = 0u;
 
     CHECK(sap_runner_attempt_v0_run(db, &policy, happy_atomic, &atomic, capture_sink, &sink,
-                                    &stats) == SAP_OK);
+                                    &stats) == ERR_OK);
     CHECK(stats.attempts == 1u);
     CHECK(stats.retries == 0u);
-    CHECK(stats.last_rc == SAP_OK);
+    CHECK(stats.last_rc == ERR_OK);
     CHECK(atomic.calls == 1u);
     CHECK(sink.calls == 1u);
     CHECK(sap_runner_intent_v0_decode(sink.frames[0], sink.frame_lens[0], &decoded) ==
@@ -287,7 +287,7 @@ static int test_attempt_success_and_intent_sink(void)
     CHECK(decoded.message_len == 2u);
     CHECK(memcmp(decoded.message, "ok", 2u) == 0);
 
-    CHECK(db_get(db, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "k", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 1u);
     CHECK(memcmp(val, "v", 1u) == 0);
 
@@ -306,7 +306,7 @@ static int test_attempt_retries_on_conflict(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(db_put(db, "k", 1u, "init", 4u) == SAP_OK);
+    CHECK(db_put(db, "k", 1u, "init", 4u) == ERR_OK);
 
     cc.db = db;
     cc.calls = 0u;
@@ -320,16 +320,16 @@ static int test_attempt_retries_on_conflict(void)
     policy.sleep_ctx = &sleep;
 
     CHECK(sap_runner_attempt_v0_run(db, &policy, conflict_once_atomic, &cc, NULL, NULL, &stats) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(cc.calls == 2u);
     CHECK(stats.attempts == 2u);
     CHECK(stats.retries == 1u);
     CHECK(stats.conflict_retries == 1u);
     CHECK(stats.busy_retries == 0u);
-    CHECK(stats.last_rc == SAP_OK);
+    CHECK(stats.last_rc == ERR_OK);
     CHECK(sleep.calls == 1u);
 
-    CHECK(db_get(db, "k", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "k", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "final", 5u) == 0);
 
@@ -353,15 +353,15 @@ static int test_attempt_nested_stack_in_atomic_fn(void)
     policy.max_backoff_us = 0u;
 
     CHECK(sap_runner_attempt_v0_run(db, &policy, nested_atomic, &nested, NULL, NULL, &stats) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(nested.calls == 1u);
     CHECK(stats.attempts == 1u);
-    CHECK(stats.last_rc == SAP_OK);
+    CHECK(stats.last_rc == ERR_OK);
 
-    CHECK(db_get(db, "x", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "x", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 1u);
     CHECK(memcmp(val, "1", 1u) == 0);
-    CHECK(db_get(db, "y", 1u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(db_get(db, "y", 1u, &val, &val_len) == ERR_NOT_FOUND);
 
     db_close(db);
     return 0;
@@ -383,11 +383,11 @@ static int test_attempt_stops_at_retry_budget(void)
     policy.sleep_ctx = &sleep;
 
     CHECK(sap_runner_attempt_v0_run(db, &policy, always_conflict_atomic, NULL, NULL, NULL,
-                                    &stats) == SAP_CONFLICT);
+                                    &stats) == ERR_CONFLICT);
     CHECK(stats.attempts == 3u);
     CHECK(stats.retries == 2u);
     CHECK(stats.conflict_retries == 2u);
-    CHECK(stats.last_rc == SAP_CONFLICT);
+    CHECK(stats.last_rc == ERR_CONFLICT);
     CHECK(sleep.calls == 2u);
 
     db_close(db);

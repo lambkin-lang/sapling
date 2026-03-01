@@ -101,7 +101,7 @@ static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *
     (void)runner;
     if (!state || !msg)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     state->invocations++;
     if (state->fail_calls_remaining > 0u)
@@ -111,7 +111,7 @@ static int on_message(SapRunnerV0 *runner, const SapRunnerMessageV0 *msg, void *
     }
     state->calls++;
     state->last_to_worker = msg->to_worker;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void on_replay_event(const SapRunnerV0ReplayEvent *event, void *ctx)
@@ -192,27 +192,27 @@ static int inbox_entry_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exi
 
     if (!db || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), &val, &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -227,27 +227,27 @@ static int timer_entry_exists(DB *db, int64_t due_ts, uint64_t seq, int *exists_
 
     if (!db || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     timer_to_bept_key(due_ts, seq, bept_key);
     rc = sap_bept_get((Txn *)txn, bept_key, 4, &val, &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -262,27 +262,27 @@ static int lease_entry_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exi
 
     if (!db || !exists_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), &val, &val_len);
     txn_abort(txn);
 
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
         *exists_out = 1;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         *exists_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     return rc;
 }
@@ -297,31 +297,31 @@ static int count_worker_entries(DB *db, uint32_t dbi, uint64_t worker_id, uint32
 
     if (!db || !count_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *count_out = 0u;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     cur = cursor_open_dbi(txn, dbi);
     if (!cur)
     {
         txn_abort(txn);
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     sap_runner_v0_inbox_key_encode(worker_id, 0u, prefix);
     rc = cursor_seek_prefix(cur, prefix, 8u);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         cursor_close(cur);
         txn_abort(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         txn_abort(txn);
@@ -340,7 +340,7 @@ static int count_worker_entries(DB *db, uint32_t dbi, uint64_t worker_id, uint32
         rc = cursor_get(cur, &key, &key_len, &val, &val_len);
         (void)val;
         (void)val_len;
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -350,7 +350,7 @@ static int count_worker_entries(DB *db, uint32_t dbi, uint64_t worker_id, uint32
         rc = sap_runner_v0_inbox_key_decode((const uint8_t *)key, key_len, &found_worker,
                                             &found_seq);
         (void)found_seq;
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -363,11 +363,11 @@ static int count_worker_entries(DB *db, uint32_t dbi, uint64_t worker_id, uint32
         count++;
 
         rc = cursor_next(cur);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             txn_abort(txn);
@@ -378,7 +378,7 @@ static int count_worker_entries(DB *db, uint32_t dbi, uint64_t worker_id, uint32
     cursor_close(cur);
     txn_abort(txn);
     *count_out = count;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int test_inbox_key_codec(void)
@@ -388,10 +388,10 @@ static int test_inbox_key_codec(void)
     uint64_t seq = 0u;
 
     sap_runner_v0_inbox_key_encode(7u, 99u, key);
-    CHECK(sap_runner_v0_inbox_key_decode(key, sizeof(key), &worker, &seq) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_key_decode(key, sizeof(key), &worker, &seq) == ERR_OK);
     CHECK(worker == 7u);
     CHECK(seq == 99u);
-    CHECK(sap_runner_v0_inbox_key_decode(key, sizeof(key) - 1u, &worker, &seq) == SAP_ERROR);
+    CHECK(sap_runner_v0_inbox_key_decode(key, sizeof(key) - 1u, &worker, &seq) == ERR_INVALID);
     return 0;
 }
 
@@ -400,10 +400,10 @@ static int test_schema_bootstrap_and_guard(void)
     DB *db = new_db();
     CHECK(db != NULL);
 
-    CHECK(sap_runner_v0_bootstrap_dbis(db) == SAP_OK);
-    CHECK(sap_runner_v0_ensure_schema_version(db, 0u, 0u, 1) == SAP_OK);
-    CHECK(sap_runner_v0_ensure_schema_version(db, 0u, 0u, 0) == SAP_OK);
-    CHECK(sap_runner_v0_ensure_schema_version(db, 0u, 1u, 0) == SAP_CONFLICT);
+    CHECK(sap_runner_v0_bootstrap_dbis(db) == ERR_OK);
+    CHECK(sap_runner_v0_ensure_schema_version(db, 0u, 0u, 1) == ERR_OK);
+    CHECK(sap_runner_v0_ensure_schema_version(db, 0u, 0u, 0) == ERR_OK);
+    CHECK(sap_runner_v0_ensure_schema_version(db, 0u, 1u, 0) == ERR_CONFLICT);
 
     db_close(db);
     return 0;
@@ -425,25 +425,25 @@ static int test_runner_init_and_step(void)
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
 
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
     CHECK(runner.state == SAP_RUNNER_V0_STATE_RUNNING);
     CHECK(runner.steps_completed == 0u);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_run_step(&runner, frame, frame_len, on_message, &dispatch_state) == SAP_OK);
+    CHECK(sap_runner_v0_run_step(&runner, frame, frame_len, on_message, &dispatch_state) == ERR_OK);
     CHECK(dispatch_state.calls == 1u);
     CHECK(dispatch_state.last_to_worker == 7);
     CHECK(runner.steps_completed == 1u);
 
     CHECK(encode_test_message(8u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
     CHECK(sap_runner_v0_run_step(&runner, frame, frame_len, on_message, &dispatch_state) ==
-          SAP_NOTFOUND);
+          ERR_NOT_FOUND);
     CHECK(dispatch_state.calls == 1u);
     CHECK(runner.steps_completed == 1u);
 
     sap_runner_v0_shutdown(&runner);
     CHECK(sap_runner_v0_run_step(&runner, frame, frame_len, on_message, &dispatch_state) ==
-          SAP_BUSY);
+          ERR_BUSY);
 
     db_close(db);
     return 0;
@@ -466,38 +466,38 @@ static int test_runner_poll_inbox(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == ERR_OK);
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 11u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 11u, frame, frame_len) == ERR_OK);
     CHECK(encode_test_message(8u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 8u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 8u, 1u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.calls == 1u);
     CHECK(runner.steps_completed == 1u);
 
-    CHECK(inbox_entry_exists(db, 7u, 10u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 10u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == ERR_OK);
     CHECK(exists == 1);
 
     CHECK(sap_runner_v0_poll_inbox(&runner, 10u, on_message, &dispatch_state, &processed) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.calls == 2u);
     CHECK(runner.steps_completed == 2u);
-    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
-    CHECK(inbox_entry_exists(db, 8u, 1u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 8u, 1u, &exists) == ERR_OK);
     CHECK(exists == 1);
 
     CHECK(sap_runner_v0_poll_inbox(&runner, 10u, on_message, &dispatch_state, &processed) ==
-          SAP_OK);
+          ERR_OK);
     CHECK(processed == 0u);
 
     db_close(db);
@@ -521,33 +521,33 @@ static int test_poll_inbox_retryable_requeues_and_recovers(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     dispatch_state.fail_calls_remaining = 1u;
-    dispatch_state.fail_rc = SAP_CONFLICT;
+    dispatch_state.fail_rc = ERR_CONFLICT;
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 2u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 2u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_poll_inbox(&runner, 4u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 4u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 2u);
     CHECK(dispatch_state.invocations == 3u);
     CHECK(dispatch_state.calls == 2u);
     CHECK(runner.steps_completed == 2u);
 
-    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_entry_exists(db, 7u, 2u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 2u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_entry_exists(db, 7u, 3u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 3u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_entry_exists(db, 7u, 2u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 2u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_entry_exists(db, 7u, 3u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 3u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -571,31 +571,31 @@ static int test_poll_inbox_non_retryable_requeues_and_returns_error(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     dispatch_state.fail_calls_remaining = 1u;
-    dispatch_state.fail_rc = SAP_ERROR;
+    dispatch_state.fail_rc = ERR_INVALID;
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == ERR_OK);
 
     CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) ==
-          SAP_ERROR);
+          ERR_INVALID);
     CHECK(processed == 0u);
     CHECK(dispatch_state.invocations == 1u);
     CHECK(dispatch_state.calls == 0u);
     CHECK(runner.steps_completed == 0u);
 
-    CHECK(inbox_entry_exists(db, 7u, 10u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 10u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 11u, &exists) == ERR_OK);
     CHECK(exists == 1);
-    CHECK(lease_entry_exists(db, 7u, 10u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 10u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_entry_exists(db, 7u, 11u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 11u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
-    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.invocations == 2u);
     CHECK(dispatch_state.calls == 1u);
@@ -617,7 +617,7 @@ static int test_retry_budget_moves_to_dead_letter(void)
     uint32_t inbox_count = 0u;
     uint32_t dead_letter_count = 0u;
     uint32_t rounds;
-    int rc = SAP_OK;
+    int rc = ERR_OK;
 
     CHECK(db != NULL);
     cfg.db = db;
@@ -625,21 +625,21 @@ static int test_retry_budget_moves_to_dead_letter(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     dispatch_state.fail_calls_remaining = 32u;
-    dispatch_state.fail_rc = SAP_CONFLICT;
+    dispatch_state.fail_rc = ERR_CONFLICT;
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 50u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 50u, frame, frame_len) == ERR_OK);
 
     for (rounds = 0u; rounds < 16u; rounds++)
     {
         rc = sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed);
-        CHECK(rc == SAP_OK);
+        CHECK(rc == ERR_OK);
         CHECK(processed == 0u);
 
-        CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == SAP_OK);
+        CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == ERR_OK);
         if (dead_letter_count > 0u)
         {
             break;
@@ -647,7 +647,7 @@ static int test_retry_budget_moves_to_dead_letter(void)
     }
 
     CHECK(dead_letter_count == 1u);
-    CHECK(count_worker_entries(db, SAP_WIT_DBI_INBOX, 7u, &inbox_count) == SAP_OK);
+    CHECK(count_worker_entries(db, SAP_WIT_DBI_INBOX, 7u, &inbox_count) == ERR_OK);
     CHECK(inbox_count == 0u);
 
     db_close(db);
@@ -674,22 +674,22 @@ static int test_runner_policy_override_retry_budget(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     sap_runner_v0_policy_default(&policy);
     policy.retry_budget_max = 1u;
     sap_runner_v0_set_policy(&runner, &policy);
 
     dispatch_state.fail_calls_remaining = 8u;
-    dispatch_state.fail_rc = SAP_CONFLICT;
+    dispatch_state.fail_rc = ERR_CONFLICT;
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 60u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 60u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 0u);
-    CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == SAP_OK);
+    CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == ERR_OK);
     CHECK(dead_letter_count == 1u);
-    CHECK(count_worker_entries(db, SAP_WIT_DBI_INBOX, 7u, &inbox_count) == SAP_OK);
+    CHECK(count_worker_entries(db, SAP_WIT_DBI_INBOX, 7u, &inbox_count) == ERR_OK);
     CHECK(inbox_count == 0u);
 
     sap_runner_v0_metrics_snapshot(&runner, &metrics);
@@ -718,18 +718,18 @@ static int test_runner_metrics_non_retryable_and_reset(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     dispatch_state.fail_calls_remaining = 1u;
-    dispatch_state.fail_rc = SAP_ERROR;
+    dispatch_state.fail_rc = ERR_INVALID;
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 70u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 70u, frame, frame_len) == ERR_OK);
     CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) ==
-          SAP_ERROR);
+          ERR_INVALID);
     CHECK(processed == 0u);
 
-    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 1u);
 
     sap_runner_v0_metrics_snapshot(&runner, &metrics);
@@ -778,19 +778,19 @@ static int test_runner_metrics_retryable_dead_letter_path(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     dispatch_state.fail_calls_remaining = 32u;
-    dispatch_state.fail_rc = SAP_CONFLICT;
+    dispatch_state.fail_rc = ERR_CONFLICT;
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 90u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 90u, frame, frame_len) == ERR_OK);
 
     for (rounds = 0u; rounds < 16u; rounds++)
     {
         CHECK(sap_runner_v0_poll_inbox(&runner, 1u, on_message, &dispatch_state, &processed) ==
-              SAP_OK);
+              ERR_OK);
         CHECK(processed == 0u);
-        CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == SAP_OK);
+        CHECK(count_worker_entries(db, SAP_WIT_DBI_DEAD_LETTER, 7u, &dead_letter_count) == ERR_OK);
         if (dead_letter_count == 1u)
         {
             break;
@@ -830,16 +830,16 @@ static int test_runner_replay_hook_inbox_requeue_flow(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     sap_runner_v0_set_replay_hook(&runner, on_replay_event, &replay);
     dispatch_state.fail_calls_remaining = 1u;
-    dispatch_state.fail_rc = SAP_CONFLICT;
+    dispatch_state.fail_rc = ERR_CONFLICT;
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_poll_inbox(&runner, 2u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 2u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 1u);
 
     CHECK(replay.count >= 5u);
@@ -848,15 +848,15 @@ static int test_runner_replay_hook_inbox_requeue_flow(void)
     CHECK(replay.events[0].frame_len > 0u);
     CHECK(replay.events[1].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT);
     CHECK(replay.events[1].seq == 1u);
-    CHECK(replay.events[1].rc == SAP_CONFLICT);
+    CHECK(replay.events[1].rc == ERR_CONFLICT);
     CHECK(replay.events[2].kind == SAP_RUNNER_V0_REPLAY_EVENT_DISPOSITION_REQUEUE);
     CHECK(replay.events[2].seq == 1u);
-    CHECK(replay.events[2].rc == SAP_CONFLICT);
+    CHECK(replay.events[2].rc == ERR_CONFLICT);
     CHECK(replay.events[3].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_ATTEMPT);
     CHECK(replay.events[3].seq == 2u);
     CHECK(replay.events[4].kind == SAP_RUNNER_V0_REPLAY_EVENT_INBOX_RESULT);
     CHECK(replay.events[4].seq == 2u);
-    CHECK(replay.events[4].rc == SAP_OK);
+    CHECK(replay.events[4].rc == ERR_OK);
 
     db_close(db);
     return 0;
@@ -881,16 +881,16 @@ static int test_runner_observability_sinks_emit_updates(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_init(&runner, &cfg) == SAP_OK);
+    CHECK(sap_runner_v0_init(&runner, &cfg) == ERR_OK);
 
     sap_runner_v0_set_metrics_sink(&runner, on_metrics_event, &metrics_sink);
     sap_runner_v0_set_log_sink(&runner, on_log_event, &log_sink);
     dispatch_state.fail_calls_remaining = 1u;
-    dispatch_state.fail_rc = SAP_CONFLICT;
+    dispatch_state.fail_rc = ERR_CONFLICT;
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
-    CHECK(sap_runner_v0_poll_inbox(&runner, 2u, on_message, &dispatch_state, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
+    CHECK(sap_runner_v0_poll_inbox(&runner, 2u, on_message, &dispatch_state, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.invocations == 2u);
     CHECK(dispatch_state.calls == 1u);
@@ -914,11 +914,11 @@ static int test_runner_observability_sinks_emit_updates(void)
     CHECK(log_sink.count == 2u);
     CHECK(log_sink.events[0].kind == SAP_RUNNER_V0_LOG_EVENT_STEP_RETRYABLE_FAILURE);
     CHECK(log_sink.events[0].seq == 1u);
-    CHECK(log_sink.events[0].rc == SAP_CONFLICT);
+    CHECK(log_sink.events[0].rc == ERR_CONFLICT);
     CHECK(log_sink.events[0].detail == 0u);
     CHECK(log_sink.events[1].kind == SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_REQUEUE);
     CHECK(log_sink.events[1].seq == 1u);
-    CHECK(log_sink.events[1].rc == SAP_CONFLICT);
+    CHECK(log_sink.events[1].rc == ERR_CONFLICT);
     CHECK(log_sink.events[1].detail == 1u);
 
     db_close(db);
@@ -942,28 +942,28 @@ static int test_worker_tick_emits_worker_error_log_event(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == ERR_OK);
     sap_runner_v0_set_log_sink(&worker.runner, on_log_event, &log_sink);
 
     dispatch_state.fail_calls_remaining = 1u;
-    dispatch_state.fail_rc = SAP_ERROR;
+    dispatch_state.fail_rc = ERR_INVALID;
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 10u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_ERROR);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_INVALID);
     CHECK(processed == 0u);
-    CHECK(worker.last_error == SAP_ERROR);
+    CHECK(worker.last_error == ERR_INVALID);
 
     CHECK(log_sink.count == 3u);
     CHECK(log_sink.events[0].kind == SAP_RUNNER_V0_LOG_EVENT_STEP_NON_RETRYABLE_FAILURE);
     CHECK(log_sink.events[0].seq == 10u);
-    CHECK(log_sink.events[0].rc == SAP_ERROR);
+    CHECK(log_sink.events[0].rc == ERR_INVALID);
     CHECK(log_sink.events[1].kind == SAP_RUNNER_V0_LOG_EVENT_DISPOSITION_REQUEUE);
     CHECK(log_sink.events[1].seq == 10u);
-    CHECK(log_sink.events[1].rc == SAP_ERROR);
+    CHECK(log_sink.events[1].rc == ERR_INVALID);
     CHECK(log_sink.events[2].kind == SAP_RUNNER_V0_LOG_EVENT_WORKER_ERROR);
     CHECK(log_sink.events[2].seq == 0u);
-    CHECK(log_sink.events[2].rc == SAP_ERROR);
+    CHECK(log_sink.events[2].rc == ERR_INVALID);
     CHECK(log_sink.events[2].detail == 0u);
 
     db_close(db);
@@ -987,30 +987,30 @@ static int test_worker_shell_tick(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == ERR_OK);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(worker.ticks == 1u);
-    CHECK(worker.last_error == SAP_OK);
+    CHECK(worker.last_error == ERR_OK);
     CHECK(dispatch_state.calls == 1u);
-    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
 #ifdef SAPLING_THREADED
-    CHECK(sap_runner_v0_worker_start(&worker) == SAP_OK);
+    CHECK(sap_runner_v0_worker_start(&worker) == ERR_OK);
     sap_runner_v0_worker_request_stop(&worker);
-    CHECK(sap_runner_v0_worker_join(&worker) == SAP_OK);
+    CHECK(sap_runner_v0_worker_join(&worker) == ERR_OK);
 #else
-    CHECK(sap_runner_v0_worker_start(&worker) == SAP_ERROR);
-    CHECK(sap_runner_v0_worker_join(&worker) == SAP_ERROR);
+    CHECK(sap_runner_v0_worker_start(&worker) == ERR_INVALID);
+    CHECK(sap_runner_v0_worker_join(&worker) == ERR_INVALID);
     sap_runner_v0_worker_request_stop(&worker);
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_BUSY);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_BUSY);
 #endif
 
     sap_runner_v0_worker_shutdown(&worker);
@@ -1095,14 +1095,14 @@ static int test_worker_thread_survives_transient_busy(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 2u) == ERR_OK);
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_timer_v0_append(db, 0, 11u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 0, 11u, frame, frame_len) == ERR_OK);
 
     hold_wtxn = txn_begin(db, NULL, 0u);
     CHECK(hold_wtxn != NULL);
 
-    CHECK(sap_runner_v0_worker_start(&worker) == SAP_OK);
+    CHECK(sap_runner_v0_worker_start(&worker) == ERR_OK);
     sleep_for_ms(10u);
 
     txn_abort(hold_wtxn);
@@ -1110,7 +1110,7 @@ static int test_worker_thread_survives_transient_busy(void)
 
     for (i = 0u; i < 200u; i++)
     {
-        CHECK(timer_entry_exists(db, 0, 11u, &exists) == SAP_OK);
+        CHECK(timer_entry_exists(db, 0, 11u, &exists) == ERR_OK);
         if (!exists)
         {
             break;
@@ -1119,10 +1119,10 @@ static int test_worker_thread_survives_transient_busy(void)
     }
 
     sap_runner_v0_worker_request_stop(&worker);
-    CHECK(sap_runner_v0_worker_join(&worker) == SAP_OK);
+    CHECK(sap_runner_v0_worker_join(&worker) == ERR_OK);
 
     CHECK(exists == 0);
-    CHECK(worker.last_error == SAP_OK);
+    CHECK(worker.last_error == ERR_OK);
 
     sap_runner_v0_worker_shutdown(&worker);
     db_close(db);
@@ -1150,25 +1150,25 @@ static int test_worker_tick_uses_time_hook_for_inbox_lease_reclaim(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == ERR_OK);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_v0_inbox_put(db, 7u, 1u, frame, frame_len) == ERR_OK);
 
     wall_now = realtime_now_ms();
     CHECK(wall_now > 0);
     CHECK(sap_runner_mailbox_v0_claim(db, 7u, 1u, 99u, wall_now, wall_now + 60000, &lease) ==
-          SAP_OK);
+          ERR_OK);
 
     clock.now_ms = wall_now + 120000;
     sap_runner_v0_worker_set_time_hooks(&worker, fixed_now_ms, &clock, NULL, NULL);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.calls == 1u);
-    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(inbox_entry_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
-    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == SAP_OK);
+    CHECK(lease_entry_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -1194,13 +1194,13 @@ static int test_worker_tick_uses_time_hook_for_timer_latency(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == ERR_OK);
     sap_runner_v0_worker_set_time_hooks(&worker, sequence_now_ms, &clock, NULL, NULL);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_timer_v0_append(db, 5000, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 5000, 1u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.calls == 1u);
 
@@ -1232,15 +1232,15 @@ static int test_worker_tick_drains_due_timers(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == ERR_OK);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_timer_v0_append(db, 0, 1u, frame, frame_len) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 0, 1u, frame, frame_len) == ERR_OK);
 
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.calls == 1u);
-    CHECK(timer_entry_exists(db, 0, 1u, &exists) == SAP_OK);
+    CHECK(timer_entry_exists(db, 0, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -1264,12 +1264,12 @@ static int test_worker_tick_timer_replay_preserves_seq(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == ERR_OK);
     sap_runner_v0_set_replay_hook(&worker.runner, on_replay_event, &replay);
 
     CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
-    CHECK(sap_runner_timer_v0_append(db, 0, 41u, frame, frame_len) == SAP_OK);
-    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 0, 41u, frame, frame_len) == ERR_OK);
+    CHECK(sap_runner_v0_worker_tick(&worker, &processed) == ERR_OK);
     CHECK(processed == 1u);
     CHECK(dispatch_state.calls == 1u);
 
@@ -1278,7 +1278,7 @@ static int test_worker_tick_timer_replay_preserves_seq(void)
     CHECK(replay.events[0].seq == 41u);
     CHECK(replay.events[1].kind == SAP_RUNNER_V0_REPLAY_EVENT_TIMER_RESULT);
     CHECK(replay.events[1].seq == 41u);
-    CHECK(replay.events[1].rc == SAP_OK);
+    CHECK(replay.events[1].rc == ERR_OK);
 
     db_close(db);
     return 0;
@@ -1299,21 +1299,21 @@ static int test_worker_idle_sleep_budget(void)
     cfg.schema_major = 0u;
     cfg.schema_minor = 0u;
     cfg.bootstrap_schema_if_missing = 1;
-    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == SAP_OK);
+    CHECK(sap_runner_v0_worker_init(&worker, &cfg, on_message, &dispatch_state, 4u) == ERR_OK);
 
     sap_runner_v0_worker_set_idle_policy(&worker, 25u);
     clock.now_ms = 100;
     sap_runner_v0_worker_set_time_hooks(&worker, fixed_now_ms, &clock, NULL, NULL);
 
-    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == SAP_OK);
+    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 25u);
 
-    CHECK(sap_runner_timer_v0_append(db, 150, 1u, (const uint8_t *)"a", 1u) == SAP_OK);
-    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 150, 1u, (const uint8_t *)"a", 1u) == ERR_OK);
+    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 25u);
 
-    CHECK(sap_runner_timer_v0_append(db, 105, 1u, (const uint8_t *)"b", 1u) == SAP_OK);
-    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == SAP_OK);
+    CHECK(sap_runner_timer_v0_append(db, 105, 1u, (const uint8_t *)"b", 1u) == ERR_OK);
+    CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 5u);
 
     db_close(db);

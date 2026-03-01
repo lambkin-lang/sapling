@@ -29,7 +29,7 @@ static int find_write(const SapRunnerTxCtxV0 *ctx, uint32_t dbi, const void *key
 
     if (!ctx || !key || !index_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     for (i = 0u; i < ctx->write_count; i++)
     {
@@ -37,10 +37,10 @@ static int find_write(const SapRunnerTxCtxV0 *ctx, uint32_t dbi, const void *key
         if (w->dbi == dbi && key_eq(w->key, w->key_len, key, key_len))
         {
             *index_out = i;
-            return SAP_OK;
+            return ERR_OK;
         }
     }
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 static int find_read(const SapRunnerTxCtxV0 *ctx, uint32_t dbi, const void *key, uint32_t key_len,
@@ -50,7 +50,7 @@ static int find_read(const SapRunnerTxCtxV0 *ctx, uint32_t dbi, const void *key,
 
     if (!ctx || !key || !index_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     for (i = 0u; i < ctx->read_count; i++)
     {
@@ -58,10 +58,10 @@ static int find_read(const SapRunnerTxCtxV0 *ctx, uint32_t dbi, const void *key,
         if (r->dbi == dbi && key_eq(r->key, r->key_len, key, key_len))
         {
             *index_out = i;
-            return SAP_OK;
+            return ERR_OK;
         }
     }
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 static int ensure_cap(SapRunnerTxStackV0 *stack)
@@ -72,11 +72,11 @@ static int ensure_cap(SapRunnerTxStackV0 *stack)
 
     if (!stack)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (stack->depth < stack->cap)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
 
     if (stack->cap == 0u)
@@ -87,34 +87,34 @@ static int ensure_cap(SapRunnerTxStackV0 *stack)
     {
         if (stack->cap > (UINT32_MAX / 2u))
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
         new_cap = stack->cap * 2u;
     }
 
     if (new_cap > (UINT32_MAX / (uint32_t)sizeof(SapRunnerTxCtxV0)))
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     bytes = (size_t)new_cap * sizeof(SapRunnerTxCtxV0);
     next = realloc(stack->frames, bytes);
     if (!next)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     stack->frames = (SapRunnerTxCtxV0 *)next;
     stack->cap = new_cap;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_txstack_v0_init(SapRunnerTxStackV0 *stack)
 {
     if (!stack)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memset(stack, 0, sizeof(*stack));
-    return SAP_OK;
+    return ERR_OK;
 }
 
 void sap_runner_txstack_v0_reset(SapRunnerTxStackV0 *stack)
@@ -173,23 +173,23 @@ int sap_runner_txstack_v0_push(SapRunnerTxStackV0 *stack)
 
     if (!stack)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     rc = ensure_cap(stack);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     frame = &stack->frames[stack->depth];
     rc = sap_runner_txctx_v0_init(frame);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
     stack->depth++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_txstack_v0_commit_top(SapRunnerTxStackV0 *stack)
@@ -200,20 +200,20 @@ int sap_runner_txstack_v0_commit_top(SapRunnerTxStackV0 *stack)
 
     if (!stack || stack->depth < 2u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     parent = &stack->frames[stack->depth - 2u];
     child = &stack->frames[stack->depth - 1u];
     rc = sap_runner_txctx_v0_merge_child(parent, child);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         return rc;
     }
 
     sap_runner_txctx_v0_dispose(child);
     stack->depth--;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_txstack_v0_abort_top(SapRunnerTxStackV0 *stack)
@@ -222,13 +222,13 @@ int sap_runner_txstack_v0_abort_top(SapRunnerTxStackV0 *stack)
 
     if (!stack || stack->depth == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     top = &stack->frames[stack->depth - 1u];
     sap_runner_txctx_v0_dispose(top);
     stack->depth--;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_txstack_v0_read_dbi(SapRunnerTxStackV0 *stack, Txn *txn, uint32_t dbi,
@@ -247,7 +247,7 @@ int sap_runner_txstack_v0_read_dbi(SapRunnerTxStackV0 *stack, Txn *txn, uint32_t
     }
     if (!stack || !txn || !key || key_len == 0u || stack->depth == 0u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
 
     for (d = stack->depth; d > 0u; d--)
@@ -256,16 +256,16 @@ int sap_runner_txstack_v0_read_dbi(SapRunnerTxStackV0 *stack, Txn *txn, uint32_t
         uint32_t idx;
         int rc = find_write(frame, dbi, key, key_len, &idx);
 
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
         {
             const SapRunnerTxWriteV0 *w = &frame->writes[idx];
             if (w->kind == SAP_RUNNER_TX_WRITE_KIND_DEL)
             {
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             }
             if (w->kind != SAP_RUNNER_TX_WRITE_KIND_PUT)
             {
-                return SAP_ERROR;
+                return ERR_CORRUPT;
             }
             if (val_out)
             {
@@ -275,9 +275,9 @@ int sap_runner_txstack_v0_read_dbi(SapRunnerTxStackV0 *stack, Txn *txn, uint32_t
             {
                 *val_len_out = w->val_len;
             }
-            return SAP_OK;
+            return ERR_OK;
         }
-        if (rc != SAP_NOTFOUND)
+        if (rc != ERR_NOT_FOUND)
         {
             return rc;
         }
@@ -289,12 +289,12 @@ int sap_runner_txstack_v0_read_dbi(SapRunnerTxStackV0 *stack, Txn *txn, uint32_t
         uint32_t idx;
         int rc = find_read(frame, dbi, key, key_len, &idx);
 
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
         {
             const SapRunnerTxReadV0 *r = &frame->reads[idx];
             if (!r->exists)
             {
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             }
             if (val_out)
             {
@@ -304,9 +304,9 @@ int sap_runner_txstack_v0_read_dbi(SapRunnerTxStackV0 *stack, Txn *txn, uint32_t
             {
                 *val_len_out = r->val_len;
             }
-            return SAP_OK;
+            return ERR_OK;
         }
-        if (rc != SAP_NOTFOUND)
+        if (rc != ERR_NOT_FOUND)
         {
             return rc;
         }
@@ -322,7 +322,7 @@ int sap_runner_txstack_v0_stage_put_dbi(SapRunnerTxStackV0 *stack, uint32_t dbi,
     SapRunnerTxCtxV0 *cur = sap_runner_txstack_v0_current(stack);
     if (!cur)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_txctx_v0_stage_put_dbi(cur, dbi, key, key_len, val, val_len);
 }
@@ -333,7 +333,7 @@ int sap_runner_txstack_v0_stage_del_dbi(SapRunnerTxStackV0 *stack, uint32_t dbi,
     SapRunnerTxCtxV0 *cur = sap_runner_txstack_v0_current(stack);
     if (!cur)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_txctx_v0_stage_del_dbi(cur, dbi, key, key_len);
 }
@@ -343,7 +343,7 @@ int sap_runner_txstack_v0_push_intent(SapRunnerTxStackV0 *stack, const SapRunner
     SapRunnerTxCtxV0 *cur = sap_runner_txstack_v0_current(stack);
     if (!cur)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     return sap_runner_txctx_v0_push_intent(cur, intent);
 }
@@ -352,7 +352,7 @@ int sap_runner_txstack_v0_validate_root_reads(const SapRunnerTxStackV0 *stack, T
 {
     if (!stack || stack->depth != 1u || !txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     return sap_runner_txctx_v0_validate_reads(&stack->frames[0], txn);
 }
@@ -361,7 +361,7 @@ int sap_runner_txstack_v0_apply_root_writes(const SapRunnerTxStackV0 *stack, Txn
 {
     if (!stack || stack->depth != 1u || !txn)
     {
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     return sap_runner_txctx_v0_apply_writes(&stack->frames[0], txn);
 }

@@ -13,19 +13,19 @@ int sap_runner_scheduler_v0_next_due(DB *db, int64_t *due_ts_out)
 
     if (!db || !due_ts_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *due_ts_out = 0;
 
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     /* Use BEPT Min to find earliest timer */
     rc = sap_bept_min(txn, bept_key, 4, NULL, NULL);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -33,7 +33,7 @@ int sap_runner_scheduler_v0_next_due(DB *db, int64_t *due_ts_out)
 
     sap_runner_timer_v0_bept_key_decode(bept_key, due_ts_out, NULL);
     txn_abort(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int sap_runner_scheduler_v0_compute_sleep_ms(int64_t now_ts, int64_t next_due_ts,
@@ -44,13 +44,13 @@ int sap_runner_scheduler_v0_compute_sleep_ms(int64_t now_ts, int64_t next_due_ts
 
     if (!sleep_ms_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *sleep_ms_out = 0u;
 
     if (next_due_ts <= now_ts)
     {
-        return SAP_OK;
+        return ERR_OK;
     }
 
     delta = (uint64_t)(next_due_ts - now_ts);
@@ -64,5 +64,5 @@ int sap_runner_scheduler_v0_compute_sleep_ms(int64_t now_ts, int64_t next_due_ts
         delta = UINT32_MAX;
     }
     *sleep_ms_out = (uint32_t)delta;
-    return SAP_OK;
+    return ERR_OK;
 }

@@ -43,12 +43,12 @@ static DB *new_db(void)
     {
         return NULL;
     }
-    if (sap_runner_v0_bootstrap_dbis(db) != SAP_OK)
+    if (sap_runner_v0_bootstrap_dbis(db) != ERR_OK)
     {
         db_close(db);
         return NULL;
     }
-    if (sap_bept_subsystem_init((SapEnv *)db) != SAP_OK)
+    if (sap_bept_subsystem_init((SapEnv *)db) != ERR_OK)
     {
         db_close(db);
         return NULL;
@@ -64,7 +64,7 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -72,7 +72,7 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     sap_runner_outbox_v0_key_encode(seq, key);
     rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), val_out, val_len_out);
@@ -92,12 +92,12 @@ static int collect_frame(const uint8_t *frame, uint32_t frame_len, void *ctx)
     DrainCtx *drain = (DrainCtx *)ctx;
     if (!drain || !frame || frame_len == 0u || frame_len > 32u || drain->calls >= 8u)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     memcpy(drain->frames[drain->calls], frame, frame_len);
     drain->frame_lens[drain->calls] = frame_len;
     drain->calls++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int test_outbox_append_and_drain(void)
@@ -111,9 +111,9 @@ static int test_outbox_append_and_drain(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_outbox_v0_append_frame(db, 10u, a, sizeof(a)) == SAP_OK);
-    CHECK(sap_runner_outbox_v0_append_frame(db, 11u, b, sizeof(b)) == SAP_OK);
-    CHECK(sap_runner_outbox_v0_drain(db, 8u, collect_frame, &drain, &processed) == SAP_OK);
+    CHECK(sap_runner_outbox_v0_append_frame(db, 10u, a, sizeof(a)) == ERR_OK);
+    CHECK(sap_runner_outbox_v0_append_frame(db, 11u, b, sizeof(b)) == ERR_OK);
+    CHECK(sap_runner_outbox_v0_drain(db, 8u, collect_frame, &drain, &processed) == ERR_OK);
     CHECK(processed == 2u);
     CHECK(drain.calls == 2u);
     CHECK(drain.frame_lens[0] == sizeof(a));
@@ -121,8 +121,8 @@ static int test_outbox_append_and_drain(void)
     CHECK(drain.frame_lens[1] == sizeof(b));
     CHECK(memcmp(drain.frames[1], b, sizeof(b)) == 0);
 
-    CHECK(outbox_get(db, 10u, &val, &val_len) == SAP_NOTFOUND);
-    CHECK(outbox_get(db, 11u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(outbox_get(db, 10u, &val, &val_len) == ERR_NOT_FOUND);
+    CHECK(outbox_get(db, 11u, &val, &val_len) == ERR_NOT_FOUND);
 
     db_close(db);
     return 0;
@@ -144,7 +144,7 @@ static int atomic_emit_intent(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ct
     (void)read_txn;
     if (!stack || !atomic)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     atomic->calls++;
 
@@ -178,7 +178,7 @@ static int test_outbox_publisher_with_attempt_engine(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_outbox_v0_publisher_init(&publisher, db, 100u) == SAP_OK);
+    CHECK(sap_runner_outbox_v0_publisher_init(&publisher, db, 100u) == ERR_OK);
     sap_runner_attempt_v0_policy_default(&policy);
     policy.max_retries = 0u;
     policy.initial_backoff_us = 0u;
@@ -188,12 +188,12 @@ static int test_outbox_publisher_with_attempt_engine(void)
     atomic.timer_only = 0;
     CHECK(sap_runner_attempt_v0_run(db, &policy, atomic_emit_intent, &atomic,
                                     sap_runner_outbox_v0_publish_intent, &publisher,
-                                    &stats) == SAP_OK);
+                                    &stats) == ERR_OK);
     CHECK(stats.attempts == 1u);
-    CHECK(stats.last_rc == SAP_OK);
+    CHECK(stats.last_rc == ERR_OK);
     CHECK(atomic.calls == 1u);
     CHECK(publisher.next_seq == 101u);
-    CHECK(outbox_get(db, 100u, &val, &val_len) == SAP_OK);
+    CHECK(outbox_get(db, 100u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 3u);
     CHECK(memcmp(val, "evt", 3u) == 0);
 
@@ -212,7 +212,7 @@ static int test_outbox_publisher_rejects_timer_intent(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_outbox_v0_publisher_init(&publisher, db, 200u) == SAP_OK);
+    CHECK(sap_runner_outbox_v0_publisher_init(&publisher, db, 200u) == ERR_OK);
     sap_runner_attempt_v0_policy_default(&policy);
     policy.max_retries = 0u;
     policy.initial_backoff_us = 0u;
@@ -222,10 +222,10 @@ static int test_outbox_publisher_rejects_timer_intent(void)
     atomic.timer_only = 1;
     CHECK(sap_runner_attempt_v0_run(db, &policy, atomic_emit_intent, &atomic,
                                     sap_runner_outbox_v0_publish_intent, &publisher,
-                                    &stats) == SAP_ERROR);
+                                    &stats) == ERR_INVALID);
     CHECK(stats.attempts == 1u);
-    CHECK(stats.last_rc == SAP_ERROR);
-    CHECK(outbox_get(db, 200u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(stats.last_rc == ERR_INVALID);
+    CHECK(outbox_get(db, 200u, &val, &val_len) == ERR_NOT_FOUND);
 
     db_close(db);
     return 0;

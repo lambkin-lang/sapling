@@ -13,11 +13,11 @@
 #include <string.h>
 
 /* ================================================================== */
-/* Threading abstraction                                                */
-/*                                                                      */
-/* When SAPLING_THREADED is defined, use pthreads for synchronisation.  */
-/* Otherwise all locking primitives compile to no-ops, suitable for     */
-/* single-threaded / Wasm builds.                                       */
+/* Threading abstraction                                              */
+/*                                                                    */
+/* When SAPLING_THREADED is defined, use pthreads for synchronization */
+/* Otherwise all locking primitives compile to no-ops, suitable for   */
+/* single-threaded/Wasm builds.                                       */
 /* ================================================================== */
 
 #ifdef SAPLING_THREADED
@@ -687,7 +687,7 @@ static void txn_notify_watchers(struct BTreeTxnState *txn, const struct WatchRec
         const void *val = NULL;
         uint32_t val_len = 0;
         int rc = txn_get_dbi(rtxn, chg->dbi, chg->key, chg->key_len, &val, &val_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             val = NULL;
             val_len = 0;
@@ -1037,33 +1037,33 @@ static int overflow_read_value(struct BTreeTxnState *txn, const void *meta, cons
     uint32_t steps = 0;
 
     if (!txn || !meta || !val_out || !val_len_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     val_len = rd32(meta);
     first_pgno = rd32((const uint8_t *)meta + 4);
     pgno = first_pgno;
     if (val_len > UINT16_MAX)
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     if (val_len == 0)
     {
         *val_out = "";
         *val_len_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     if (pgno == INVALID_PGNO)
-        return SAP_ERROR;
+        return ERR_CORRUPT;
 
     cached = txn_readbuf_find(txn, val_len, first_pgno);
     if (cached)
     {
         *val_out = cached;
         *val_len_out = val_len;
-        return SAP_OK;
+        return ERR_OK;
     }
 
     buf = (uint8_t *)malloc(val_len);
     if (!buf)
-        return SAP_ERROR;
+        return ERR_OOM;
     db = txn->db;
 
     while (copied < val_len)
@@ -1073,19 +1073,19 @@ static int overflow_read_value(struct BTreeTxnState *txn, const void *meta, cons
         if (pgno == INVALID_PGNO || pgno >= txn->num_pages)
         {
             free(buf);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         pg = db->pages[pgno];
         if (!pg || PG_TYPE(pg) != PAGE_OVERFLOW)
         {
             free(buf);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         chunk = OV_DLEN(pg);
         if (chunk == 0 || chunk > val_len - copied)
         {
             free(buf);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
         memcpy(buf + copied, OV_DATA(pg), chunk);
         copied += chunk;
@@ -1094,22 +1094,22 @@ static int overflow_read_value(struct BTreeTxnState *txn, const void *meta, cons
         if (steps > txn->num_pages)
         {
             free(buf);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
     }
     if (pgno != INVALID_PGNO)
     {
         free(buf);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     if (txn_readbuf_hold(txn, buf, val_len, first_pgno) < 0)
     {
         free(buf);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     *val_out = buf;
     *val_len_out = val_len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int leaf_cell_mark_overflow_old(struct BTreeTxnState *txn, const void *leaf_pg, uint16_t off)
@@ -1658,9 +1658,9 @@ static uint32_t int_split(struct BTreeTxnState *txn, uint32_t lpgno, void *lpg, 
 int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len,
                       const void *val, uint32_t val_len, unsigned flags, void **reserved_out)
 {
-    if (!txn_pub) return SAP_ERROR;
+    if (!txn_pub) return ERR_INVALID;
     struct BTreeTxnState *txn = sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB);
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     struct ScratchMark scratch_mark = txn_scratch_mark(txn);
     const void *watch_key = key;
     uint32_t watch_key_len = key_len;
@@ -1671,10 +1671,12 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     uint32_t new_overflow_head = INVALID_PGNO;
     uint8_t overflow_ref[OVERFLOW_VALUE_REF_SIZE];
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     struct BTreeEnvState *db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
+    if ((flags & SAP_RESERVE) && !reserved_out)
+        return ERR_INVALID;
 
     /* DUPSORT: encode composite key [key_len:4][key][val], empty value */
     uint8_t *comp_buf = NULL;
@@ -1686,34 +1688,34 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     if (is_ttl_meta)
     {
         if (!key || key_len == 0)
-            return SAP_ERROR;
+            return ERR_INVALID;
         const uint8_t *k = (const uint8_t *)key;
         if (k[0] == TTL_META_LOOKUP_TAG)
         {
             if (val_len != 8)
-                return SAP_ERROR;
+                return ERR_INVALID;
         }
         else if (k[0] == TTL_META_INDEX_TAG)
         {
             if (key_len < 9 || val_len != 0)
-                return SAP_ERROR;
+                return ERR_INVALID;
         }
         else
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
     }
 
     if (is_dupsort)
     {
         if (flags & SAP_RESERVE)
-            return SAP_ERROR; /* incompatible */
+            return ERR_INVALID; /* incompatible */
         uint32_t comp_len = 4 + key_len + val_len;
         if (comp_len > UINT16_MAX)
-            return SAP_FULL;
+            return ERR_FULL;
         comp_buf = (uint8_t *)txn_scratch_alloc(txn, comp_len);
         if (!comp_buf)
-            return SAP_ERROR;
+            return ERR_OOM;
         wr32(comp_buf, key_len);
         memcpy(comp_buf + 4, key, key_len);
         memcpy(comp_buf + 4 + key_len, val, val_len);
@@ -1727,7 +1729,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     if (key_len > UINT16_MAX || val_len > UINT16_MAX)
     {
         txn_scratch_release(txn, scratch_mark);
-        return SAP_FULL;
+        return ERR_FULL;
     }
     store_vlen = (uint16_t)val_len;
     void **rout = (flags & SAP_RESERVE) ? reserved_out : NULL;
@@ -1740,18 +1742,18 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             if (rout)
             {
                 txn_scratch_release(txn, scratch_mark);
-                return SAP_ERROR;
+                return ERR_INVALID;
             }
             if (SLOT_SZ + leaf_cell_size((uint16_t)key_len, OVERFLOW_VALUE_SENTINEL) + LEAF_HDR >
                 db->page_size)
             {
                 txn_scratch_release(txn, scratch_mark);
-                return SAP_FULL;
+                return ERR_FULL;
             }
             if (overflow_store_value(txn, val, val_len, &new_overflow_head) < 0)
             {
                 txn_scratch_release(txn, scratch_mark);
-                return SAP_ERROR;
+                return ERR_OOM;
             }
             wr32(overflow_ref + 0, val_len);
             wr32(overflow_ref + 4, new_overflow_head);
@@ -1762,7 +1764,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
     else if (SLOT_SZ + leaf_cell_size((uint16_t)key_len, store_vlen) + LEAF_HDR > db->page_size)
     {
         txn_scratch_release(txn, scratch_mark);
-        return SAP_FULL;
+        return ERR_FULL;
     }
 
     int rc;
@@ -1772,21 +1774,21 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         uint32_t pgno = txn_alloc(txn);
         if (pgno == INVALID_PGNO)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
         pg_init_leaf(db->pages[pgno], pgno, db->page_size);
         if (leaf_insert(db->pages[pgno], db->page_size, 0, key, (uint16_t)key_len, store_val,
                         store_vlen, rout) < 0)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
         new_overflow_linked = 1;
         txn->dbs[dbi].root_pgno = pgno;
         txn->dbs[dbi].num_entries++;
         changed = 1;
-        rc = SAP_OK;
+        rc = ERR_OK;
         goto cleanup;
     }
 
@@ -1802,7 +1804,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             int idx = int_find_child(db, dbi, pg, key, key_len);
             if (depth >= MAX_DEPTH - 1)
             {
-                rc = SAP_ERROR;
+                rc = ERR_CORRUPT;
                 goto cleanup;
             }
             path[depth] = pgno;
@@ -1818,7 +1820,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             leaf_find(db, dbi, pre_lpg, key, key_len, &pre_found);
             if (pre_found && (flags & SAP_NOOVERWRITE))
             {
-                rc = SAP_EXISTS;
+                rc = ERR_EXISTS;
                 goto cleanup;
             }
         }
@@ -1827,7 +1829,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         uint32_t leaf_pgno = txn_cow(txn, pgno);
         if (leaf_pgno == INVALID_PGNO)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
 
@@ -1840,7 +1842,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
                 uint32_t pp = txn_cow(txn, path[d]);
                 if (pp == INVALID_PGNO)
                 {
-                    rc = SAP_ERROR;
+                    rc = ERR_OOM;
                     goto cleanup;
                 }
                 path[d] = pp;
@@ -1870,7 +1872,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             uint16_t old_off = (uint16_t)L_SLOT(lpg, pos);
             if (leaf_cell_mark_overflow_old(txn, lpg, old_off) < 0)
             {
-                rc = SAP_ERROR;
+                rc = ERR_CORRUPT;
                 goto cleanup;
             }
             leaf_remove(lpg, pos);
@@ -1884,7 +1886,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
                 txn->dbs[dbi].num_entries++;
             new_overflow_linked = 1;
             changed = 1;
-            rc = SAP_OK;
+            rc = ERR_OK;
             goto cleanup;
         }
 
@@ -1892,7 +1894,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         sep_buf = (uint8_t *)txn_scratch_alloc(txn, db->page_size);
         if (!sep_buf)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
         uint16_t sep_klen;
@@ -1900,7 +1902,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
                                     store_vlen, sep_buf, &sep_klen);
         if (rpgno == INVALID_PGNO)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
         if (!is_update)
@@ -1939,7 +1941,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
             int ins_pos = path_idx[d];
             if (int_insert(par, ins_pos, sep_key, sep_klen, right_pgno) == 0)
             {
-                rc = SAP_OK;
+                rc = ERR_OK;
                 goto cleanup;
             }
             if (!psep_buf)
@@ -1947,7 +1949,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
                 psep_buf = (uint8_t *)txn_scratch_alloc(txn, db->page_size);
                 if (!psep_buf)
                 {
-                    rc = SAP_ERROR;
+                    rc = ERR_OOM;
                     goto cleanup;
                 }
             }
@@ -1956,7 +1958,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
                                     psep_buf, &psep_klen);
             if (nr == INVALID_PGNO)
             {
-                rc = SAP_ERROR;
+                rc = ERR_OOM;
                 goto cleanup;
             }
             memcpy(sep_buf, psep_buf, psep_klen);
@@ -1970,7 +1972,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         uint32_t new_root = txn_alloc(txn);
         if (new_root == INVALID_PGNO)
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
         void *nrp = db->pages[new_root];
@@ -1979,7 +1981,7 @@ int txn_put_flags_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_
         int_insert(nrp, 0, sep_key, sep_klen, right_pgno);
         txn->dbs[dbi].root_pgno = new_root;
         changed = 1;
-        rc = SAP_OK;
+        rc = ERR_OK;
     } /* end of path block */
 
 cleanup:
@@ -1988,9 +1990,9 @@ cleanup:
     txn_scratch_release(txn, scratch_mark);
     if (changed)
         (void)txn_track_change(txn, dbi, watch_key, watch_key_len);
-    /* For DUPSORT: SAP_EXISTS means exact dup already present → success */
-    if (is_dupsort && rc == SAP_EXISTS)
-        rc = SAP_OK;
+    /* For DUPSORT: ERR_EXISTS means exact dup already present → success */
+    if (is_dupsort && rc == ERR_EXISTS)
+        rc = ERR_OK;
     return rc;
 }
 
@@ -2019,23 +2021,23 @@ int txn_put_if(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, co
     int rc;
     struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
     if (!txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     if (dbi >= txn->db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (txn->db->dbs[dbi].flags & DBI_DUPSORT)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!expected_val && expected_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     rc = txn_get_dbi((Txn *)txn->sap_txn, dbi, key, key_len, &cur_val, &cur_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
     if (cur_len != expected_len)
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     if (expected_len && memcmp(cur_val, expected_val, expected_len) != 0)
-        return SAP_CONFLICT;
+        return ERR_CONFLICT;
     return txn_put_dbi((Txn *)txn->sap_txn, dbi, key, key_len, val, val_len);
 }
 
@@ -2047,9 +2049,11 @@ int txn_get_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, c
                 uint32_t *val_len_out)
 {
     struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!txn)
+        return ERR_INVALID;
     struct BTreeEnvState *db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     /* DUPSORT: seek by key (independent of value comparator ordering). */
     if (db->dbs[dbi].flags & DBI_DUPSORT)
@@ -2059,29 +2063,29 @@ int txn_get_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, c
         const void *cur_key, *cur_val;
         uint32_t cur_key_len, cur_val_len;
         if (!cur)
-            return SAP_ERROR;
+            return ERR_OOM;
         rc = cursor_seek_dupsort_key(cur, key, key_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             cursor_close(cur);
             return rc;
         }
         rc = cursor_get(cur, &cur_key, &cur_key_len, &cur_val, &cur_val_len);
-        if (rc == SAP_OK && user_keycmp(db, dbi, cur_key, cur_key_len, key, key_len) == 0)
+        if (rc == ERR_OK && user_keycmp(db, dbi, cur_key, cur_key_len, key, key_len) == 0)
         {
             *val_out = cur_val;
             *val_len_out = cur_val_len;
             cursor_close(cur);
-            return SAP_OK;
+            return ERR_OK;
         }
         cursor_close(cur);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
 
     if (key_len > UINT16_MAX)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint32_t pgno = txn->dbs[dbi].root_pgno;
     while (PG_TYPE(db->pages[pgno]) == PAGE_INTERNAL)
     {
@@ -2092,7 +2096,7 @@ int txn_get_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, c
     int found;
     int pos = leaf_find(db, dbi, lpg, key, key_len, &found);
     if (!found)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint16_t off = (uint16_t)L_SLOT(lpg, pos);
     uint16_t klen = L_CKLEN(lpg, off);
     uint16_t vlen = L_CVLEN(lpg, off);
@@ -2101,7 +2105,7 @@ int txn_get_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, c
         return overflow_read_value(txn, val_ptr, val_out, val_len_out);
     *val_out = val_ptr;
     *val_len_out = vlen;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int txn_get(Txn *txn, const void *key, uint32_t key_len, const void **val_out,
@@ -2126,37 +2130,37 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
 {
     struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     if (key_len > UINT16_MAX)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     struct BTreeEnvState *db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     int is_ttl_meta = (db->dbs[dbi].flags & DBI_TTL_META) != 0;
     if (is_ttl_meta)
     {
         if (!key || key_len == 0)
-            return SAP_ERROR;
+            return ERR_INVALID;
         const uint8_t *k = (const uint8_t *)key;
         if (k[0] == TTL_META_LOOKUP_TAG)
         {
             if (key_len < 2)
-                return SAP_ERROR;
+                return ERR_INVALID;
         }
         else if (k[0] == TTL_META_INDEX_TAG)
         {
             if (key_len < 9)
-                return SAP_ERROR;
+                return ERR_INVALID;
         }
         else
         {
-            return SAP_ERROR;
+            return ERR_INVALID;
         }
     }
 
     if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     uint32_t path[MAX_DEPTH];
     int path_idx[MAX_DEPTH];
@@ -2167,7 +2171,7 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
         void *pg = db->pages[pgno];
         int idx = int_find_child(db, dbi, pg, key, key_len);
         if (depth >= MAX_DEPTH - 1)
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         path[depth] = pgno;
         path_idx[depth] = idx;
         depth++;
@@ -2178,16 +2182,16 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
     int found;
     int pos = leaf_find(db, dbi, lpg, key, key_len, &found);
     if (!found)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     uint32_t leaf_pgno = txn_cow(txn, pgno);
     if (leaf_pgno == INVALID_PGNO)
-        return SAP_ERROR;
+        return ERR_OOM;
     lpg = db->pages[leaf_pgno];
     {
         uint16_t off = (uint16_t)L_SLOT(lpg, pos);
         if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
-            return SAP_ERROR;
+            return ERR_CORRUPT;
     }
     leaf_remove(lpg, pos);
     txn->dbs[dbi].num_entries--;
@@ -2198,7 +2202,7 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
     {
         uint32_t pp = txn_cow(txn, path[d]);
         if (pp == INVALID_PGNO)
-            return SAP_ERROR;
+            return ERR_OOM;
         path[d] = pp;
         void *par = db->pages[pp];
         int ci = path_idx[d];
@@ -2214,14 +2218,14 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
         txn->dbs[dbi].root_pgno = leaf_pgno;
 
     if (PG_NUM(lpg) > 0)
-        return SAP_OK;
+        return ERR_OK;
 
     txn_free_page(txn, leaf_pgno);
 
     if (depth == 0)
     {
         txn->dbs[dbi].root_pgno = INVALID_PGNO;
-        return SAP_OK;
+        return ERR_OK;
     }
 
     for (int d = depth - 1; d >= 0; d--)
@@ -2247,7 +2251,7 @@ int txn_del_dbi(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len)
             SET_I_CRIGHT(gpg, I_SLOT(gpg, gc - 1), sole);
         break;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int txn_del(Txn *txn, const void *key, uint32_t key_len)
@@ -2447,12 +2451,12 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
     uint32_t cur_count = 0;
     void *leaf = NULL;
     uint32_t leaf_pgno = INVALID_PGNO;
-    int rc = SAP_ERROR;
+    int rc = ERR_OOM;
 
     if (count == 0)
-        return SAP_OK;
+        return ERR_OK;
     if (count > (UINT32_MAX / (uint32_t)sizeof(*cur)))
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     cur = (struct BuildNode *)malloc((size_t)count * sizeof(*cur));
     next = (struct BuildNode *)malloc((size_t)count * sizeof(*next));
@@ -2486,7 +2490,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
                 if (leaf_pgno == INVALID_PGNO)
                 {
                     txn_scratch_release(txn, scratch_mark);
-                    rc = SAP_ERROR;
+                    rc = ERR_OOM;
                     goto cleanup;
                 }
                 pg_init_leaf(db->pages[leaf_pgno], leaf_pgno, db->page_size);
@@ -2500,14 +2504,14 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
                 if (comp_len > UINT16_MAX)
                 {
                     txn_scratch_release(txn, scratch_mark);
-                    rc = SAP_FULL;
+                    rc = ERR_FULL;
                     goto cleanup;
                 }
                 comp = (uint8_t *)txn_scratch_alloc(txn, comp_len);
                 if (!comp)
                 {
                     txn_scratch_release(txn, scratch_mark);
-                    rc = SAP_ERROR;
+                    rc = ERR_OOM;
                     goto cleanup;
                 }
                 wr32(comp, key_lens[i]);
@@ -2529,7 +2533,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
             if (SLOT_SZ + LCELL_SZ(store_klen, store_vlen) + LEAF_HDR > db->page_size)
             {
                 txn_scratch_release(txn, scratch_mark);
-                rc = SAP_FULL;
+                rc = ERR_FULL;
                 goto cleanup;
             }
 
@@ -2551,7 +2555,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
             txn_scratch_release(txn, scratch_mark);
             if (PG_NUM(leaf) == 0)
             {
-                rc = SAP_FULL;
+                rc = ERR_FULL;
                 goto cleanup;
             }
             leaf = NULL; /* retry same entry in a fresh leaf */
@@ -2568,7 +2572,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
 
         if (cur_count > (UINT32_MAX / (uint32_t)sizeof(*cap)))
         {
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
 
@@ -2580,7 +2584,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
             free(cap);
             free(choice);
             free(feasible);
-            rc = SAP_ERROR;
+            rc = ERR_OOM;
             goto cleanup;
         }
 
@@ -2622,7 +2626,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
             free(cap);
             free(choice);
             free(feasible);
-            rc = SAP_FULL;
+            rc = ERR_FULL;
             goto cleanup;
         }
 
@@ -2636,7 +2640,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
                 free(cap);
                 free(choice);
                 free(feasible);
-                rc = SAP_ERROR;
+                rc = ERR_OOM;
                 goto cleanup;
             }
             ipg = db->pages[pgno];
@@ -2650,7 +2654,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
                     free(cap);
                     free(choice);
                     free(feasible);
-                    rc = SAP_ERROR;
+                    rc = ERR_CORRUPT;
                     goto cleanup;
                 }
             }
@@ -2666,7 +2670,7 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
         free(feasible);
         if (next_count == 0)
         {
-            rc = SAP_ERROR;
+            rc = ERR_CORRUPT;
             goto cleanup;
         }
         tmp = cur;
@@ -2677,12 +2681,12 @@ static int txn_load_sorted_empty_fast(struct BTreeTxnState *txn, uint32_t dbi, c
 
     if (cur_count == 0 || cur[0].pgno == INVALID_PGNO)
     {
-        rc = SAP_ERROR;
+        rc = ERR_CORRUPT;
         goto cleanup;
     }
     txn->dbs[dbi].root_pgno = cur[0].pgno;
     txn->dbs[dbi].num_entries += count;
-    rc = SAP_OK;
+    rc = ERR_OK;
 
 cleanup:
     free(cur);
@@ -2705,19 +2709,19 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
     uint64_t existing64 = txn->dbs[dbi].num_entries;
     uint64_t max_total64;
     int has_old = 0;
-    int rc = SAP_ERROR;
+    int rc = ERR_OOM;
 
     if (existing64 > UINT32_MAX)
-        return SAP_ERROR;
+        return ERR_INVALID;
     max_total64 = existing64 + (uint64_t)count;
     if (max_total64 > UINT32_MAX)
-        return SAP_ERROR;
+        return ERR_INVALID;
     max_total = (uint32_t)max_total64;
 
     if (max_total == 0)
-        return SAP_OK;
+        return ERR_OK;
     if (max_total > (UINT32_MAX / (uint32_t)sizeof(*mkeys)))
-        return SAP_ERROR;
+        return ERR_OOM;
 
     mkeys = (const void **)malloc((size_t)max_total * sizeof(*mkeys));
     mvals = (const void **)malloc((size_t)max_total * sizeof(*mvals));
@@ -2730,9 +2734,9 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
     if (!cur)
         goto cleanup;
     rc = cursor_first(cur);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
         has_old = 1;
-    else if (rc == SAP_NOTFOUND)
+    else if (rc == ERR_NOT_FOUND)
         has_old = 0;
     else
         goto cleanup;
@@ -2746,7 +2750,7 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
         int c;
 
         rc = cursor_get(cur, &ok, &okl, &ov, &ovl);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             goto cleanup;
 
         c = user_keycmp(db, dbi, ok, okl, nk, key_lens[in_i]);
@@ -2758,9 +2762,9 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
             mvlen[out_i] = ovl;
             out_i++;
             rc = cursor_next(cur);
-            if (rc == SAP_OK)
+            if (rc == ERR_OK)
                 has_old = 1;
-            else if (rc == SAP_NOTFOUND)
+            else if (rc == ERR_NOT_FOUND)
                 has_old = 0;
             else
                 goto cleanup;
@@ -2783,9 +2787,9 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
             out_i++;
             in_i++;
             rc = cursor_next(cur);
-            if (rc == SAP_OK)
+            if (rc == ERR_OK)
                 has_old = 1;
-            else if (rc == SAP_NOTFOUND)
+            else if (rc == ERR_NOT_FOUND)
                 has_old = 0;
             else
                 goto cleanup;
@@ -2797,7 +2801,7 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
         const void *ok, *ov;
         uint32_t okl, ovl;
         rc = cursor_get(cur, &ok, &okl, &ov, &ovl);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             goto cleanup;
         mkeys[out_i] = ok;
         mklen[out_i] = okl;
@@ -2805,9 +2809,9 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
         mvlen[out_i] = ovl;
         out_i++;
         rc = cursor_next(cur);
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
             has_old = 1;
-        else if (rc == SAP_NOTFOUND)
+        else if (rc == ERR_NOT_FOUND)
             has_old = 0;
         else
             goto cleanup;
@@ -2825,7 +2829,7 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
 
     if (txn_mark_tree_old(txn, txn->dbs[dbi].root_pgno) < 0)
     {
-        rc = SAP_ERROR;
+        rc = ERR_OOM;
         goto cleanup;
     }
     txn->dbs[dbi].root_pgno = INVALID_PGNO;
@@ -2853,18 +2857,18 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
     int requires_overflow = 0;
 
     if (!txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (count == 0)
-        return SAP_OK;
+        return ERR_OK;
     if (!key_lens || !val_lens)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!keys || !vals)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     is_dupsort = (db->dbs[dbi].flags & DBI_DUPSORT) != 0;
 
@@ -2873,11 +2877,11 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
         const void *kcur = keys[i];
         const void *vcur = vals[i];
         if (key_lens[i] > UINT16_MAX || val_lens[i] > UINT16_MAX)
-            return SAP_FULL;
+            return ERR_FULL;
         if (!kcur && key_lens[i] > 0)
-            return SAP_ERROR;
+            return ERR_INVALID;
         if (!vcur && val_lens[i] > 0)
-            return SAP_ERROR;
+            return ERR_INVALID;
         if (!is_dupsort &&
             SLOT_SZ + leaf_cell_size((uint16_t)key_lens[i], (uint16_t)val_lens[i]) + LEAF_HDR >
                 db->page_size)
@@ -2898,11 +2902,11 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
 
         int kc = user_keycmp(db, dbi, kprev, key_lens[i - 1], kcur, key_lens[i]);
         if (kc > 0)
-            return SAP_ERROR;
+            return ERR_INVALID;
         if (kc == 0 && !is_dupsort)
-            return SAP_EXISTS;
+            return ERR_EXISTS;
         if (kc == 0 && user_valcmp(db, dbi, vprev, val_lens[i - 1], vcur, val_lens[i]) > 0)
-            return SAP_ERROR;
+            return ERR_INVALID;
     }
 
     if (!requires_overflow && txn->dbs[dbi].root_pgno == INVALID_PGNO)
@@ -2910,11 +2914,11 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
         Txn *child = txn_begin((DB *)sap_txn_env(txn->sap_txn), (Txn *)txn->sap_txn, 0);
         int rc;
         if (!child)
-            return SAP_ERROR;
+            return ERR_OOM;
     struct BTreeTxnState *c_st = sap_txn_subsystem_state(child, SAP_SUBSYSTEM_DB);
         rc = txn_load_sorted_empty_fast(c_st, dbi, keys, key_lens, vals, val_lens,
                                         count, is_dupsort);
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
         {
             for (uint32_t i = 0; i < count; i++)
             {
@@ -2931,17 +2935,17 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
     {
         int has_overflow = txn_tree_has_overflow(txn, txn->dbs[dbi].root_pgno);
         if (has_overflow < 0)
-            return SAP_ERROR;
+            return ERR_OOM;
         if (!has_overflow)
         {
             Txn *child = txn_begin((DB *)sap_txn_env(txn->sap_txn), (Txn *)txn->sap_txn, 0);
             int rc;
             if (!child)
-                return SAP_ERROR;
+                return ERR_OOM;
             struct BTreeTxnState *c_st = sap_txn_subsystem_state(child, SAP_SUBSYSTEM_DB);
             rc = txn_load_sorted_nonempty_merge_fast(c_st, dbi, keys, key_lens, vals,
                                                      val_lens, count);
-            if (rc == SAP_OK)
+            if (rc == ERR_OK)
             {
                 for (uint32_t i = 0; i < count; i++)
                 {
@@ -2960,10 +2964,10 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
         const void *k = keys[i] ? keys[i] : &zero;
         const void *v = vals[i] ? vals[i] : &zero;
         int rc = txn_put_dbi((Txn *)txn->sap_txn, dbi, k, key_lens[i], v, val_lens[i]);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int txn_count_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len, const void *hi,
@@ -2977,14 +2981,14 @@ int txn_count_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len,
     int rc;
 
     if (!txn || !count_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
     db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!lo && lo_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!hi && hi_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     *count_out = 0;
 
     has_lo = (lo != NULL);
@@ -2994,12 +2998,12 @@ int txn_count_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len,
     {
         int cmp = user_keycmp(db, dbi, lo, lo_len, hi, hi_len);
         if (cmp >= 0)
-            return SAP_OK;
+            return ERR_OK;
     }
 
     cur = cursor_open_dbi((Txn *)txn->sap_txn, dbi);
     if (!cur)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     if (!has_lo)
     {
@@ -3013,12 +3017,12 @@ int txn_count_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len,
     {
         rc = cursor_seek(cur, lo, lo_len);
     }
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         cursor_close(cur);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         return rc;
@@ -3029,28 +3033,28 @@ int txn_count_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len,
         const void *k;
         uint32_t kl;
         rc = cursor_get_key(cur, &k, &kl);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
 
         if (has_hi && user_keycmp(db, dbi, k, kl, hi, hi_len) >= 0)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
 
         (*count_out)++;
         rc = cursor_next(cur);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
     }
 
@@ -3070,16 +3074,16 @@ int txn_del_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len, c
     uint64_t deleted = 0;
 
     if (!txn || !deleted_count_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!lo && lo_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!hi && hi_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     *deleted_count_out = 0;
 
     has_lo = (lo != NULL);
@@ -3090,12 +3094,12 @@ int txn_del_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len, c
     {
         int cmp = user_keycmp(db, dbi, lo, lo_len, hi, hi_len);
         if (cmp >= 0)
-            return SAP_OK;
+            return ERR_OK;
     }
 
     cur = cursor_open_dbi((Txn *)txn->sap_txn, dbi);
     if (!cur)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     if (!has_lo)
     {
@@ -3110,12 +3114,12 @@ int txn_del_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len, c
         rc = cursor_seek(cur, lo, lo_len);
     }
 
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         cursor_close(cur);
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         return rc;
@@ -3127,33 +3131,33 @@ int txn_del_range(Txn *txn_pub, uint32_t dbi, const void *lo, uint32_t lo_len, c
         uint32_t kl;
 
         rc = cursor_get_key(cur, &k, &kl);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
 
         if (has_hi && user_keycmp(db, dbi, k, kl, hi, hi_len) >= 0)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
 
         rc = cursor_del(cur);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
         deleted++;
     }
 
     cursor_close(cur);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
         *deleted_count_out = deleted;
     return rc;
 }
@@ -3172,34 +3176,34 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
     int rc;
 
     if (!txn || !merge)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (db->dbs[dbi].flags & DBI_DUPSORT)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!key && key_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!operand && op_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (key_len > UINT16_MAX)
-        return SAP_FULL;
+        return ERR_FULL;
     if (SLOT_SZ + LCELL_SZ(key_len, 0) + LEAF_HDR > db->page_size)
-        return SAP_FULL;
+        return ERR_FULL;
 
     inline_cap = db->page_size - (SLOT_SZ + LCELL_SZ(key_len, 0) + LEAF_HDR);
     old_val = NULL;
     old_len = 0;
 
     rc = txn_get_dbi((Txn *)txn->sap_txn, dbi, key, key_len, &old_val, &old_len);
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         old_val = NULL;
         old_len = 0;
     }
-    else if (rc != SAP_OK)
+    else if (rc != ERR_OK)
     {
         return rc;
     }
@@ -3212,7 +3216,7 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
         if (!old_copy)
         {
             txn_scratch_release(txn, scratch_mark);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
     }
 
@@ -3227,7 +3231,7 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
         if (!out_buf)
         {
             txn_scratch_release(txn, scratch_mark);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
 
         merge(old_copy, old_len, operand, op_len, out_buf, &out_len, ctx);
@@ -3241,13 +3245,13 @@ int txn_merge(Txn *txn_pub, uint32_t dbi, const void *key, uint32_t key_len, con
         if (out_len > UINT16_MAX)
         {
             txn_scratch_release(txn, scratch_mark);
-            return SAP_FULL;
+            return ERR_FULL;
         }
         cap = out_len;
     }
 
     txn_scratch_release(txn, scratch_mark);
-    return SAP_FULL;
+    return ERR_FULL;
 }
 
 struct TTLKeyList
@@ -3280,7 +3284,7 @@ static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t 
 {
     uint8_t *copy;
     if (!list)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (list->count >= list->cap)
     {
         uint32_t nc = list->cap ? list->cap * 2u : 16u;
@@ -3292,7 +3296,7 @@ static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t 
             free(nkeys);
             free(nlens);
             free(nexp);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
         if (list->count > 0)
         {
@@ -3310,14 +3314,14 @@ static int ttl_key_list_push(struct TTLKeyList *list, const void *key, uint32_t 
     }
     copy = (uint8_t *)malloc(key_len ? key_len : 1u);
     if (!copy)
-        return SAP_ERROR;
+        return ERR_OOM;
     if (key_len > 0)
         memcpy(copy, key, key_len);
     list->keys[list->count] = copy;
     list->lens[list->count] = key_len;
     list->expiries[list->count] = expiry;
     list->count++;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int ttl_encode_lookup_key(const void *key, uint32_t key_len, uint8_t **out_key,
@@ -3326,19 +3330,19 @@ static int ttl_encode_lookup_key(const void *key, uint32_t key_len, uint8_t **ou
     uint8_t *buf;
     uint32_t len;
     if (!out_key || !out_len)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (key_len > UINT16_MAX - TTL_META_LOOKUP_OVERHEAD)
-        return SAP_FULL;
+        return ERR_FULL;
     len = key_len + TTL_META_LOOKUP_OVERHEAD;
     buf = (uint8_t *)malloc(len ? len : 1u);
     if (!buf)
-        return SAP_ERROR;
+        return ERR_OOM;
     buf[0] = TTL_META_LOOKUP_TAG;
     if (key_len > 0)
         memcpy(buf + TTL_META_LOOKUP_OVERHEAD, key, key_len);
     *out_key = buf;
     *out_len = len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int ttl_encode_index_key(const void *key, uint32_t key_len, uint64_t expiry,
@@ -3347,20 +3351,20 @@ static int ttl_encode_index_key(const void *key, uint32_t key_len, uint64_t expi
     uint8_t *buf;
     uint32_t len;
     if (!out_key || !out_len)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (key_len > UINT16_MAX - TTL_META_INDEX_OVERHEAD)
-        return SAP_FULL;
+        return ERR_FULL;
     len = key_len + TTL_META_INDEX_OVERHEAD;
     buf = (uint8_t *)malloc(len ? len : 1u);
     if (!buf)
-        return SAP_ERROR;
+        return ERR_OOM;
     buf[0] = TTL_META_INDEX_TAG;
     wr64be(buf + 1, expiry);
     if (key_len > 0)
         memcpy(buf + TTL_META_INDEX_OVERHEAD, key, key_len);
     *out_key = buf;
     *out_len = len;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int ttl_validate_dbis(const struct BTreeTxnState *txn, uint32_t data_dbi, uint32_t ttl_dbi,
@@ -3368,15 +3372,15 @@ static int ttl_validate_dbis(const struct BTreeTxnState *txn, uint32_t data_dbi,
 {
     const struct BTreeEnvState *db;
     if (!txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (require_write && (txn->flags & TXN_RDONLY))
-        return SAP_READONLY;
+        return ERR_READONLY;
     db = txn->db;
     if (data_dbi >= db->num_dbs || ttl_dbi >= db->num_dbs || data_dbi == ttl_dbi)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if ((db->dbs[data_dbi].flags & DBI_DUPSORT) || (db->dbs[ttl_dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
-    return SAP_OK;
+        return ERR_INVALID;
+    return ERR_OK;
 }
 
 int txn_put_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const void *key,
@@ -3396,56 +3400,56 @@ int txn_put_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
     int rc;
 
     if (!key && key_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!val && val_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 1);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
     rc = ttl_encode_lookup_key(key, key_len, &lookup_key, &lookup_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         goto done;
     rc = ttl_encode_index_key(key, key_len, expires_at_ms, &index_key, &index_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         goto done;
 
     child = txn_begin((DB *)sap_txn_env(txn->sap_txn), (Txn *)txn->sap_txn, 0);
     if (!child)
     {
-        rc = SAP_ERROR;
+        rc = ERR_OOM;
         goto done;
     }
 
     rc = txn_get_dbi(child, ttl_dbi, lookup_key, lookup_len, &old_exp_raw, &old_exp_len);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
     {
-        rc = (old_exp_len == 8) ? SAP_OK : SAP_ERROR;
-        if (rc != SAP_OK)
+        rc = (old_exp_len == 8) ? ERR_OK : ERR_CORRUPT;
+        if (rc != ERR_OK)
             goto abort_child;
         rc = ttl_encode_index_key(key, key_len, rd64(old_exp_raw), &old_index_key, &old_index_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             goto abort_child;
         rc = txn_del_dbi(child, ttl_dbi, old_index_key, old_index_len);
-        if (rc != SAP_OK && rc != SAP_NOTFOUND)
+        if (rc != ERR_OK && rc != ERR_NOT_FOUND)
             goto abort_child;
     }
-    else if (rc != SAP_NOTFOUND)
+    else if (rc != ERR_NOT_FOUND)
     {
         goto abort_child;
     }
 
     rc = txn_put_dbi(child, data_dbi, key, key_len, val, val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         goto abort_child;
 
     wr64(expiry_buf, expires_at_ms);
     rc = txn_put_dbi(child, ttl_dbi, lookup_key, lookup_len, expiry_buf,
                      (uint32_t)sizeof(expiry_buf));
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         goto abort_child;
 
     rc = txn_put_dbi(child, ttl_dbi, index_key, index_len, NULL, 0);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         goto abort_child;
 
     rc = txn_commit(child);
@@ -3472,20 +3476,20 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
     int rc;
 
     if (!val_out || !val_len_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!key && key_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 0);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     rc = ttl_encode_lookup_key(key, key_len, &lookup_key, &lookup_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     rc = txn_get_dbi((Txn *)txn->sap_txn, ttl_dbi, lookup_key, lookup_len, &exp_raw, &exp_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         free(lookup_key);
         return rc;
@@ -3493,7 +3497,7 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
     if (exp_len != 8)
     {
         free(lookup_key);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     uint64_t expiry = rd64(exp_raw);
@@ -3503,7 +3507,7 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
         {
             uint8_t *index_key = NULL;
             uint32_t index_len = 0;
-            if (ttl_encode_index_key(key, key_len, expiry, &index_key, &index_len) == SAP_OK)
+            if (ttl_encode_index_key(key, key_len, expiry, &index_key, &index_len) == ERR_OK)
             {
                 txn_del_dbi((Txn *)txn->sap_txn, data_dbi, key, key_len);
                 txn_del_dbi((Txn *)txn->sap_txn, ttl_dbi, lookup_key, lookup_len);
@@ -3512,7 +3516,7 @@ int txn_get_ttl_dbi(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_dbi, const voi
             }
         }
         free(lookup_key);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
 
     free(lookup_key);
@@ -3524,17 +3528,17 @@ int cursor_get_ttl_dbi(Cursor *data_cur_pub, uint32_t ttl_dbi, uint64_t now_ms,
 {
     struct Cursor *data_cur = (struct Cursor *)data_cur_pub;
     if (!data_cur || !data_cur->txn || !val_out || !val_len_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     const void *key;
     uint32_t key_len;
     int rc = cursor_get_key(data_cur_pub, &key, &key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     rc = txn_get_ttl_dbi((Txn *)data_cur->txn->sap_txn, data_cur->dbi, ttl_dbi, key, key_len, now_ms,
                          val_out, val_len_out, flags);
-    if (rc == SAP_NOTFOUND && (flags & SAP_TTL_LAZY_DELETE) && !(data_cur->txn->flags & TXN_RDONLY))
+    if (rc == ERR_NOT_FOUND && (flags & SAP_TTL_LAZY_DELETE) && !(data_cur->txn->flags & TXN_RDONLY))
     {
         /* The row was lazily deleted under us, so the data cursor now points to a deleted element.
          * The next traversal will magically skip it or it returns NOTFOUND.
@@ -3556,20 +3560,20 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
 
     cur = cursor_open_dbi((Txn *)txn->sap_txn, ttl_dbi);
     if (!cur)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     if (cp && cp->index_len > 0)
         rc = cursor_seek(cur, cp->index_key, cp->index_len);
     else
         rc = cursor_seek(cur, &seek_key, 1);
 
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         cursor_close(cur);
         *deleted_count_out = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         cursor_close(cur);
         return rc;
@@ -3585,22 +3589,22 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
         uint64_t expiry;
 
         rc = cursor_get(cur, &k, &kl, &v, &vl);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
         kb = (const uint8_t *)k;
         if (kl < TTL_META_INDEX_OVERHEAD || kb[0] != TTL_META_INDEX_TAG)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
         if (vl != 0)
         {
-            rc = SAP_ERROR;
+            rc = ERR_CORRUPT;
             break;
         }
         expiry = rd64be(kb + 1);
@@ -3608,31 +3612,31 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
         {
             rc = ttl_key_list_push(&expired, kb + TTL_META_INDEX_OVERHEAD,
                                    kl - TTL_META_INDEX_OVERHEAD, expiry);
-            if (rc != SAP_OK)
+            if (rc != ERR_OK)
                 break;
             if ((uint64_t)expired.count >= max_to_delete)
             {
-                rc = SAP_OK;
+                rc = ERR_OK;
                 break;
             }
         }
         else
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
 
         rc = cursor_next(cur);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
         {
-            rc = SAP_OK;
+            rc = ERR_OK;
             break;
         }
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
     }
     cursor_close(cur);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         ttl_key_list_clear(&expired);
         return rc;
@@ -3651,33 +3655,33 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
         int drc;
 
         rc = ttl_encode_lookup_key(expired.keys[i], expired.lens[i], &lookup_key, &lookup_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             break;
         rc = ttl_encode_index_key(expired.keys[i], expired.lens[i], expired.expiries[i], &index_key,
                                   &index_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
         {
             free(lookup_key);
             break;
         }
 
         drc = txn_get_dbi((Txn *)txn->sap_txn, ttl_dbi, lookup_key, lookup_len, &lookup_val, &lookup_vlen);
-        if (drc != SAP_OK && drc != SAP_NOTFOUND)
+        if (drc != ERR_OK && drc != ERR_NOT_FOUND)
         {
             rc = drc;
             free(lookup_key);
             free(index_key);
             break;
         }
-        if (drc == SAP_OK && lookup_vlen != 8)
+        if (drc == ERR_OK && lookup_vlen != 8)
         {
-            rc = SAP_ERROR;
+            rc = ERR_CORRUPT;
             free(lookup_key);
             free(index_key);
             break;
         }
 
-        if (drc == SAP_NOTFOUND)
+        if (drc == ERR_NOT_FOUND)
         {
             do_delete_data = 0;
         }
@@ -3692,7 +3696,7 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
         if (do_delete_data)
         {
             drc = txn_del_dbi((Txn *)txn->sap_txn, data_dbi, expired.keys[i], expired.lens[i]);
-            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            if (drc != ERR_OK && drc != ERR_NOT_FOUND)
             {
                 rc = drc;
                 free(lookup_key);
@@ -3701,25 +3705,25 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
             }
 
             drc = txn_del_dbi((Txn *)txn->sap_txn, ttl_dbi, lookup_key, lookup_len);
-            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            if (drc != ERR_OK && drc != ERR_NOT_FOUND)
             {
                 rc = drc;
                 free(lookup_key);
                 free(index_key);
                 break;
             }
-            if (drc == SAP_OK)
+            if (drc == ERR_OK)
                 md_deleted = 1;
 
             drc = txn_del_dbi((Txn *)txn->sap_txn, ttl_dbi, index_key, index_len);
-            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            if (drc != ERR_OK && drc != ERR_NOT_FOUND)
             {
                 rc = drc;
                 free(lookup_key);
                 free(index_key);
                 break;
             }
-            if (drc == SAP_OK)
+            if (drc == ERR_OK)
                 md_deleted = 1;
 
             if (md_deleted)
@@ -3728,7 +3732,7 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
         else
         {
             drc = txn_del_dbi((Txn *)txn->sap_txn, ttl_dbi, index_key, index_len);
-            if (drc != SAP_OK && drc != SAP_NOTFOUND)
+            if (drc != ERR_OK && drc != ERR_NOT_FOUND)
             {
                 rc = drc;
                 free(lookup_key);
@@ -3748,7 +3752,7 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
         uint8_t *new_cp_key = NULL;
         uint32_t new_cp_len = 0;
         if (ttl_encode_index_key(expired.keys[last_idx], expired.lens[last_idx], last_expiry,
-                                 &new_cp_key, &new_cp_len) == SAP_OK)
+                                 &new_cp_key, &new_cp_len) == ERR_OK)
         {
             if (new_cp_len > cp->index_cap)
             {
@@ -3769,7 +3773,7 @@ static int txn_sweep_ttl_inner(struct BTreeTxnState *txn, uint32_t data_dbi, uin
     }
 
     ttl_key_list_clear(&expired);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
         *deleted_count_out = deleted;
     return rc;
 }
@@ -3795,29 +3799,29 @@ int txn_sweep_ttl_dbi_checkpoint(Txn *txn_pub, uint32_t data_dbi, uint32_t ttl_d
     int rc;
 
     if (!deleted_count_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
     *deleted_count_out = 0;
     if (max_to_delete == 0)
-        return SAP_OK;
+        return ERR_OK;
 
     rc = ttl_validate_dbis(txn, data_dbi, ttl_dbi, 1);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
 
     child = txn_begin((DB *)sap_txn_env(txn->sap_txn), (Txn *)txn->sap_txn, 0);
     if (!child)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     struct BTreeTxnState *c_st = sap_txn_subsystem_state(child, SAP_SUBSYSTEM_DB);
     rc = txn_sweep_ttl_inner(c_st, data_dbi, ttl_dbi, now_ms, max_to_delete, cp,
                              &deleted);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(child);
         return rc;
     }
     rc = txn_commit(child);
-    if (rc == SAP_OK)
+    if (rc == ERR_OK)
         *deleted_count_out = deleted;
     return rc;
 }
@@ -3854,6 +3858,8 @@ static int btree_on_begin(SapTxnCtx *ctx, void *parent_state, void **state_out)
 {
     SapEnv *env = sap_txn_env(ctx);
     struct BTreeEnvState *db = env ? sap_env_subsystem_state(env, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db)
+        return ERR_INVALID;
     struct BTreeTxnState *par = (struct BTreeTxnState *)parent_state;
     unsigned int flags = sap_txn_flags(ctx);
 
@@ -3863,7 +3869,7 @@ static int btree_on_begin(SapTxnCtx *ctx, void *parent_state, void **state_out)
     if (!(flags & TXN_RDONLY) && !par && db->write_txn)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     struct BTreeTxnState *txn = (struct BTreeTxnState *)calloc(1, sizeof(*txn));
@@ -3871,7 +3877,7 @@ static int btree_on_begin(SapTxnCtx *ctx, void *parent_state, void **state_out)
     {
         if (!par)
             SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     txn->sap_txn = ctx;
     txn->db = db;
@@ -3939,14 +3945,14 @@ static int btree_on_begin(SapTxnCtx *ctx, void *parent_state, void **state_out)
         SAP_MUTEX_UNLOCK(db->write_mutex);
     }
     *state_out = txn;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int btree_on_commit(SapTxnCtx *ctx, void *state)
 {
     (void)ctx;
     struct BTreeTxnState *txn = (struct BTreeTxnState *)state;
-    if (!txn) return SAP_ERROR;
+    if (!txn) return ERR_INVALID;
     struct BTreeEnvState *db = txn->db;
     struct WatchRec *watch_snap = NULL;
     uint32_t watch_count = 0;
@@ -3954,7 +3960,7 @@ static int btree_on_commit(SapTxnCtx *ctx, void *state)
     {
         db_remove_reader(db, txn->txnid);
         txn_free_mem(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
     if (txn->parent)
     {
@@ -3977,7 +3983,7 @@ static int btree_on_commit(SapTxnCtx *ctx, void *state)
         }
         (void)txn_merge_changes(par, txn);
         txn_free_mem(txn);
-        return SAP_OK;
+        return ERR_OK;
     }
     uint64_t freed_at = txn->txnid;
     txn->txnid++;
@@ -4002,7 +4008,7 @@ static int btree_on_commit(SapTxnCtx *ctx, void *state)
     txn_notify_watchers(txn, watch_snap, watch_count);
     watch_snapshot_free(watch_snap, watch_count);
     txn_free_mem(txn);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void txn_abort_free_untracked_new_pages(struct BTreeTxnState *txn)
@@ -4177,21 +4183,21 @@ void txn_abort(Txn *txn_pub)
 
 int sap_btree_subsystem_init(SapEnv *env, keycmp_fn cmp, void *cmp_ctx)
 {
-    if (!env) return SAP_ERROR;
-    
+    if (!env) return ERR_INVALID;
+
     SapMemArena *arena = sap_env_get_arena(env);
     uint32_t page_size = sap_env_get_page_size(env);
-    
+
     if (!arena || page_size < 256 || page_size > UINT16_MAX)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     uint32_t max_dbs = meta_max_dbs(page_size);
     if (max_dbs == 0)
-        return SAP_ERROR;
-        
+        return ERR_INVALID;
+
     struct BTreeEnvState *db = (struct BTreeEnvState *)calloc(1, sizeof(*db));
     if (!db)
-        return SAP_ERROR;
+        return ERR_OOM;
     
     sap_env_register_subsystem(env, SAP_SUBSYSTEM_DB, &btree_subsystem_cbs);
     sap_env_set_subsystem_state(env, SAP_SUBSYSTEM_DB, db);
@@ -4210,7 +4216,7 @@ int sap_btree_subsystem_init(SapEnv *env, keycmp_fn cmp, void *cmp_ctx)
     if (!db->pages)
     {
         free(db);
-        return SAP_ERROR; /* note: env still owns 'db' pointer via subsystem state? No, caller owns env, we failed to alloc db state */
+        return ERR_OOM; /* note: env still owns 'db' pointer via subsystem state? No, caller owns env, we failed to alloc db state */
     }
 
     for (int i = 0; i < 2; i++)
@@ -4220,9 +4226,9 @@ int sap_btree_subsystem_init(SapEnv *env, keycmp_fn cmp, void *cmp_ctx)
         if (sap_arena_alloc_page(arena, &pg, &dummy_pgno) != 0) pg = NULL;
         if (!pg)
         {
-            /* Partial cleanup - tough because we registered subsystem. 
+            /* Partial cleanup - tough because we registered subsystem.
                Caller will destroy env anyway on error usually. */
-            return SAP_ERROR;
+            return ERR_OOM;
         }
         memset(pg, 0, page_size);
         db->pages[i] = pg;
@@ -4241,7 +4247,7 @@ int sap_btree_subsystem_init(SapEnv *env, keycmp_fn cmp, void *cmp_ctx)
         db->txnid = 0;
     }
     
-    return SAP_OK;
+    return ERR_OK;
 }
 
 DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx)
@@ -4250,7 +4256,7 @@ DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx
     if (!env)
         return NULL;
 
-    if (sap_btree_subsystem_init(env, cmp, cmp_ctx) != SAP_OK)
+    if (sap_btree_subsystem_init(env, cmp, cmp_ctx) != ERR_OK)
     {
         /* Cleanup involves destroying env which frees subsystem state if registered?
            sap_env_destroy calls free(env). Subsystem states are void*, not managed.
@@ -4271,11 +4277,13 @@ DB *db_open(SapMemArena *arena, uint32_t page_size, keycmp_fn cmp, void *cmp_ctx
 int dbi_open(DB *db_pub, uint32_t dbi, keycmp_fn cmp, void *cmp_ctx, unsigned flags)
 {
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db)
+        return ERR_INVALID;
     uint32_t max_dbs = meta_max_dbs(db->page_size);
     if (max_dbs > SAP_MAX_DBI)
         max_dbs = SAP_MAX_DBI;
     if (dbi >= max_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     SAP_MUTEX_LOCK(db->write_mutex);
     SAP_MUTEX_LOCK(db->reader_mutex);
@@ -4283,7 +4291,7 @@ int dbi_open(DB *db_pub, uint32_t dbi, keycmp_fn cmp, void *cmp_ctx, unsigned fl
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     SAP_MUTEX_UNLOCK(db->reader_mutex);
 
@@ -4305,35 +4313,37 @@ int dbi_open(DB *db_pub, uint32_t dbi, keycmp_fn cmp, void *cmp_ctx, unsigned fl
     db->dbs[dbi].cmp_ctx = cmp_ctx;
     db->dbs[dbi].flags = flags;
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int dbi_set_dupsort(DB *db_pub, uint32_t dbi, keycmp_fn vcmp, void *vcmp_ctx)
 {
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db)
+        return ERR_INVALID;
     SAP_MUTEX_LOCK(db->write_mutex);
     SAP_MUTEX_LOCK(db->reader_mutex);
     if (db->write_txn || db->num_readers)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     SAP_MUTEX_UNLOCK(db->reader_mutex);
     if (dbi >= db->num_dbs)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (db_has_watch_locked(db, dbi))
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     db->dbs[dbi].vcmp = vcmp;
     db->dbs[dbi].vcmp_ctx = vcmp_ctx;
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 uint32_t db_num_pages(DB *db_pub)
@@ -4347,7 +4357,7 @@ int db_checkpoint(DB *db_pub, sap_write_fn writer, void *ctx)
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
     uint8_t hdr[16];
     if (!db || !writer)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     SAP_MUTEX_LOCK(db->write_mutex);
     SAP_MUTEX_LOCK(db->reader_mutex);
@@ -4355,7 +4365,7 @@ int db_checkpoint(DB *db_pub, sap_write_fn writer, void *ctx)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     wr32(hdr + 0, SNAP_MAGIC);
@@ -4366,7 +4376,7 @@ int db_checkpoint(DB *db_pub, sap_write_fn writer, void *ctx)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     for (uint32_t i = 0; i < db->num_pages; i++)
@@ -4375,13 +4385,13 @@ int db_checkpoint(DB *db_pub, sap_write_fn writer, void *ctx)
         {
             SAP_MUTEX_UNLOCK(db->reader_mutex);
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
     }
 
     SAP_MUTEX_UNLOCK(db->reader_mutex);
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
@@ -4394,7 +4404,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
     uint32_t loaded = 0;
 
     if (!db || !reader)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     SAP_MUTEX_LOCK(db->write_mutex);
     SAP_MUTEX_LOCK(db->reader_mutex);
@@ -4402,14 +4412,14 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
 
     if (reader(hdr, (uint32_t)sizeof(hdr), ctx) != 0)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
     snap_magic = rd32(hdr + 0);
     snap_version = rd32(hdr + 4);
@@ -4420,7 +4430,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_CORRUPT;
     }
 
     new_cap = 64;
@@ -4430,7 +4440,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
         {
             SAP_MUTEX_UNLOCK(db->reader_mutex);
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
         new_cap *= 2;
     }
@@ -4439,7 +4449,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
     {
         SAP_MUTEX_UNLOCK(db->reader_mutex);
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
 
     for (loaded = 0; loaded < snap_npages; loaded++)
@@ -4456,7 +4466,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
             free(new_pages);
             SAP_MUTEX_UNLOCK(db->reader_mutex);
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
         new_pages[loaded] = pg;
     }
@@ -4499,7 +4509,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
             free(new_pages);
             SAP_MUTEX_UNLOCK(db->reader_mutex);
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         }
 
         if (old_pages)
@@ -4518,7 +4528,7 @@ int db_restore(DB *db_pub, sap_read_fn reader, void *ctx)
 
     SAP_MUTEX_UNLOCK(db->reader_mutex);
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 void db_close(DB *db_pub)
@@ -4559,32 +4569,32 @@ int db_watch_dbi(DB *db_pub, uint32_t dbi, const void *prefix, uint32_t prefix_l
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
     struct WatchRec *wr;
     if (!db || !cb)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!prefix && prefix_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     SAP_MUTEX_LOCK(db->write_mutex);
     if (db->write_txn)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     if (dbi >= db->num_dbs)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     if (db->dbs[dbi].flags & DBI_DUPSORT)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     for (uint32_t i = 0; i < db->num_watches; i++)
     {
         if (watch_same(&db->watches[i], dbi, prefix, prefix_len, cb, ctx))
         {
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_EXISTS;
+            return ERR_EXISTS;
         }
     }
     if (db->num_watches >= db->cap_watches)
@@ -4594,7 +4604,7 @@ int db_watch_dbi(DB *db_pub, uint32_t dbi, const void *prefix, uint32_t prefix_l
         if (!nw)
         {
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
         db->watches = nw;
         db->cap_watches = nc;
@@ -4612,13 +4622,13 @@ int db_watch_dbi(DB *db_pub, uint32_t dbi, const void *prefix, uint32_t prefix_l
         if (!wr->prefix)
         {
             SAP_MUTEX_UNLOCK(db->write_mutex);
-            return SAP_ERROR;
+            return ERR_OOM;
         }
         memcpy(wr->prefix, prefix, prefix_len);
     }
     db->num_watches++;
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int db_unwatch_dbi(DB *db_pub, uint32_t dbi, const void *prefix, uint32_t prefix_len,
@@ -4626,20 +4636,20 @@ int db_unwatch_dbi(DB *db_pub, uint32_t dbi, const void *prefix, uint32_t prefix
 {
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
     if (!db || !cb)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!prefix && prefix_len > 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     SAP_MUTEX_LOCK(db->write_mutex);
     if (db->write_txn)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_BUSY;
+        return ERR_BUSY;
     }
     if (dbi >= db->num_dbs)
     {
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     for (uint32_t i = 0; i < db->num_watches; i++)
     {
@@ -4653,10 +4663,10 @@ int db_unwatch_dbi(DB *db_pub, uint32_t dbi, const void *prefix, uint32_t prefix
                     (size_t)(db->num_watches - i - 1) * sizeof(*db->watches));
         db->num_watches--;
         SAP_MUTEX_UNLOCK(db->write_mutex);
-        return SAP_OK;
+        return ERR_OK;
     }
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 int db_watch(DB *db_pub, const void *prefix, uint32_t prefix_len, sap_watch_fn cb, void *ctx)
@@ -4689,8 +4699,10 @@ static uint32_t tree_depth(struct BTreeEnvState *db, uint32_t root_pgno)
 int db_stat(DB *db_pub, SapStat *stat)
 {
     if (!db_pub || !stat)
-        return SAP_ERROR;
+        return ERR_INVALID;
     struct BTreeEnvState *db = db_pub ? sap_env_subsystem_state((SapEnv*)db_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!db)
+        return ERR_INVALID;
     SAP_MUTEX_LOCK(db->write_mutex);
     stat->num_entries = db->dbs[0].num_entries;
     stat->txnid = db->txnid;
@@ -4699,14 +4711,16 @@ int db_stat(DB *db_pub, SapStat *stat)
     stat->page_size = db->page_size;
     stat->has_write_txn = (db->write_txn != NULL) ? 1 : 0;
     SAP_MUTEX_UNLOCK(db->write_mutex);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int txn_stat(Txn *txn_pub, SapStat *stat)
 {
     if (!txn_pub || !stat)
-        return SAP_ERROR;
+        return ERR_INVALID;
     struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!txn)
+        return ERR_INVALID;
     struct BTreeEnvState *db = txn->db;
     stat->num_entries = txn->dbs[0].num_entries;
     stat->txnid = txn->txnid;
@@ -4714,24 +4728,26 @@ int txn_stat(Txn *txn_pub, SapStat *stat)
     stat->num_pages = txn->num_pages;
     stat->page_size = db->page_size;
     stat->has_write_txn = (db->write_txn != NULL) ? 1 : 0;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int dbi_stat(Txn *txn_pub, uint32_t dbi, SapStat *stat)
 {
     if (!txn_pub || !stat)
-        return SAP_ERROR;
+        return ERR_INVALID;
     struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
+    if (!txn)
+        return ERR_INVALID;
     struct BTreeEnvState *db = txn->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     stat->num_entries = txn->dbs[dbi].num_entries;
     stat->txnid = txn->txnid;
     stat->tree_depth = tree_depth(db, txn->dbs[dbi].root_pgno);
     stat->num_pages = txn->num_pages;
     stat->page_size = db->page_size;
     stat->has_write_txn = (db->write_txn != NULL) ? 1 : 0;
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -4761,16 +4777,16 @@ int cursor_renew(Cursor *cp, Txn *txn_pub)
     struct Cursor *c = (struct Cursor *)cp;
     struct BTreeTxnState *txn = txn_pub ? sap_txn_subsystem_state((SapTxnCtx*)txn_pub, SAP_SUBSYSTEM_DB) : NULL;
     if (!c || !txn)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (c->txn && c->txn->db != txn->db)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (c->dbi >= txn->db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     c->txn = txn;
     c->depth = -1;
     memset(c->stack, 0, sizeof(c->stack));
     memset(c->idx, 0, sizeof(c->idx));
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static void cursor_go_leftmost(struct Cursor *c, uint32_t pgno)
@@ -4814,16 +4830,16 @@ int cursor_first(Cursor *cp)
     if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
     {
         c->depth = -1;
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     c->depth = 0;
     cursor_go_leftmost(c, txn->dbs[dbi].root_pgno);
     if (PG_NUM(txn->db->pages[c->stack[c->depth]]) == 0)
     {
         c->depth = -1;
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_last(Cursor *cp)
@@ -4834,16 +4850,16 @@ int cursor_last(Cursor *cp)
     if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
     {
         c->depth = -1;
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     c->depth = 0;
     cursor_go_rightmost(c, txn->dbs[dbi].root_pgno);
     if (PG_NUM(txn->db->pages[c->stack[c->depth]]) == 0)
     {
         c->depth = -1;
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_seek(Cursor *cp, const void *key, uint32_t key_len)
@@ -4854,7 +4870,7 @@ int cursor_seek(Cursor *cp, const void *key, uint32_t key_len)
     uint32_t dbi = c->dbi;
     c->depth = -1;
     if (txn->dbs[dbi].root_pgno == INVALID_PGNO)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint32_t pgno = txn->dbs[dbi].root_pgno;
     c->depth = 0;
     while (PG_TYPE(db->pages[pgno]) == PAGE_INTERNAL)
@@ -4873,7 +4889,7 @@ int cursor_seek(Cursor *cp, const void *key, uint32_t key_len)
     c->idx[c->depth] = pos;
     if (pos >= (int)PG_NUM(lpg))
         return cursor_next(cp);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_next(Cursor *cp)
@@ -4881,12 +4897,12 @@ int cursor_next(Cursor *cp)
     struct Cursor *c = (struct Cursor *)cp;
     struct BTreeEnvState *db = c->txn->db;
     if (c->depth < 0)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     void *lpg = db->pages[c->stack[c->depth]];
     c->idx[c->depth]++;
     if (c->idx[c->depth] < (int)PG_NUM(lpg))
-        return SAP_OK;
+        return ERR_OK;
 
     for (int d = c->depth - 1; d >= 0; d--)
     {
@@ -4909,13 +4925,13 @@ int cursor_next(Cursor *cp)
             if (PG_NUM(db->pages[child]) == 0)
             {
                 c->depth = -1;
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             }
-            return SAP_OK;
+            return ERR_OK;
         }
     }
     c->depth = -1;
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 int cursor_prev(Cursor *cp)
@@ -4923,12 +4939,12 @@ int cursor_prev(Cursor *cp)
     struct Cursor *c = (struct Cursor *)cp;
     struct BTreeEnvState *db = c->txn->db;
     if (c->depth < 0)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
 
     if (c->idx[c->depth] > 0)
     {
         c->idx[c->depth]--;
-        return SAP_OK;
+        return ERR_OK;
     }
 
     for (int d = c->depth - 1; d >= 0; d--)
@@ -4955,13 +4971,13 @@ int cursor_prev(Cursor *cp)
             if (ln == 0)
             {
                 c->depth = -1;
-                return SAP_NOTFOUND;
+                return ERR_NOT_FOUND;
             }
-            return SAP_OK;
+            return ERR_OK;
         }
     }
     c->depth = -1;
-    return SAP_NOTFOUND;
+    return ERR_NOT_FOUND;
 }
 
 int cursor_get(Cursor *cp, const void **key_out, uint32_t *key_len_out, const void **val_out,
@@ -4969,12 +4985,12 @@ int cursor_get(Cursor *cp, const void **key_out, uint32_t *key_len_out, const vo
 {
     struct Cursor *c = (struct Cursor *)cp;
     if (c->depth < 0)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     struct BTreeEnvState *db = c->txn->db;
     void *lpg = db->pages[c->stack[c->depth]];
     int pos = c->idx[c->depth];
     if (pos < 0 || pos >= (int)PG_NUM(lpg))
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint16_t off = (uint16_t)L_SLOT(lpg, pos);
     uint16_t klen = L_CKLEN(lpg, off);
     if (db->dbs[c->dbi].flags & DBI_DUPSORT)
@@ -4982,7 +4998,7 @@ int cursor_get(Cursor *cp, const void **key_out, uint32_t *key_len_out, const vo
         /* Decode composite: [key_len:4][key_data][val_data] stored as B+ key */
         const uint8_t *comp = L_CKEY(lpg, off);
         if (klen < 4)
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         uint32_t orig_kl = rd32(comp);
         *key_out = comp + 4;
         *key_len_out = orig_kl;
@@ -5002,21 +5018,21 @@ int cursor_get(Cursor *cp, const void **key_out, uint32_t *key_len_out, const vo
         *val_out = val_ptr;
         *val_len_out = vlen;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_get_key(Cursor *cp, const void **key_out, uint32_t *key_len_out)
 {
     struct Cursor *c = (struct Cursor *)cp;
     if (!c || !key_out || !key_len_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (c->depth < 0)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     struct BTreeEnvState *db = c->txn->db;
     void *lpg = db->pages[c->stack[c->depth]];
     int pos = c->idx[c->depth];
     if (pos < 0 || pos >= (int)PG_NUM(lpg))
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint16_t off = (uint16_t)L_SLOT(lpg, pos);
     uint16_t klen = L_CKLEN(lpg, off);
 
@@ -5024,10 +5040,10 @@ int cursor_get_key(Cursor *cp, const void **key_out, uint32_t *key_len_out)
     {
         const uint8_t *comp = L_CKEY(lpg, off);
         if (klen < 4)
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         uint32_t orig_kl = rd32(comp);
         if (orig_kl > (uint32_t)(klen - 4))
-            return SAP_ERROR;
+            return ERR_CORRUPT;
         *key_out = comp + 4;
         *key_len_out = orig_kl;
     }
@@ -5036,7 +5052,7 @@ int cursor_get_key(Cursor *cp, const void **key_out, uint32_t *key_len_out)
         *key_out = L_CKEY(lpg, off);
         *key_len_out = klen;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -5082,24 +5098,24 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
 {
     struct Cursor *c = (struct Cursor *)cp;
     if (c->depth < 0)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     struct BTreeTxnState *txn = c->txn;
     struct ScratchMark scratch_mark = txn_scratch_mark(txn);
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     if (val_len > UINT16_MAX)
-        return SAP_FULL;
+        return ERR_FULL;
     struct BTreeEnvState *db = txn->db;
     uint32_t dbi = c->dbi;
     if (flags != 0)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (db->dbs[dbi].flags & (DBI_DUPSORT | DBI_TTL_META))
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     void *orig_lpg = db->pages[c->stack[c->depth]];
     int pos = c->idx[c->depth];
     if (pos < 0 || pos >= (int)PG_NUM(orig_lpg))
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint16_t off = (uint16_t)L_SLOT(orig_lpg, pos);
     uint16_t klen = L_CKLEN(orig_lpg, off);
     uint16_t old_vlen = L_CVLEN(orig_lpg, off);
@@ -5109,14 +5125,14 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
     uint8_t *key_buf = txn_scratch_copy(txn, L_CKEY(orig_lpg, off), klen);
     int rc;
     if (!key_buf)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     if (SLOT_SZ + leaf_cell_size(klen, store_vlen) + LEAF_HDR > db->page_size)
     {
         if (SLOT_SZ + leaf_cell_size(klen, OVERFLOW_VALUE_SENTINEL) + LEAF_HDR > db->page_size)
         {
             txn_scratch_release(txn, scratch_mark);
-            return SAP_FULL;
+            return ERR_FULL;
         }
         store_vlen = OVERFLOW_VALUE_SENTINEL;
     }
@@ -5126,7 +5142,7 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
     if (store_vlen == OVERFLOW_VALUE_SENTINEL || need_after_insert > free_after_remove)
     {
         rc = txn_put_flags_dbi((Txn *)txn->sap_txn, dbi, key_buf, klen, val, val_len, 0, NULL);
-        if (rc == SAP_OK)
+        if (rc == ERR_OK)
             rc = cursor_seek(cp, key_buf, klen);
         txn_scratch_release(txn, scratch_mark);
         return rc;
@@ -5134,26 +5150,26 @@ int cursor_put(Cursor *cp, const void *val, uint32_t val_len, unsigned flags)
 
     uint32_t leaf_pgno = cow_path(c);
     if (leaf_pgno == INVALID_PGNO)
-        return SAP_ERROR;
+        return ERR_OOM;
     void *lpg = db->pages[leaf_pgno];
 
     off = (uint16_t)L_SLOT(lpg, pos);
     if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
-        return SAP_ERROR;
+        return ERR_CORRUPT;
 
     leaf_remove(lpg, pos);
 
     if (leaf_insert(lpg, db->page_size, pos, key_buf, klen, val, (uint16_t)val_len, NULL) == 0)
     {
         (void)txn_track_change(txn, dbi, key_buf, klen);
-        rc = SAP_OK;
+        rc = ERR_OK;
         goto cleanup;
     }
 
     /* Unexpected leaf-fit miss: fall back to full txn_put */
     txn->dbs[dbi].num_entries--;
     rc = txn_put_flags_dbi((Txn *)txn->sap_txn, dbi, key_buf, klen, val, val_len, flags, NULL);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         goto cleanup;
     rc = cursor_seek(cp, key_buf, klen);
 
@@ -5166,15 +5182,15 @@ int cursor_del(Cursor *cp)
 {
     struct Cursor *c = (struct Cursor *)cp;
     if (c->depth < 0)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     struct BTreeTxnState *txn = c->txn;
     if (txn->flags & TXN_RDONLY)
-        return SAP_READONLY;
+        return ERR_READONLY;
     struct BTreeEnvState *db = txn->db;
     uint32_t dbi = c->dbi;
 
     if (db->dbs[dbi].flags & DBI_TTL_META)
-        return SAP_ERROR;
+        return ERR_INVALID;
 
     void *orig_lpg = db->pages[c->stack[c->depth]];
     int pos = c->idx[c->depth];
@@ -5182,19 +5198,19 @@ int cursor_del(Cursor *cp)
     uint16_t klen;
     const void *key_ptr;
     if (pos < 0 || pos >= (int)PG_NUM(orig_lpg))
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     off = (uint16_t)L_SLOT(orig_lpg, pos);
     klen = L_CKLEN(orig_lpg, off);
     key_ptr = L_CKEY(orig_lpg, off);
 
     uint32_t leaf_pgno = cow_path(c);
     if (leaf_pgno == INVALID_PGNO)
-        return SAP_ERROR;
+        return ERR_OOM;
     void *lpg = db->pages[leaf_pgno];
 
     off = (uint16_t)L_SLOT(lpg, pos);
     if (leaf_cell_mark_overflow_old(txn, lpg, off) < 0)
-        return SAP_ERROR;
+        return ERR_CORRUPT;
 
     leaf_remove(lpg, pos);
     txn->dbs[dbi].num_entries--;
@@ -5208,7 +5224,7 @@ int cursor_del(Cursor *cp)
         {
             txn->dbs[dbi].root_pgno = INVALID_PGNO;
             c->depth = -1;
-            return SAP_OK;
+            return ERR_OK;
         }
         for (int d = depth - 1; d >= 0; d--)
         {
@@ -5234,17 +5250,17 @@ int cursor_del(Cursor *cp)
             break;
         }
         c->depth = -1;
-        return SAP_OK;
+        return ERR_OK;
     }
 
     /* Auto-advance: if pos < count, cursor now points to next entry */
     if (pos >= (int)PG_NUM(lpg))
     {
         c->idx[c->depth] = pos;
-        if (cursor_next(cp) == SAP_NOTFOUND)
+        if (cursor_next(cp) == ERR_NOT_FOUND)
             c->depth = -1;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -5257,20 +5273,20 @@ int txn_del_dup_dbi(Txn *txn, uint32_t dbi, const void *key, uint32_t key_len, c
     struct BTreeTxnState *tt = txn ? sap_txn_subsystem_state((SapTxnCtx*)txn, SAP_SUBSYSTEM_DB) : NULL;
     struct ScratchMark scratch_mark;
     if (!tt)
-        return SAP_ERROR;
+        return ERR_INVALID;
     struct BTreeEnvState *db = tt->db;
     if (dbi >= db->num_dbs)
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!(db->dbs[dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
+        return ERR_INVALID;
     /* Encode composite and delete as a normal key */
     uint64_t comp_len64 = 4ull + (uint64_t)key_len + (uint64_t)val_len;
     if (comp_len64 > UINT16_MAX)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     scratch_mark = txn_scratch_mark(tt);
     uint8_t *comp = (uint8_t *)txn_scratch_alloc(tt, (uint32_t)comp_len64);
     if (!comp)
-        return SAP_ERROR;
+        return ERR_OOM;
     wr32(comp, key_len);
     memcpy(comp + 4, key, key_len);
     memcpy(comp + 4 + key_len, val, val_len);
@@ -5323,28 +5339,28 @@ int cursor_next_dup(Cursor *cp)
     struct BTreeEnvState *db = c->txn->db;
     struct ScratchMark scratch_mark = txn_scratch_mark(c->txn);
     if (!(db->dbs[c->dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t saved_kl;
     const uint8_t *saved_key = dup_cur_key(c, &saved_kl);
     if (!saved_key)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     /* Copy key since cursor_next may change the page */
     uint8_t *kbuf = txn_scratch_copy(c->txn, saved_key, saved_kl);
     if (!kbuf)
-        return SAP_ERROR;
-    if (cursor_next(cp) != SAP_OK)
+        return ERR_OOM;
+    if (cursor_next(cp) != ERR_OK)
     {
         txn_scratch_release(c->txn, scratch_mark);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     if (!dup_same_key(c, kbuf, saved_kl))
     {
         cursor_prev(cp); /* restore position */
         txn_scratch_release(c->txn, scratch_mark);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     txn_scratch_release(c->txn, scratch_mark);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_prev_dup(Cursor *cp)
@@ -5353,27 +5369,27 @@ int cursor_prev_dup(Cursor *cp)
     struct BTreeEnvState *db = c->txn->db;
     struct ScratchMark scratch_mark = txn_scratch_mark(c->txn);
     if (!(db->dbs[c->dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t saved_kl;
     const uint8_t *saved_key = dup_cur_key(c, &saved_kl);
     if (!saved_key)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint8_t *kbuf = txn_scratch_copy(c->txn, saved_key, saved_kl);
     if (!kbuf)
-        return SAP_ERROR;
-    if (cursor_prev(cp) != SAP_OK)
+        return ERR_OOM;
+    if (cursor_prev(cp) != ERR_OK)
     {
         txn_scratch_release(c->txn, scratch_mark);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     if (!dup_same_key(c, kbuf, saved_kl))
     {
         cursor_next(cp);
         txn_scratch_release(c->txn, scratch_mark);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     txn_scratch_release(c->txn, scratch_mark);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_first_dup(Cursor *cp)
@@ -5382,27 +5398,27 @@ int cursor_first_dup(Cursor *cp)
     struct BTreeEnvState *db = c->txn->db;
     struct ScratchMark scratch_mark = txn_scratch_mark(c->txn);
     if (!(db->dbs[c->dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t saved_kl;
     const uint8_t *saved_key = dup_cur_key(c, &saved_kl);
     if (!saved_key)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint8_t *kbuf = txn_scratch_copy(c->txn, saved_key, saved_kl);
     if (!kbuf)
-        return SAP_ERROR;
-    while (cursor_prev(cp) == SAP_OK)
+        return ERR_OOM;
+    while (cursor_prev(cp) == ERR_OK)
     {
         if (!dup_same_key(c, kbuf, saved_kl))
         {
             cursor_next(cp);
             txn_scratch_release(c->txn, scratch_mark);
-            return SAP_OK;
+            return ERR_OK;
         }
     }
     /* Reached beginning of tree — current entry is first dup */
     cursor_first(cp);
     txn_scratch_release(c->txn, scratch_mark);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_last_dup(Cursor *cp)
@@ -5411,26 +5427,26 @@ int cursor_last_dup(Cursor *cp)
     struct BTreeEnvState *db = c->txn->db;
     struct ScratchMark scratch_mark = txn_scratch_mark(c->txn);
     if (!(db->dbs[c->dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
+        return ERR_INVALID;
     uint32_t saved_kl;
     const uint8_t *saved_key = dup_cur_key(c, &saved_kl);
     if (!saved_key)
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     uint8_t *kbuf = txn_scratch_copy(c->txn, saved_key, saved_kl);
     if (!kbuf)
-        return SAP_ERROR;
-    while (cursor_next(cp) == SAP_OK)
+        return ERR_OOM;
+    while (cursor_next(cp) == ERR_OK)
     {
         if (!dup_same_key(c, kbuf, saved_kl))
         {
             cursor_prev(cp);
             txn_scratch_release(c->txn, scratch_mark);
-            return SAP_OK;
+            return ERR_OK;
         }
     }
     cursor_last(cp);
     txn_scratch_release(c->txn, scratch_mark);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_count_dup(Cursor *cp, uint64_t *count)
@@ -5439,25 +5455,25 @@ int cursor_count_dup(Cursor *cp, uint64_t *count)
     struct BTreeEnvState *db = c->txn->db;
     struct ScratchMark scratch_mark = txn_scratch_mark(c->txn);
     if (!(db->dbs[c->dbi].flags & DBI_DUPSORT))
-        return SAP_ERROR;
+        return ERR_INVALID;
     if (!count)
-        return SAP_ERROR;
+        return ERR_INVALID;
     /* Save position, go to first_dup, count forward */
     uint32_t saved_kl;
     const uint8_t *saved_key = dup_cur_key(c, &saved_kl);
     if (!saved_key)
     {
         *count = 0;
-        return SAP_OK;
+        return ERR_OK;
     }
     uint8_t *kbuf = txn_scratch_copy(c->txn, saved_key, saved_kl);
     if (!kbuf)
-        return SAP_ERROR;
+        return ERR_OOM;
 
     /* Go to first dup */
     cursor_first_dup(cp);
     uint64_t cnt = 1;
-    while (cursor_next(cp) == SAP_OK)
+    while (cursor_next(cp) == ERR_OK)
     {
         if (!dup_same_key(c, kbuf, saved_kl))
             break;
@@ -5475,7 +5491,7 @@ int cursor_count_dup(Cursor *cp, uint64_t *count)
         cursor_seek(cp, comp, comp_len);
     }
     txn_scratch_release(c->txn, scratch_mark);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 /* ================================================================== */
@@ -5488,12 +5504,12 @@ static int cursor_dupsort_key_cmp(struct Cursor *c, const void *key, uint32_t ke
     uint32_t cur_key_len;
     int rc;
     if (!c || !cmp_out)
-        return SAP_ERROR;
+        return ERR_INVALID;
     rc = cursor_get_key((Cursor *)c, &cur_key, &cur_key_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
     *cmp_out = user_keycmp(c->txn->db, c->dbi, cur_key, cur_key_len, key, key_len);
-    return SAP_OK;
+    return ERR_OK;
 }
 
 static int cursor_seek_dupsort_key(Cursor *cp, const void *key, uint32_t key_len)
@@ -5506,48 +5522,48 @@ static int cursor_seek_dupsort_key(Cursor *cp, const void *key, uint32_t key_len
     int rc, cmp;
 
     if (!c)
-        return SAP_ERROR;
+        return ERR_INVALID;
     txn = c->txn;
     scratch_mark = txn_scratch_mark(txn);
     comp_len = 4u + key_len;
     if (comp_len > UINT16_MAX)
     {
         txn_scratch_release(txn, scratch_mark);
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
     comp = (uint8_t *)txn_scratch_alloc(txn, comp_len);
     if (!comp)
     {
         txn_scratch_release(txn, scratch_mark);
-        return SAP_ERROR;
+        return ERR_OOM;
     }
     wr32(comp, key_len);
     memcpy(comp + 4, key, key_len);
     rc = cursor_seek(cp, comp, comp_len);
     txn_scratch_release(txn, scratch_mark);
 
-    if (rc == SAP_NOTFOUND)
+    if (rc == ERR_NOT_FOUND)
     {
         rc = cursor_last(cp);
-        if (rc != SAP_OK)
-            return SAP_NOTFOUND;
+        if (rc != ERR_OK)
+            return ERR_NOT_FOUND;
         rc = cursor_dupsort_key_cmp(c, key, key_len, &cmp);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
         if (cmp < 0)
-            return SAP_NOTFOUND;
+            return ERR_NOT_FOUND;
         if (cmp == 0)
             return cursor_first_dup(cp);
         /* cmp > 0: recover to first key >= target below. */
     }
-    else if (rc != SAP_OK)
+    else if (rc != ERR_OK)
     {
         return rc;
     }
     else
     {
         rc = cursor_dupsort_key_cmp(c, key, key_len, &cmp);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
         if (cmp == 0)
             return cursor_first_dup(cp);
@@ -5557,15 +5573,15 @@ static int cursor_seek_dupsort_key(Cursor *cp, const void *key, uint32_t key_len
             do
             {
                 rc = cursor_next(cp);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
                 rc = cursor_dupsort_key_cmp(c, key, key_len, &cmp);
-                if (rc != SAP_OK)
+                if (rc != ERR_OK)
                     return rc;
             } while (cmp < 0);
             if (cmp == 0)
                 return cursor_first_dup(cp);
-            return SAP_OK;
+            return ERR_OK;
         }
         /* cmp > 0: key may still exist immediately to the left. */
     }
@@ -5573,13 +5589,13 @@ static int cursor_seek_dupsort_key(Cursor *cp, const void *key, uint32_t key_len
     for (;;)
     {
         rc = cursor_prev(cp);
-        if (rc == SAP_NOTFOUND)
+        if (rc == ERR_NOT_FOUND)
             return cursor_first(cp);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
 
         rc = cursor_dupsort_key_cmp(c, key, key_len, &cmp);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
         if (cmp > 0)
             continue;
@@ -5597,32 +5613,32 @@ int cursor_seek_prefix(Cursor *cp, const void *prefix, uint32_t prefix_len)
     if (db->dbs[c->dbi].flags & DBI_DUPSORT)
     {
         int rc = cursor_seek_dupsort_key(cp, prefix, prefix_len);
-        if (rc != SAP_OK)
+        if (rc != ERR_OK)
             return rc;
-        return cursor_in_prefix(cp, prefix, prefix_len) ? SAP_OK : SAP_NOTFOUND;
+        return cursor_in_prefix(cp, prefix, prefix_len) ? ERR_OK : ERR_NOT_FOUND;
     }
 
     int rc = cursor_seek(cp, prefix, prefix_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
         return rc;
     /* Check if the found key starts with prefix */
     const void *k, *v;
     uint32_t kl, vl;
-    if (cursor_get(cp, &k, &kl, &v, &vl) != SAP_OK)
-        return SAP_NOTFOUND;
+    if (cursor_get(cp, &k, &kl, &v, &vl) != ERR_OK)
+        return ERR_NOT_FOUND;
     if (kl < prefix_len || memcmp(k, prefix, prefix_len) != 0)
     {
         c->depth = -1;
-        return SAP_NOTFOUND;
+        return ERR_NOT_FOUND;
     }
-    return SAP_OK;
+    return ERR_OK;
 }
 
 int cursor_in_prefix(Cursor *cp, const void *prefix, uint32_t prefix_len)
 {
     const void *k, *v;
     uint32_t kl, vl;
-    if (cursor_get(cp, &k, &kl, &v, &vl) != SAP_OK)
+    if (cursor_get(cp, &k, &kl, &v, &vl) != ERR_OK)
         return 0;
     if (kl < prefix_len)
         return 0;

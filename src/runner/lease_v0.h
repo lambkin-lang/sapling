@@ -23,14 +23,14 @@ typedef struct
 /* --- Staged Operations (for use in atomic blocks) --- */
 
 /* Attempt to acquire a lease.
- * Returns SAP_OK if acquired, SAP_BUSY if held by others, or SAP_ERROR.
+ * Returns ERR_OK if acquired, ERR_BUSY if held by others, or ERR_INVALID.
  */
 int sap_runner_lease_v0_stage_acquire(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
                                       uint32_t key_len, uint64_t owner_worker, int64_t now_ts,
                                       int64_t duration_ms, SapRunnerLeaseV0 *lease_out);
 
 /* Release a lease.
- * Returns SAP_OK if released, SAP_CONFLICT if not owned by claimant, or SAP_ERROR.
+ * Returns ERR_OK if released, ERR_CONFLICT if not owned by claimant, or ERR_INVALID.
  */
 int sap_runner_lease_v0_stage_release(SapRunnerTxStackV0 *stack, Txn *read_txn, const void *key,
                                       uint32_t key_len, uint64_t owner_worker);

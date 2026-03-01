@@ -30,10 +30,10 @@ extern "C"
      * key_len: Length in bytes.
      * val:     Value bytes (NULL allowed only when val_len == 0).
      * val_len: Value length in bytes.
-     * flags:   SAP_NOOVERWRITE to fail with SAP_EXISTS if key already present.
-     *          All other flag bits are rejected with SAP_ERROR.
+     * flags:   SAP_NOOVERWRITE to fail with ERR_EXISTS if key already present.
+     *          All other flag bits are rejected with ERR_INVALID.
      *
-     * Returns SAP_OK, SAP_EXISTS, SAP_READONLY, SAP_FULL, or SAP_ERROR.
+     * Returns ERR_OK, ERR_EXISTS, ERR_READONLY, ERR_FULL, or ERR_INVALID.
      */
     int sap_hamt_put(SapTxnCtx *txn, const void *key, uint32_t key_len, const void *val,
                      uint32_t val_len, unsigned flags);
@@ -41,7 +41,7 @@ extern "C"
     /*
      * Retrieve the value for a given key.
      *
-     * Returns SAP_OK on success, SAP_NOTFOUND if not present, or SAP_ERROR.
+     * Returns ERR_OK on success, ERR_NOT_FOUND if not present, or ERR_INVALID.
      */
     int sap_hamt_get(SapTxnCtx *txn, const void *key, uint32_t key_len, const void **val_out,
                      uint32_t *val_len_out);
@@ -49,7 +49,7 @@ extern "C"
     /*
      * Delete a key.
      *
-     * Returns SAP_OK, SAP_NOTFOUND, SAP_READONLY, or SAP_ERROR.
+     * Returns ERR_OK, ERR_NOT_FOUND, ERR_READONLY, or ERR_INVALID.
      */
     int sap_hamt_del(SapTxnCtx *txn, const void *key, uint32_t key_len);
 

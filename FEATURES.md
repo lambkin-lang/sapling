@@ -50,15 +50,15 @@ int cursor_del(Cursor *cur);
 current entry and advances the cursor to the next position.
 Current `cursor_put` contract is `flags == 0` on non-DUPSORT DBIs.
 When a replacement would require overflow that cannot fit the key shape,
-`cursor_put` returns `SAP_FULL` without dropping the existing row.
+`cursor_put` returns `ERR_FULL` without dropping the existing row.
 
 ### Put flags (NOOVERWRITE, RESERVE) (done)
 Distinguish insert-only from upsert, and enable zero-copy writes.
 
 ```c
-#define SAP_NOOVERWRITE 0x01u  /* fail with SAP_EXISTS if key present   */
+#define SAP_NOOVERWRITE 0x01u  /* fail with ERR_EXISTS if key present   */
 #define SAP_RESERVE     0x02u  /* allocate space, return pointer         */
-#define SAP_EXISTS       6     /* new error code                         */
+/* ERR_EXISTS (9) — duplicate key with NOOVERWRITE                       */
 
 int txn_put_flags(Txn *txn,
                   const void *key, uint32_t key_len,
@@ -95,7 +95,7 @@ Without this, each Lambkin table is an independent `DB*` with its own allocator
 and page space, and there's no way to atomically update rows across tables.
 
 `dbi_open`/`dbi_set_dupsort` are metadata operations and require no active
-transactions; they return `SAP_BUSY` if readers or a writer are active.
+transactions; they return `ERR_BUSY` if readers or a writer are active.
 
 ---
 
@@ -218,8 +218,8 @@ synchronously on the committing thread. Registrations affect write
 transactions started after the watcher is installed.
 
 `db_watch_dbi`/`db_unwatch_dbi` provide DBI-scoped registrations for non-DUPSORT
-DBIs. Duplicate registrations return `SAP_EXISTS`. Register/unregister calls
-return `SAP_BUSY` while a write transaction is active.
+DBIs. Duplicate registrations return `ERR_EXISTS`. Register/unregister calls
+return `ERR_BUSY` while a write transaction is active.
 
 ### Conditional put (compare-and-swap) (done)
 Storage-level CAS for lock-free coordination patterns between threads.
@@ -231,11 +231,11 @@ int txn_put_if(Txn *txn, DBI dbi,
                const void *expected_val, uint32_t expected_len);
 ```
 
-Returns `SAP_OK` if the current value matches `expected_val` and was replaced.
-Returns `SAP_CONFLICT` (new error code) if the current value differs. Returns
-`SAP_NOTFOUND` if the key doesn't exist.
+Returns `ERR_OK` if the current value matches `expected_val` and was replaced.
+Returns `ERR_CONFLICT` if the current value differs. Returns
+`ERR_NOT_FOUND` if the key doesn't exist.
 
-Current implementation targets non-DUPSORT DBIs (returns `SAP_ERROR` for
+Current implementation targets non-DUPSORT DBIs (returns `ERR_INVALID` for
 DUPSORT because equality semantics are ambiguous across duplicate sets).
 
 ### Snapshot serialization / checkpointing (done)
@@ -320,7 +320,7 @@ Per-attempt flow:
 5. publish buffered intents only after successful commit
 
 Retry policy:
-- retryable: `SAP_BUSY`, `SAP_CONFLICT`, lease-race style transient failures
+- retryable: `ERR_BUSY`, `ERR_CONFLICT`, lease-race style transient failures
 - non-retryable: deterministic logic/type errors, traps, validation bugs
 - bounded retries with jittered backoff and metrics
 
@@ -380,7 +380,7 @@ Runtime correctness:
 
 Concurrency and durability testing:
 - deterministic retry/conflict harness for atomic-block runtime
-- fault injection hooks (allocation failure, forced `SAP_BUSY`, crash-at-step)
+- fault injection hooks (allocation failure, forced `ERR_BUSY`, crash-at-step)
 - crash-recovery test suite around checkpoint/restore and message outbox replay
 
 Protocol and schema discipline:
@@ -494,7 +494,7 @@ Phase A status (started):
 - done: stable runner policy/config surface for lease/requeue/retry-budget
   tuning (`SapRunnerV0Policy` + setter APIs)
 - done: threaded worker stop/join signaling is now synchronized; worker loop
-  no longer exits on transient `SAP_BUSY`; threaded regression coverage added
+  no longer exits on transient `ERR_BUSY`; threaded regression coverage added
 - done: worker clock hooks now drive inbox lease-claim timing and timer/inbox
   step-latency measurements (not only scheduler idle-sleep decisions)
 - next: execute reprioritized backlog below (starting with future Priority 6
@@ -511,7 +511,7 @@ Phase B status (started):
   intent frame buffering, read validation, and staged write apply
 - done: `txstack_v0` nested frame push/commit/abort with child->parent merge
   semantics and nested read-your-write behavior across frame depth
-- done: `attempt_v0` bounded retry loop (`SAP_BUSY`/`SAP_CONFLICT`) with
+- done: `attempt_v0` bounded retry loop (`ERR_BUSY`/`ERR_CONFLICT`) with
   backoff policy hooks and run stats
 - done: deterministic integration test that exercises conflict injection,
   bounded retry, child commit/abort merge semantics, and post-commit intents
@@ -542,7 +542,7 @@ Phase B status (started):
 - done: deterministic replay hooks (optional) for postmortem debugging
 - done: stable runner config knobs for worker retry/lease behavior
 - done: threaded worker stop/join signaling is now synchronized; worker loop
-  now treats transient `SAP_BUSY` as retryable
+  now treats transient `ERR_BUSY` as retryable
 - done: worker clock hooks now cover lease timing + latency measurement paths
 - next: execute reprioritized backlog below (starting with future Priority 6
   items based on product demand)
@@ -578,7 +578,7 @@ Phase C status (started):
   disposition outcomes
 - done: stable runner config surface for retry budget, lease TTL, and requeue
   attempt search budget
-- done: threaded worker stop/join signaling hardened and transient `SAP_BUSY`
+- done: threaded worker stop/join signaling hardened and transient `ERR_BUSY`
   recovery in worker loop validated under threaded regression
 - done: worker time-hook usage expanded from scheduler-only to inbox lease and
   latency paths
@@ -616,7 +616,7 @@ Phase C status (started):
    - added storage hardening guards in allocator/leaf insert paths to avoid
      out-of-bounds writes on corrupted free-space metadata
    - added optional shared DB gate APIs on runner workers plus transient
-     `SAP_NOTFOUND`/`SAP_CONFLICT` normalization in worker tick path
+     `ERR_NOT_FOUND`/`ERR_CONFLICT` normalization in worker tick path
    - stabilized runtime semantics under sustained threaded churn
      (`runner-multiwriter-stress` safely completes without deadlocks)
 10. [Done][P1] Added dedicated threaded runner-style multi-writer stress
@@ -705,7 +705,7 @@ int txn_sweep_ttl_dbi(Txn *txn, DBI data_dbi, DBI ttl_dbi,
 
 Current behavior:
 - `txn_put_ttl_dbi` performs atomic nested writes of data + expiry metadata.
-- `txn_get_ttl_dbi` returns `SAP_NOTFOUND` for expired/missing metadata rows.
+- `txn_get_ttl_dbi` returns `ERR_NOT_FOUND` for expired/missing metadata rows.
 - `txn_sweep_ttl_dbi_limit` bounds per-call delete work via `max_to_delete`.
 - `txn_sweep_ttl_dbi` walks a time-ordered expiry index and removes expired keys
   from both DBIs in one atomic helper.
@@ -744,7 +744,7 @@ transform to the current value (or empty value when the key is missing).
 Callbacks receive output capacity in `*new_len` and report produced bytes. If a
 callback reports a size larger than inline capacity, Sapling retries once with
 the requested size (up to `UINT16_MAX`) so merged values can spill to overflow
-pages. Requests above `UINT16_MAX` still return `SAP_FULL`.
+pages. Requests above `UINT16_MAX` still return `ERR_FULL`.
 
 ```c
 typedef void (*sap_merge_fn)(const void *old_val, uint32_t old_len,

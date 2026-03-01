@@ -61,7 +61,7 @@ SAP_WASM_EXPORT("sap_run_v0") int32_t sap_run_v0(const void *msg_payload, uint32
     rc = sap_host_lease_acquire(lease_key, (uint32_t)strlen(lease_key), 5000);
     if (rc != 0)
     {
-        return 101; /* SAP_BUSY or error */
+        return 101; /* ERR_BUSY or error */
     }
 
     /* 2. Read counter (DBI 0) */

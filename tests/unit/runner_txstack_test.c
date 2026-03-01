@@ -50,15 +50,15 @@ static int db_put(DB *db, const void *key, uint32_t key_len, const void *val, ui
 
     if (!db)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     txn = txn_begin(db, NULL, 0u);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_put_dbi(txn, 10u, key, key_len, val, val_len);
-    if (rc != SAP_OK)
+    if (rc != ERR_OK)
     {
         txn_abort(txn);
         return rc;
@@ -74,7 +74,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
 
     if (!db || !val_out || !val_len_out)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     *val_out = NULL;
     *val_len_out = 0u;
@@ -82,7 +82,7 @@ static int db_get(DB *db, const void *key, uint32_t key_len, const void **val_ou
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
     {
-        return SAP_ERROR;
+        return ERR_INVALID;
     }
     rc = txn_get_dbi(txn, 10u, key, key_len, val_out, val_len_out);
     txn_abort(txn);
@@ -101,34 +101,34 @@ static int test_nested_commit_merges_into_parent(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(db_put(db, "a", 1u, "db", 2u) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_init(&stack) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
+    CHECK(db_put(db, "a", 1u, "db", 2u) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_init(&stack) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
 
     rtxn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rtxn != NULL);
-    CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "a", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "a", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 2u);
     CHECK(memcmp(val, "db", 2u) == 0);
 
-    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "x", 1u, "outer", 5u) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "x", 1u, "outer", 5u) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
     CHECK(sap_runner_txstack_v0_depth(&stack) == 2u);
 
-    CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "x", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "x", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "outer", 5u) == 0);
     CHECK(sap_runner_txctx_v0_read_count(sap_runner_txstack_v0_current(&stack)) == 0u);
 
-    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "y", 1u, "child", 5u) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "y", 1u, "child", 5u) == ERR_OK);
     intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
     intent.flags = 0u;
     intent.due_ts = 0;
     intent.message = intent_msg;
     intent.message_len = sizeof(intent_msg);
-    CHECK(sap_runner_txstack_v0_push_intent(&stack, &intent) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_push_intent(&stack, &intent) == ERR_OK);
 
-    CHECK(sap_runner_txstack_v0_commit_top(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_commit_top(&stack) == ERR_OK);
     CHECK(sap_runner_txstack_v0_depth(&stack) == 1u);
     CHECK(sap_runner_txctx_v0_write_count(sap_runner_txstack_v0_current(&stack)) == 2u);
     CHECK(sap_runner_txctx_v0_intent_count(sap_runner_txstack_v0_current(&stack)) == 1u);
@@ -136,14 +136,14 @@ static int test_nested_commit_merges_into_parent(void)
 
     wtxn = txn_begin(db, NULL, 0u);
     CHECK(wtxn != NULL);
-    CHECK(sap_runner_txstack_v0_validate_root_reads(&stack, wtxn) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == SAP_OK);
-    CHECK(txn_commit(wtxn) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_validate_root_reads(&stack, wtxn) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == ERR_OK);
+    CHECK(txn_commit(wtxn) == ERR_OK);
 
-    CHECK(db_get(db, "x", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "x", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "outer", 5u) == 0);
-    CHECK(db_get(db, "y", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "y", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "child", 5u) == 0);
 
@@ -162,35 +162,35 @@ static int test_nested_abort_discards_child_state(void)
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_txstack_v0_init(&stack) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "x", 1u, "outer", 5u) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_init(&stack) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "x", 1u, "outer", 5u) == ERR_OK);
 
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "x", 1u, "child", 5u) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "z", 1u, "tmp", 3u) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_abort_top(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "x", 1u, "child", 5u) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_stage_put_dbi(&stack, 10u, "z", 1u, "tmp", 3u) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_abort_top(&stack) == ERR_OK);
     CHECK(sap_runner_txstack_v0_depth(&stack) == 1u);
 
     rtxn = txn_begin(db, NULL, TXN_RDONLY);
     CHECK(rtxn != NULL);
-    CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "x", 1u, &val, &val_len) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "x", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "outer", 5u) == 0);
     CHECK(sap_runner_txstack_v0_read_dbi(&stack, rtxn, 10u, "z", 1u, &val, &val_len) ==
-          SAP_NOTFOUND);
+          ERR_NOT_FOUND);
     txn_abort(rtxn);
 
     wtxn = txn_begin(db, NULL, 0u);
     CHECK(wtxn != NULL);
-    CHECK(sap_runner_txstack_v0_validate_root_reads(&stack, wtxn) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == SAP_OK);
-    CHECK(txn_commit(wtxn) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_validate_root_reads(&stack, wtxn) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == ERR_OK);
+    CHECK(txn_commit(wtxn) == ERR_OK);
 
-    CHECK(db_get(db, "x", 1u, &val, &val_len) == SAP_OK);
+    CHECK(db_get(db, "x", 1u, &val, &val_len) == ERR_OK);
     CHECK(val_len == 5u);
     CHECK(memcmp(val, "outer", 5u) == 0);
-    CHECK(db_get(db, "z", 1u, &val, &val_len) == SAP_NOTFOUND);
+    CHECK(db_get(db, "z", 1u, &val, &val_len) == ERR_NOT_FOUND);
 
     sap_runner_txstack_v0_dispose(&stack);
     db_close(db);
@@ -204,16 +204,16 @@ static int test_stack_state_guards(void)
     Txn *wtxn;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_txstack_v0_init(&stack) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_commit_top(&stack) == SAP_ERROR);
-    CHECK(sap_runner_txstack_v0_abort_top(&stack) == SAP_ERROR);
+    CHECK(sap_runner_txstack_v0_init(&stack) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_commit_top(&stack) == ERR_INVALID);
+    CHECK(sap_runner_txstack_v0_abort_top(&stack) == ERR_INVALID);
 
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
-    CHECK(sap_runner_txstack_v0_push(&stack) == SAP_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
+    CHECK(sap_runner_txstack_v0_push(&stack) == ERR_OK);
     wtxn = txn_begin(db, NULL, 0u);
     CHECK(wtxn != NULL);
-    CHECK(sap_runner_txstack_v0_validate_root_reads(&stack, wtxn) == SAP_BUSY);
-    CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == SAP_BUSY);
+    CHECK(sap_runner_txstack_v0_validate_root_reads(&stack, wtxn) == ERR_BUSY);
+    CHECK(sap_runner_txstack_v0_apply_root_writes(&stack, wtxn) == ERR_BUSY);
     txn_abort(wtxn);
 
     sap_runner_txstack_v0_dispose(&stack);

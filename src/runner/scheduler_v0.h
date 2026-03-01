@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-/* Return earliest due_ts in timers DBI, or SAP_NOTFOUND when empty. */
+/* Return earliest due_ts in timers DBI, or ERR_NOT_FOUND when empty. */
 int sap_runner_scheduler_v0_next_due(DB *db, int64_t *due_ts_out);
 
 /* Compute sleep budget in milliseconds based on now, next_due, and cap. */
