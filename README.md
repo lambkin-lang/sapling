@@ -277,13 +277,13 @@ need attention under load.
 
 ### Reuse and alignment opportunities
 
-- **~~Unified node allocator.~~** Partially addressed. `SapTxnVec` provides a
-  shared arena-backed growable-array abstraction used by Seq, HAMT,
-  TextLiteral, and TextTreeRegistry. All subsystems now flow through
-  `sap_arena_alloc_node`/`sap_arena_alloc_page` for persistent data and
-  `sap_txn_scratch_alloc` for transaction-scoped metadata. A higher-level
-  `PageAllocator`-style interface for cross-structure allocation tracking
-  remains a future opportunity.
+- **~~Unified node allocator.~~** Completed at the substrate level. Seq, BEPT,
+  HAMT, Text, TextLiteral, TextTreeRegistry, and Thatch now allocate through
+  `SapMemArena` primitives (`sap_arena_alloc_node`/`sap_arena_alloc_page`) for
+  persistent data and `sap_txn_scratch_alloc` for transaction-scoped metadata.
+  `SapTxnVec` is the shared arena-backed growable-array abstraction used by
+  higher-level containers. Remaining allocator work is observability and
+  budgeting (telemetry), not allocator-model unification.
 
 - **Shared DB-backed transaction substrate (non-STM).** The B+ tree currently
   owns the `Txn` context and MVCC machinery. Extracting a shared transaction
@@ -336,8 +336,9 @@ phase reference relate to the runner implementation track described in
 
 ### Could do (future alignment)
 
-- [ ] Design and implement a unified node-allocation interface for Seq, BEPT,
-  and Text
+- [ ] Define and implement a unified allocator telemetry/budget interface across
+  `sap_arena_alloc_page`, `sap_arena_alloc_node`, `sap_txn_scratch_alloc`, and
+  `SapTxnVec` growth paths (env+txn snapshots, high-water marks, OOM counters)
 - [ ] Extract a shared DB-backed transaction substrate (non-STM) from the B+
   tree `Txn` context for rollback-capable structures
 - [ ] Evaluate expressing wire payloads as Thatch regions for zero-allocation

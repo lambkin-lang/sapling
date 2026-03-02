@@ -794,9 +794,22 @@ If the Lambkin language guarantees absolutely correct interaction from the guest
 
 To serve as a high-performance Wasm target out of the box, existing capabilities (`sapling.c`, `seq.c`) will be brought under a unified architecture, expanding to structures uniquely suited for WebAssembly instruction sets.
 
-### Unified Node-Allocation and COW Mechanism
-- **Goal:** Both the Finger Tree (`seq.c`) and the B+ Tree (`sapling.c`) currently use independent allocation schemes (raw `malloc` versus an internal `PageAllocator`). We will unify them under a single, Universal MVP Wasm linear memory allocator.
-- **Benefit:** Reduces binary size, ensures cache-cohesive node fetching, and eliminates duplicate implementation of garbage collection or deferred-free logic. It is optimized specifically for compilation to Wasm using Wasmtime/WASI, but naturally remains runnable as fast native C.
+### Unified Allocation Substrate (done)
+- **Status:** Completed for core runtime data structures.
+- **What is unified:** Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry,
+  and Thatch use the shared arena substrate (`sap_arena_alloc_node`,
+  `sap_arena_alloc_page`) plus transaction scratch allocation
+  (`sap_txn_scratch_alloc`).
+- **Container support:** `SapTxnVec` is the common arena-backed growable-array
+  primitive replacing ad hoc malloc/realloc patterns in subsystem helpers.
+
+### Allocator Telemetry and Budget Controls (next)
+- **Goal:** Add a unified observability and budget surface across
+  `sap_arena_alloc_page`, `sap_arena_alloc_node`, `sap_txn_scratch_alloc`, and
+  `SapTxnVec` growth paths.
+- **Benefit:** Gives deterministic visibility into allocation pressure and
+  failure modes (env-wide + per-transaction), enabling better runtime policy
+  tuning for embedded and Wasm targets.
 
 ### Shared DB-Backed Transaction Substrate (non-STM)
 - **Goal:** Pull the transaction context (`struct Txn`, watches, rollback state)
