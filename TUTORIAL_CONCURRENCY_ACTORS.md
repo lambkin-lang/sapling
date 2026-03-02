@@ -1,4 +1,4 @@
-# STM, OCC, and Actor Tutorial for Sapling
+# Atomic DB Transactions, OCC, and Actor Tutorial for Sapling
 
 This guide explains the concurrency terms used in this project and maps them
 to concrete Sapling APIs so readers can reason about correctness and
@@ -15,7 +15,7 @@ Sapling provides:
 Those are building blocks for higher-level transactional systems (including
 Wasm host runners using message passing and DB-backed coordination).
 
-This tutorial focuses on the fundamentals: STM/OCC mental models, conflict
+This tutorial focuses on atomic DB transaction semantics, OCC conflict
 handling, retries, and where CAS fits.
 
 ## Mental model: what Sapling guarantees
@@ -27,15 +27,19 @@ handling, retries, and where CAS fits.
 4. Writes are atomic at commit: readers see before or after, not partial state.
 5. Watch callbacks run after top-level commit for matching watched DBI/prefix.
 
-## STM vs OCC (and where Sapling fits)
+Boundary: Sapling is not a general shared-memory STM runtime. Atomicity applies
+to DB transactions over DB-backed state.
 
-### STM (Software Transactional Memory)
+## Atomic DB transactions and OCC (where Sapling fits)
 
-STM is a programming model where code runs inside `atomic { ... }` blocks.
-The runtime tracks reads/writes and retries if a conflict is detected.
+### Language-level `atomic { ... }` blocks
 
-Key idea: developers write logic as if it is isolated; runtime provides retry
-and commit behavior.
+In Lambkin, `atomic { ... }` is a language construct that compiles to
+transactional behavior over Sapling-managed state. It does not imply arbitrary
+shared-memory pointer tracking by the host runtime.
+
+Key idea: developers write isolated logic; host integration provides retry and
+commit behavior against DB state.
 
 ### OCC (Optimistic Concurrency Control)
 
@@ -111,7 +115,8 @@ Sapling serves as the semantic foundation for **Lambkin**, a Wasm-aligned progra
 ### The Lambkin Language Experience
 Lambkin programmers do not explicitly deal with a traditional heap or raw pointers. Instead:
 - State is referenced and passed around using **paths and database cursors**.
-- Business logic is written inside `atomic { ... }` blocks which translate seamlessly to Sapling's nested transactions.
+- Business logic is written inside `atomic { ... }` blocks that lower to
+  Sapling-backed transaction intents and nested commit/abort semantics.
 - The language provides **extensive static checking** to guarantee that the logic inside an `atomic` block is strictly side-effect free.
 - The closest construct to a heap allocation is a lambda closure. However, closures in Lambkin are thread-confined and execute dynamically; they are not "storable" types, preserving the capability to cleanly rollback state during a transaction abort without memory leaks.
 
@@ -230,7 +235,9 @@ When writing reusable library code:
 - Read set: keys/values observed during optimistic execution.
 - Retry loop: re-run transaction attempt after retryable conflict.
 - Snapshot: consistent read view at a specific transaction point.
-- STM: Software Transactional Memory programming model (`atomic {}` semantics).
+- STM: Software Transactional Memory model. In this project it is only a
+  conceptual analogy for language-level `atomic` semantics, not a host
+  shared-memory implementation.
 - Top-level transaction: transaction with no parent.
 - Nested transaction: child transaction scoped under a parent transaction.
 - WASI: WebAssembly System Interface. In Sapling, specifically relates to semantic mappings for `wasi-keyvalue` and `wasi-messaging`.

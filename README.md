@@ -182,8 +182,8 @@ expected project layout.
 The `docs/` directory contains detailed design documents for each subsystem.
 `FEATURES.md` is the feature roadmap and phase tracker. Notable entry points:
 
-- `TUTORIAL_CONCURRENCY_ACTORS.md` — STM/OCC, CAS, retry loops, nested
-  transactions, the Lambkin Actor Model
+- `TUTORIAL_CONCURRENCY_ACTORS.md` — atomic DB transactions, OCC, CAS, retry
+  loops, nested transactions, the Lambkin Actor Model
 - `docs/THATCH_DESIGN.md` — ownership, lifetime, sealing, region allocation
 - `docs/SEQ_DESIGN.md` — finger-tree structure, concatenation, split algorithms
 - `docs/RUNNER_WIRE_V0.md` — frozen v0 serialization contract
@@ -285,11 +285,13 @@ need attention under load.
   `PageAllocator`-style interface for cross-structure allocation tracking
   remains a future opportunity.
 
-- **Shared transaction machine.** The B+ tree owns the `Txn` context and MVCC
-  machinery. Extracting a generalized transactional-store layer would let Seq,
-  BEPT, and Text participate in the same snapshot/rollback semantics — enabling
-  atomic blocks that span multiple data structure types without the runner
-  needing to orchestrate them manually.
+- **Shared DB-backed transaction substrate (non-STM).** The B+ tree currently
+  owns the `Txn` context and MVCC machinery. Extracting a shared transaction
+  substrate would let rollback-capable DB-backed structures (B+ tree, BEPT, and
+  future tries) participate in the same snapshot/rollback semantics for atomic
+  cross-structure updates. Boundary: this is not pointer-level shared-memory
+  STM. Data that cannot rollback should remain thread-local or cross threads via
+  explicit ownership transfer.
 
 - **BEPT timer integration hardening.** Completed with a deterministic
   persist-or-rebuild contract:
@@ -336,8 +338,8 @@ phase reference relate to the runner implementation track described in
 
 - [ ] Design and implement a unified node-allocation interface for Seq, BEPT,
   and Text
-- [ ] Extract a generalized transactional-store layer from the B+ tree `Txn`
-  context
+- [ ] Extract a shared DB-backed transaction substrate (non-STM) from the B+
+  tree `Txn` context for rollback-capable structures
 - [ ] Evaluate expressing wire payloads as Thatch regions for zero-allocation
   message traversal
 - [ ] Add an approximate structural estimator for `txn_count_range`

@@ -798,9 +798,16 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
 - **Goal:** Both the Finger Tree (`seq.c`) and the B+ Tree (`sapling.c`) currently use independent allocation schemes (raw `malloc` versus an internal `PageAllocator`). We will unify them under a single, Universal MVP Wasm linear memory allocator.
 - **Benefit:** Reduces binary size, ensures cache-cohesive node fetching, and eliminates duplicate implementation of garbage collection or deferred-free logic. It is optimized specifically for compilation to Wasm using Wasmtime/WASI, but naturally remains runnable as fast native C.
 
-### Transaction Machine Sharing
-- **Goal:** Pull the Transaction context (`struct Txn`, `watches`, rollback states) out of the sole B+ Tree implementation into a generalized "Transactional Store" layer.
-- **Benefit:** Allows the Finger Tree, B+ Tree, and all future Tries to effortlessly participate in the same `txnid` snapshoting, rollback, and uncommitted write visibility rules. They share the same mutation history, allowing arbitrary composite interactions in atomic blocks.
+### Shared DB-Backed Transaction Substrate (non-STM)
+- **Goal:** Pull the transaction context (`struct Txn`, watches, rollback state)
+  out of the sole B+ tree implementation into a shared DB-backed substrate for
+  rollback-capable structures.
+- **Benefit:** Lets B+ tree, BEPT, and future rollback-capable tries share the
+  same snapshot, rollback, and uncommitted-write visibility rules for composite
+  atomic operations.
+- **Boundary:** This is not a general shared-memory STM over arbitrary pointers.
+  Cross-thread sharing remains DB-mediated. Data that cannot rollback should be
+  thread-local or move-only via ownership transfer.
 
 ### Wasm-Optimized Map/Set Implementations
 - **Big-Endian Patricia Trie (BEPT) (done):** A highly compact radix tree ideal for integer-keyed maps or fast memory indexing. It branches cleanly using bitwise checks and natively lowers to zero-overhead Wasm instructions like `i32/64.clz` (count leading zeros).
@@ -808,7 +815,9 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
 
 ### Strong Mutable `text` Implementation
 - **Goal:** Implement a sophisticated string type (`text`) optimized for heavily mutated text (like a Rope or a Piece Table), leveraging the Finger Tree engine.
-- **Next steps:** Finalize how ownership transfer works across threads for these large sequential allocations (integrating with Lambkin's Z3 compiler proofs) to avoid massive allocation copying when exchanging text over the substrate.
+- **Next steps:** Finalize move-only ownership transfer across threads for large
+  sequential allocations (integrating with Lambkin's Z3 compiler proofs) to
+  avoid allocation copying while preserving rollback boundaries.
 
 ---
 
