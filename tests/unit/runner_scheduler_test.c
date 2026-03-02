@@ -6,6 +6,7 @@
 #include "runner/runner_v0.h"
 #include "runner/scheduler_v0.h"
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -77,6 +78,71 @@ static int test_compute_sleep_ms(void)
     return 0;
 }
 
+static int due_counter_handler(int64_t due_ts, uint64_t seq, const uint8_t *payload,
+                               uint32_t payload_len, void *ctx)
+{
+    uint32_t *count = (uint32_t *)ctx;
+    (void)due_ts;
+    (void)seq;
+    (void)payload;
+    (void)payload_len;
+    (*count)++;
+    return ERR_OK;
+}
+
+static int test_next_due_progress_after_drain(void)
+{
+    DB *db = new_db();
+    int64_t due = 0;
+    uint32_t handled = 0u;
+    uint32_t processed = 0u;
+
+    CHECK(db != NULL);
+    CHECK(sap_runner_timer_v0_append(db, 200, 1u, (const uint8_t *)"a", 1u) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 100, 2u, (const uint8_t *)"b", 1u) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 150, 3u, (const uint8_t *)"c", 1u) == ERR_OK);
+
+    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_OK);
+    CHECK(due == 100);
+
+    CHECK(sap_runner_timer_v0_drain_due(db, 120, 1u, due_counter_handler, &handled, &processed) ==
+          ERR_OK);
+    CHECK(handled == 1u);
+    CHECK(processed == 1u);
+
+    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_OK);
+    CHECK(due == 150);
+
+    CHECK(sap_runner_timer_v0_drain_due(db, 1000, 10u, due_counter_handler, &handled, &processed) ==
+          ERR_OK);
+    CHECK(processed == 2u);
+    CHECK(handled == 3u);
+    CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_NOT_FOUND);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_scheduler_invalid_args_and_caps(void)
+{
+    DB *db = new_db();
+    int64_t due = 0;
+    uint32_t sleep_ms = 0u;
+
+    CHECK(db != NULL);
+    CHECK(sap_runner_scheduler_v0_next_due(NULL, &due) == ERR_INVALID);
+    CHECK(sap_runner_scheduler_v0_next_due(db, NULL) == ERR_INVALID);
+    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(0, 1, 1u, NULL) == ERR_INVALID);
+
+    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(100, 5000, 0u, &sleep_ms) == ERR_OK);
+    CHECK(sleep_ms == 4900u);
+    CHECK(sap_runner_scheduler_v0_compute_sleep_ms(0, 5000000000LL, 0u, &sleep_ms) == ERR_OK);
+    CHECK(sleep_ms == UINT32_MAX);
+
+    db_close(db);
+    return 0;
+}
+
 int main(void)
 {
     SapArenaOptions g_alloc_opts = {
@@ -95,6 +161,16 @@ int main(void)
         return rc;
     }
     rc = test_compute_sleep_ms();
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = test_next_due_progress_after_drain();
+    if (rc != 0)
+    {
+        return rc;
+    }
+    rc = test_scheduler_invalid_args_and_caps();
     if (rc != 0)
     {
         return rc;

@@ -256,6 +256,12 @@ need attention under load.
   `text_to_utf8_full` and deep resolver paths now have explicit host-only
   policy docs: no-malloc runtimes should use caller-buffer resolved APIs.
 
+- **Runner scheduler/lease/dedupe coverage depth.** Resolved. Targeted unit
+  coverage now includes additional edge-path checks:
+  scheduler wake-budget caps and due-queue progression after drains; lease
+  renew/release conflict and decode guardrails; dedupe decode corruption
+  guardrails, checksum clamp behavior, and staged-write commit paths.
+
 - **Allocator usage is asymmetric.** Resolved. All companion subsystems
   (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry, Thatch) now allocate
   exclusively through `SapMemArena`. Transaction-scoped metadata uses
@@ -327,7 +333,6 @@ phase reference relate to the runner implementation track described in
 
 ### Should do
 
-- [ ] Deepen runner scheduler, lease, and dedupe test coverage
 - [ ] Implement DupSort-aware `txn_load_sorted` using the tree-builder fast path
 
 ### Could do (future alignment)
