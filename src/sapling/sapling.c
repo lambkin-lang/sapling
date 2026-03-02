@@ -2720,7 +2720,7 @@ cleanup:
 static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32_t dbi,
                                                const void *const *keys, const uint32_t *key_lens,
                                                const void *const *vals, const uint32_t *val_lens,
-                                               uint32_t count)
+                                               uint32_t count, int is_dupsort)
 {
     static const uint8_t zero = 0;
     struct BTreeEnvState *db = txn->db;
@@ -2777,6 +2777,8 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
             goto cleanup;
 
         c = user_keycmp(db, dbi, ok, okl, nk, key_lens[in_i]);
+        if (c == 0 && is_dupsort)
+            c = user_valcmp(db, dbi, ov, ovl, nv, val_lens[in_i]);
         if (c < 0)
         {
             mkeys[out_i] = ok;
@@ -2858,7 +2860,7 @@ static int txn_load_sorted_nonempty_merge_fast(struct BTreeTxnState *txn, uint32
     txn->dbs[dbi].root_pgno = INVALID_PGNO;
     txn->dbs[dbi].num_entries = 0;
 
-    rc = txn_load_sorted_empty_fast(txn, dbi, mkeys, mklen, mvals, mvlen, out_i, 0);
+    rc = txn_load_sorted_empty_fast(txn, dbi, mkeys, mklen, mvals, mvlen, out_i, is_dupsort);
 
 cleanup:
     if (cur)
@@ -2954,7 +2956,7 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
         return rc;
     }
 
-    if (!is_dupsort && !requires_overflow && txn->new_cnt == 0 && txn->old_cnt == 0)
+    if (!requires_overflow && txn->new_cnt == 0 && txn->old_cnt == 0)
     {
         int has_overflow = txn_tree_has_overflow(txn, txn->dbs[dbi].root_pgno);
         if (has_overflow < 0)
@@ -2967,7 +2969,7 @@ int txn_load_sorted(Txn *txn_pub, uint32_t dbi, const void *const *keys, const u
                 return ERR_OOM;
             struct BTreeTxnState *c_st = sap_txn_subsystem_state(child, SAP_SUBSYSTEM_DB);
             rc = txn_load_sorted_nonempty_merge_fast(c_st, dbi, keys, key_lens, vals,
-                                                     val_lens, count);
+                                                     val_lens, count, is_dupsort);
             if (rc == ERR_OK)
             {
                 for (uint32_t i = 0; i < count; i++)

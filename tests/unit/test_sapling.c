@@ -3430,6 +3430,116 @@ static void test_load_sorted(void)
 }
 
 /* ================================================================== */
+/* Test: txn_load_sorted DUPSORT non-empty fast path                    */
+/* ================================================================== */
+
+static void test_load_sorted_dupsort_merge_fast(void)
+{
+    SECTION("txn_load_sorted dupsort merge fast");
+
+    {
+        DB *db = new_db();
+        CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
+
+        Txn *w = txn_begin(db, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put_dbi(w, 1, "x", 1, "a", 1) == ERR_OK);
+        CHECK(txn_put_dbi(w, 1, "x", 1, "c", 1) == ERR_OK);
+        CHECK(txn_put_dbi(w, 1, "y", 1, "b", 1) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+
+        {
+            const void *keys[] = {"x", "x", "z"};
+            const uint32_t key_lens[] = {1, 1, 1};
+            const void *vals[] = {"b", "c", "d"};
+            const uint32_t val_lens[] = {1, 1, 1};
+            Txn *w2 = txn_begin(db, NULL, 0);
+            CHECK(w2 != NULL);
+            CHECK(txn_load_sorted(w2, 1, keys, key_lens, vals, val_lens, 3) == ERR_OK);
+            CHECK(txn_commit(w2) == ERR_OK);
+        }
+
+        {
+            static const char exp_keys[][2] = {"x", "x", "x", "y", "z"};
+            static const char exp_vals[][2] = {"a", "b", "c", "b", "d"};
+            Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+            CHECK(r != NULL);
+            Cursor *cur = cursor_open_dbi(r, 1);
+            CHECK(cur != NULL);
+            CHECK(cursor_first(cur) == ERR_OK);
+            for (uint32_t i = 0; i < 5; i++)
+            {
+                const void *k;
+                const void *v;
+                uint32_t kl;
+                uint32_t vl;
+                CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
+                CHECK(kl == 1 && memcmp(k, exp_keys[i], 1) == 0);
+                CHECK(vl == 1 && memcmp(v, exp_vals[i], 1) == 0);
+                if (i + 1 < 5)
+                    CHECK(cursor_next(cur) == ERR_OK);
+            }
+            CHECK(cursor_next(cur) == ERR_NOT_FOUND);
+            cursor_close(cur);
+            txn_abort(r);
+        }
+
+        db_close(db);
+    }
+
+    {
+        DB *db = new_db();
+        CHECK(dbi_open(db, 1, NULL, NULL, DBI_DUPSORT) == ERR_OK);
+        CHECK(dbi_set_dupsort(db, 1, reverse_cmp, NULL) == ERR_OK);
+
+        Txn *w = txn_begin(db, NULL, 0);
+        CHECK(w != NULL);
+        CHECK(txn_put_dbi(w, 1, "q", 1, "c", 1) == ERR_OK);
+        CHECK(txn_put_dbi(w, 1, "q", 1, "a", 1) == ERR_OK);
+        CHECK(txn_commit(w) == ERR_OK);
+
+        {
+            const void *keys[] = {"q", "q", "r"};
+            const uint32_t key_lens[] = {1, 1, 1};
+            const void *vals[] = {"b", "a", "z"};
+            const uint32_t val_lens[] = {1, 1, 1};
+            Txn *w2 = txn_begin(db, NULL, 0);
+            CHECK(w2 != NULL);
+            CHECK(txn_load_sorted(w2, 1, keys, key_lens, vals, val_lens, 3) == ERR_OK);
+            CHECK(txn_commit(w2) == ERR_OK);
+        }
+
+        {
+            Txn *r = txn_begin(db, NULL, TXN_RDONLY);
+            const void *k;
+            const void *v;
+            uint32_t kl;
+            uint32_t vl;
+            CHECK(r != NULL);
+            CHECK(txn_get_dbi(r, 1, "q", 1, &v, &vl) == ERR_OK);
+            CHECK(vl == 1 && memcmp(v, "c", 1) == 0);
+            Cursor *cur = cursor_open_dbi(r, 1);
+            CHECK(cur != NULL);
+            CHECK(cursor_seek_prefix(cur, "q", 1) == ERR_OK);
+            CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
+            CHECK(kl == 1 && memcmp(k, "q", 1) == 0);
+            CHECK(vl == 1 && memcmp(v, "c", 1) == 0);
+            CHECK(cursor_next_dup(cur) == ERR_OK);
+            CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
+            CHECK(vl == 1 && memcmp(v, "b", 1) == 0);
+            CHECK(cursor_next_dup(cur) == ERR_OK);
+            CHECK(cursor_get(cur, &k, &kl, &v, &vl) == ERR_OK);
+            CHECK(vl == 1 && memcmp(v, "a", 1) == 0);
+            CHECK(cursor_next_dup(cur) == ERR_NOT_FOUND);
+            cursor_close(cur);
+            txn_abort(r);
+        }
+
+        db_close(db);
+    }
+}
+
+/* ================================================================== */
 /* Test: prefix helper APIs                                             */
 /* ================================================================== */
 
@@ -4244,6 +4354,7 @@ int main(void)
     test_del_range();
     test_merge();
     test_load_sorted();
+    test_load_sorted_dupsort_merge_fast();
     test_prefix_helpers();
     test_dupsort_apis();
     test_dupsort_value_comparator();

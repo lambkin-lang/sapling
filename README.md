@@ -207,10 +207,6 @@ need attention under load.
 
 ### Optimization opportunities (functional, deferred)
 
-- **DupSort bulk load.** `txn_load_sorted` on DupSort DBIs falls back to
-  O(log n) per-row inserts rather than the O(n) tree-builder used for non-DupSort
-  empty-DBI loads.
-
 - **Range count estimator.** `txn_count_range` uses cursor iteration (exact but
   O(k)). An approximate structural estimator would give O(1) for query planning.
 
@@ -330,10 +326,11 @@ phase reference relate to the runner implementation track described in
 - [x] Extend WIT codegen to produce usable C struct layouts for compound types
   (`message-envelope`, `lease-state`, `worker-id`) instead of `unknown_layout`
   placeholders
+- [x] Implement DupSort-aware `txn_load_sorted` non-empty merge fast path
 
 ### Should do
 
-- [ ] Implement DupSort-aware `txn_load_sorted` using the tree-builder fast path
+- No active should-do items at the moment.
 
 ### Could do (future alignment)
 

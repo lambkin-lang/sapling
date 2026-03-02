@@ -143,10 +143,9 @@ code.
 `txn_load_sorted` is complete. For loading into an empty DBI, it uses an
 `O(n)` leaf/internal builder.
 
-For non-empty, non-DUPSORT DBIs in a clean write transaction state, it uses a
-merge+rebuild fast path (preserving upsert semantics). 
-
-**Discrepancy / Remaining Optimization:** `txn_load_sorted` on a `DUPSORT` database currently falls back to a loop of standard `O(log n)` inserts rather than the optimized `O(n)` tree-builder. Addressing this is a future optimization.
+For non-empty DBIs in a clean write transaction state, it uses a merge+rebuild
+fast path (preserving upsert semantics for regular DBIs and exact-dup de-dup
+semantics for DUPSORT DBIs).
 
 ```c
 int txn_load_sorted(Txn *txn, DBI dbi,
