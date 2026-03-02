@@ -9,6 +9,7 @@
 #include "runner/outbox_v0.h"
 #include "runner/runner_v0.h"
 #include "runner/timer_v0.h"
+#include "runner/wit_wire_bridge_v0.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -27,7 +28,7 @@ typedef struct
 typedef struct
 {
     uint32_t calls;
-    uint8_t frames[4][64];
+    uint8_t frames[4][256];
     uint32_t frame_lens[4];
 } OutboxCollectCtx;
 
@@ -180,15 +181,39 @@ static int inbox_read_frame(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *d
         txn_abort(txn);
         return rc;
     }
-    if (!val || val_len > dst_cap)
+    if (!val || val_len == 0u)
     {
         txn_abort(txn);
-        return ERR_FULL;
+        return ERR_CORRUPT;
     }
-    memcpy(dst, val, val_len);
-    *dst_len_out = val_len;
-    txn_abort(txn);
-    return ERR_OK;
+    if (!sap_runner_wit_wire_v0_value_is_dbi1_inbox(val, val_len))
+    {
+        txn_abort(txn);
+        return ERR_CORRUPT;
+    }
+    {
+        uint8_t *wire = NULL;
+        uint32_t wire_len = 0u;
+
+        rc = sap_runner_wit_wire_v0_decode_dbi1_inbox_value_to_wire((const uint8_t *)val, val_len,
+                                                                     &wire, &wire_len);
+        txn_abort(txn);
+        if (rc != ERR_OK)
+        {
+            free(wire);
+            return rc;
+        }
+        if (wire_len > dst_cap)
+        {
+            free(wire);
+            return ERR_FULL;
+        }
+        memcpy(dst, wire, wire_len);
+        *dst_len_out = wire_len;
+        free(wire);
+        return ERR_OK;
+    }
+    return ERR_CORRUPT;
 }
 
 static int collect_outbox_frame(const uint8_t *frame, uint32_t frame_len, void *ctx)
@@ -230,8 +255,11 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     ExampleAtomicCtx *atomic = (ExampleAtomicCtx *)ctx;
     SapRunnerIntentV0 outbox_intent = {0};
     SapRunnerIntentV0 timer_intent = {0};
+    SapRunnerMessageV0 outbox_msg = {0};
     SapRunnerMessageV0 timer_msg = {0};
+    uint8_t outbox_frame[256];
     uint8_t timer_frame[256];
+    uint32_t outbox_frame_len = 0u;
     uint32_t timer_frame_len = 0u;
     const void *cur = NULL;
     uint32_t cur_len = 0u;
@@ -293,8 +321,19 @@ static int native_atomic_apply(SapRunnerTxStackV0 *stack, Txn *read_txn, SapRunn
     outbox_intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
     outbox_intent.flags = 0u;
     outbox_intent.due_ts = 0;
-    outbox_intent.message = msg->payload;
-    outbox_intent.message_len = msg->payload_len;
+    outbox_msg = *msg;
+    outbox_msg.kind = SAP_RUNNER_MESSAGE_KIND_EVENT;
+    if (sap_runner_message_v0_size(&outbox_msg) > sizeof(outbox_frame))
+    {
+        return ERR_FULL;
+    }
+    if (sap_runner_message_v0_encode(&outbox_msg, outbox_frame, sizeof(outbox_frame),
+                                     &outbox_frame_len) != SAP_RUNNER_WIRE_OK)
+    {
+        return ERR_CORRUPT;
+    }
+    outbox_intent.message = outbox_frame;
+    outbox_intent.message_len = outbox_frame_len;
     rc = sap_runner_txstack_v0_push_intent(stack, &outbox_intent);
     if (rc != ERR_OK)
     {
@@ -464,11 +503,22 @@ int main(void)
 
     processed = 0u;
     if (sap_runner_outbox_v0_drain(db, 4u, collect_outbox_frame, &outbox, &processed) != ERR_OK ||
-        processed != 1u || outbox.calls != 1u || outbox.frame_lens[0] != sizeof(payload) ||
-        memcmp(outbox.frames[0], payload, sizeof(payload)) != 0)
+        processed != 1u || outbox.calls != 1u)
     {
         fprintf(stderr, "runner-native-example: outbox drain check failed\n");
         goto done;
+    }
+    {
+        SapRunnerMessageV0 outbox_msg_check = {0};
+        if (sap_runner_message_v0_decode(outbox.frames[0], outbox.frame_lens[0], &outbox_msg_check) !=
+                SAP_RUNNER_WIRE_OK ||
+            outbox_msg_check.kind != SAP_RUNNER_MESSAGE_KIND_EVENT ||
+            outbox_msg_check.payload_len != sizeof(payload) ||
+            memcmp(outbox_msg_check.payload, payload, sizeof(payload)) != 0)
+        {
+            fprintf(stderr, "runner-native-example: outbox frame decode check failed\n");
+            goto done;
+        }
     }
 
     processed = 0u;

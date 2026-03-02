@@ -1,11 +1,12 @@
 # Runner Wire Format v0
 
-This document freezes the initial message/intent serialization contract used by
-the C host runner. It is intentionally small, binary, and independent of
-component-model runtime machinery.
+This document freezes the initial boundary message/intent serialization contract
+used by the C host runner. It is intentionally small, binary, and independent
+of component-model runtime machinery.
 
-WIT remains the source of truth for logical schema (`schemas/wit/runtime-schema.wit`);
-this wire format is the host/runtime framing for persisted and queued records.
+WIT remains the source of truth for logical schema (`schemas/wit/runtime-schema.wit`).
+In the convergence direction, `wire_v0` is the ingress/egress adapter while
+persisted DBI records converge to canonical WIT/Thatch bytes.
 
 ## Versioning contract
 
@@ -19,6 +20,18 @@ this wire format is the host/runtime framing for persisted and queued records.
 
 This strictness keeps compatibility behavior explicit while the runner is being
 brought up.
+
+## Convergence role
+
+- `wire_v0` remains the external/boundary framing contract (WASI shim, host API,
+  tests that inject external frames).
+- Internal persistence uses generated WIT/Thatch codecs for DBI value validation
+  and typed read/write paths.
+- Bridge code handles conversion between boundary `LMSG`/`LINT` frames and
+  canonical WIT records.
+- Current bridge coverage:
+  - DBI 1 (inbox) and DBI 6 (dead-letter): canonical-only storage/read paths.
+  - DBI 2 (outbox) and DBI 4 (timers): canonical-only storage/read paths.
 
 ## Message frame (`LMSG`)
 

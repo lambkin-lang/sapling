@@ -5,6 +5,7 @@
  */
 #include "generated/wit_schema_dbis.h"
 #include "runner/runner_v0.h"
+#include "runner/wit_wire_bridge_v0.h"
 #include "wasi/runtime_v0.h"
 #include "wasi/shim_v0.h"
 
@@ -97,6 +98,9 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
 {
     Txn *txn;
     uint8_t key[SAP_WASI_SHIM_V0_OUTBOX_KEY_SIZE];
+    const void *val = NULL;
+    uint32_t val_len = 0u;
+    uint8_t *copy = NULL;
     int rc;
 
     if (!db || !val_out || !val_len_out || !exists_out)
@@ -110,11 +114,28 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
         return ERR_INVALID;
     }
     sap_wasi_shim_v0_outbox_key_encode(seq, key);
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), val_out, val_len_out);
+    rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), &val, &val_len);
     if (rc == ERR_OK)
     {
         *exists_out = 1;
+        if (!val || val_len == 0u)
+        {
+            txn_abort(txn);
+            return ERR_CORRUPT;
+        }
+        if (!sap_runner_wit_wire_v0_value_is_dbi2_outbox(val, val_len))
+        {
+            txn_abort(txn);
+            return ERR_CORRUPT;
+        }
+        rc = sap_runner_wit_wire_v0_decode_dbi2_outbox_value_to_wire((const uint8_t *)val, val_len,
+                                                                      &copy, val_len_out, NULL);
         txn_abort(txn);
+        if (rc != ERR_OK)
+        {
+            return rc;
+        }
+        *val_out = copy;
         return ERR_OK;
     }
     if (rc == ERR_NOT_FOUND)
@@ -215,6 +236,7 @@ static int test_worker_shim_outbox_path(void)
     CHECK(out_msg.to_worker == 99);
     CHECK(out_msg.payload_len == 2u);
     CHECK(memcmp(out_msg.payload, "ok", 2u) == 0);
+    free((void *)out_val);
 
     CHECK(inbox_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);

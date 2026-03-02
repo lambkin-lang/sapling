@@ -10,6 +10,7 @@
 #include "runner/mailbox_v0.h"
 #include "runner/scheduler_v0.h"
 #include "runner/timer_v0.h"
+#include "runner/wit_wire_bridge_v0.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -374,17 +375,29 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
         txn_abort(txn);
         return rc;
     }
-    rc = copy_bytes((const uint8_t *)val, val_len, frame_out);
+    if (!sap_runner_wit_wire_v0_value_is_dbi1_inbox(val, val_len))
+    {
+        free(*key_out);
+        *key_out = NULL;
+        cursor_close(cur);
+        txn_abort(txn);
+        return ERR_CORRUPT;
+    }
+    rc = sap_runner_wit_wire_v0_decode_dbi1_inbox_value_to_wire((const uint8_t *)val, val_len,
+                                                                 frame_out, frame_len_out);
     if (rc != ERR_OK)
     {
         free(*key_out);
         *key_out = NULL;
         cursor_close(cur);
         txn_abort(txn);
-        return rc;
+        if (rc == ERR_OOM)
+        {
+            return ERR_OOM;
+        }
+        return ERR_CORRUPT;
     }
     *key_len_out = key_len;
-    *frame_len_out = val_len;
 
     cursor_close(cur);
     txn_abort(txn);
@@ -873,6 +886,11 @@ int sap_runner_v0_bootstrap_dbis(DB *db)
     {
         return ERR_INVALID;
     }
+    rc = sap_thatch_subsystem_init((SapEnv *)db);
+    if (rc != ERR_OK)
+    {
+        return rc;
+    }
     if (sap_wit_dbi_schema[0].dbi != SAP_WIT_DBI_APP_STATE)
     {
         return ERR_INVALID;
@@ -1150,11 +1168,18 @@ int sap_runner_v0_inbox_put(DB *db, uint64_t worker_id, uint64_t seq, const uint
 {
     Txn *txn;
     uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
+    const void *stored_value = NULL;
+    uint32_t stored_value_len = 0u;
     int rc;
 
     if (!db || !frame || frame_len == 0u)
     {
         return ERR_INVALID;
+    }
+    rc = sap_thatch_subsystem_init((SapEnv *)db);
+    if (rc != ERR_OK)
+    {
+        return rc;
     }
 
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
@@ -1165,7 +1190,15 @@ int sap_runner_v0_inbox_put(DB *db, uint64_t worker_id, uint64_t seq, const uint
         return ERR_BUSY;
     }
 
-    rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), frame, frame_len);
+    rc = sap_runner_wit_wire_v0_encode_dbi1_inbox_value_from_wire(
+        (SapTxnCtx *)txn, frame, frame_len, &stored_value, &stored_value_len);
+    if (rc != ERR_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+
+    rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), stored_value, stored_value_len);
     if (rc != ERR_OK)
     {
         txn_abort(txn);

@@ -8,6 +8,7 @@
 #include "runner/host_v0.h"
 #include "runner/intent_sink_v0.h"
 #include "runner/runner_v0.h"
+#include "runner/wire_v0.h"
 
 #include <inttypes.h>
 #include <stdint.h>
@@ -66,6 +67,10 @@ static int guest_atomic_logic(void *ctx, SapHostV0 *host, const uint8_t *request
     uint32_t cur_len = 0u;
     uint64_t count = 0u;
     uint8_t raw_count[8];
+    SapRunnerMessageV0 out_msg = {0};
+    uint8_t out_frame[256];
+    uint32_t out_frame_len = 0u;
+    uint8_t msg_id[] = {'h', 'o', 's', 't', '-', 'o', 'u', 't'};
     int rc;
 
     (void)ctx;
@@ -100,7 +105,28 @@ static int guest_atomic_logic(void *ctx, SapHostV0 *host, const uint8_t *request
     }
 
     /* 3. Emit a message in the same atomic block */
-    rc = sap_host_v0_emit(host, request, request_len);
+    out_msg.kind = SAP_RUNNER_MESSAGE_KIND_EVENT;
+    out_msg.flags = 0u;
+    out_msg.to_worker = (int64_t)host->worker_id;
+    out_msg.route_worker = (int64_t)host->worker_id;
+    out_msg.route_timestamp = host->now_ms;
+    out_msg.from_worker = 0;
+    out_msg.message_id = msg_id;
+    out_msg.message_id_len = sizeof(msg_id);
+    out_msg.trace_id = NULL;
+    out_msg.trace_id_len = 0u;
+    out_msg.payload = request;
+    out_msg.payload_len = request_len;
+    if (sap_runner_message_v0_size(&out_msg) > sizeof(out_frame))
+    {
+        return ERR_FULL;
+    }
+    rc = sap_runner_message_v0_encode(&out_msg, out_frame, sizeof(out_frame), &out_frame_len);
+    if (rc != SAP_RUNNER_WIRE_OK)
+    {
+        return ERR_CORRUPT;
+    }
+    rc = sap_host_v0_emit(host, out_frame, out_frame_len);
     if (rc != ERR_OK)
     {
         return rc;

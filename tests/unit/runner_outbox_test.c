@@ -6,6 +6,7 @@
 #include "generated/wit_schema_dbis.h"
 #include "runner/outbox_v0.h"
 #include "runner/runner_v0.h"
+#include "runner/wit_wire_bridge_v0.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -50,10 +51,38 @@ static DB *new_db(void)
     return db;
 }
 
+static int encode_message(uint32_t to_worker, const uint8_t *payload, uint32_t payload_len,
+                          uint8_t *buf, uint32_t buf_cap, uint32_t *len_out)
+{
+    uint8_t msg_id[] = {'o', 'b', 'x', (uint8_t)payload_len};
+    SapRunnerMessageV0 msg = {0};
+
+    if (!payload || payload_len == 0u)
+    {
+        return ERR_INVALID;
+    }
+    msg.kind = SAP_RUNNER_MESSAGE_KIND_EVENT;
+    msg.flags = 0u;
+    msg.to_worker = (int64_t)to_worker;
+    msg.route_worker = (int64_t)to_worker;
+    msg.route_timestamp = 123;
+    msg.from_worker = 0;
+    msg.message_id = msg_id;
+    msg.message_id_len = sizeof(msg_id);
+    msg.trace_id = NULL;
+    msg.trace_id_len = 0u;
+    msg.payload = payload;
+    msg.payload_len = payload_len;
+    return sap_runner_message_v0_encode(&msg, buf, buf_cap, len_out);
+}
+
 static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_len_out)
 {
     Txn *txn;
     uint8_t key[SAP_RUNNER_OUTBOX_KEY_V0_SIZE];
+    const void *val = NULL;
+    uint32_t val_len = 0u;
+    uint8_t *copy = NULL;
     int rc;
 
     if (!db || !val_out || !val_len_out)
@@ -69,22 +98,49 @@ static int outbox_get(DB *db, uint64_t seq, const void **val_out, uint32_t *val_
         return ERR_INVALID;
     }
     sap_runner_outbox_v0_key_encode(seq, key);
-    rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), val_out, val_len_out);
+    rc = txn_get_dbi(txn, SAP_WIT_DBI_OUTBOX, key, sizeof(key), &val, &val_len);
+    if (rc == ERR_NOT_FOUND)
+    {
+        txn_abort(txn);
+        return ERR_NOT_FOUND;
+    }
+    if (rc != ERR_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+    if (!val || val_len == 0u)
+    {
+        txn_abort(txn);
+        return ERR_CORRUPT;
+    }
+    if (!sap_runner_wit_wire_v0_value_is_dbi2_outbox(val, val_len))
+    {
+        txn_abort(txn);
+        return ERR_CORRUPT;
+    }
+    rc = sap_runner_wit_wire_v0_decode_dbi2_outbox_value_to_wire((const uint8_t *)val, val_len,
+                                                                  &copy, val_len_out, NULL);
     txn_abort(txn);
-    return rc;
+    if (rc != ERR_OK)
+    {
+        return rc;
+    }
+    *val_out = copy;
+    return ERR_OK;
 }
 
 typedef struct
 {
     uint32_t calls;
-    uint8_t frames[8][32];
+    uint8_t frames[8][256];
     uint32_t frame_lens[8];
 } DrainCtx;
 
 static int collect_frame(const uint8_t *frame, uint32_t frame_len, void *ctx)
 {
     DrainCtx *drain = (DrainCtx *)ctx;
-    if (!drain || !frame || frame_len == 0u || frame_len > 32u || drain->calls >= 8u)
+    if (!drain || !frame || frame_len == 0u || frame_len > 256u || drain->calls >= 8u)
     {
         return ERR_INVALID;
     }
@@ -98,22 +154,30 @@ static int test_outbox_append_and_drain(void)
 {
     DB *db = new_db();
     DrainCtx drain = {0};
-    uint8_t a[] = {'a'};
-    uint8_t b[] = {'b', 'b'};
+    const uint8_t payload_a[] = {'a'};
+    const uint8_t payload_b[] = {'b', 'b'};
+    uint8_t a[128];
+    uint8_t b[128];
+    uint32_t a_len = 0u;
+    uint32_t b_len = 0u;
     uint32_t processed = 0u;
     const void *val = NULL;
     uint32_t val_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_outbox_v0_append_frame(db, 10u, a, sizeof(a)) == ERR_OK);
-    CHECK(sap_runner_outbox_v0_append_frame(db, 11u, b, sizeof(b)) == ERR_OK);
+    CHECK(encode_message(10u, payload_a, sizeof(payload_a), a, sizeof(a), &a_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(encode_message(11u, payload_b, sizeof(payload_b), b, sizeof(b), &b_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_outbox_v0_append_frame(db, 10u, a, a_len) == ERR_OK);
+    CHECK(sap_runner_outbox_v0_append_frame(db, 11u, b, b_len) == ERR_OK);
     CHECK(sap_runner_outbox_v0_drain(db, 8u, collect_frame, &drain, &processed) == ERR_OK);
     CHECK(processed == 2u);
     CHECK(drain.calls == 2u);
-    CHECK(drain.frame_lens[0] == sizeof(a));
-    CHECK(memcmp(drain.frames[0], a, sizeof(a)) == 0);
-    CHECK(drain.frame_lens[1] == sizeof(b));
-    CHECK(memcmp(drain.frames[1], b, sizeof(b)) == 0);
+    CHECK(drain.frame_lens[0] == a_len);
+    CHECK(memcmp(drain.frames[0], a, a_len) == 0);
+    CHECK(drain.frame_lens[1] == b_len);
+    CHECK(memcmp(drain.frames[1], b, b_len) == 0);
 
     CHECK(outbox_get(db, 10u, &val, &val_len) == ERR_NOT_FOUND);
     CHECK(outbox_get(db, 11u, &val, &val_len) == ERR_NOT_FOUND);
@@ -134,6 +198,8 @@ static int atomic_emit_intent(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ct
     SapRunnerIntentV0 intent = {0};
     const uint8_t outbox_payload[] = {'e', 'v', 't'};
     const uint8_t timer_payload[] = {'t'};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
 
     (void)read_txn;
     if (!stack || !atomic)
@@ -147,16 +213,26 @@ static int atomic_emit_intent(SapRunnerTxStackV0 *stack, Txn *read_txn, void *ct
         intent.kind = SAP_RUNNER_INTENT_KIND_TIMER_ARM;
         intent.flags = SAP_RUNNER_INTENT_FLAG_HAS_DUE_TS;
         intent.due_ts = 123;
-        intent.message = timer_payload;
-        intent.message_len = sizeof(timer_payload);
+        if (encode_message(7u, timer_payload, sizeof(timer_payload), frame, sizeof(frame),
+                           &frame_len) != SAP_RUNNER_WIRE_OK)
+        {
+            return ERR_CORRUPT;
+        }
+        intent.message = frame;
+        intent.message_len = frame_len;
     }
     else
     {
         intent.kind = SAP_RUNNER_INTENT_KIND_OUTBOX_EMIT;
         intent.flags = 0u;
         intent.due_ts = 0;
-        intent.message = outbox_payload;
-        intent.message_len = sizeof(outbox_payload);
+        if (encode_message(7u, outbox_payload, sizeof(outbox_payload), frame, sizeof(frame),
+                           &frame_len) != SAP_RUNNER_WIRE_OK)
+        {
+            return ERR_CORRUPT;
+        }
+        intent.message = frame;
+        intent.message_len = frame_len;
     }
     return sap_runner_txstack_v0_push_intent(stack, &intent);
 }
@@ -170,6 +246,7 @@ static int test_outbox_publisher_with_attempt_engine(void)
     AtomicCtx atomic = {0};
     const void *val = NULL;
     uint32_t val_len = 0u;
+    SapRunnerMessageV0 out_msg = {0};
 
     CHECK(db != NULL);
     CHECK(sap_runner_outbox_v0_publisher_init(&publisher, db, 100u) == ERR_OK);
@@ -188,8 +265,11 @@ static int test_outbox_publisher_with_attempt_engine(void)
     CHECK(atomic.calls == 1u);
     CHECK(publisher.next_seq == 101u);
     CHECK(outbox_get(db, 100u, &val, &val_len) == ERR_OK);
-    CHECK(val_len == 3u);
-    CHECK(memcmp(val, "evt", 3u) == 0);
+    CHECK(sap_runner_message_v0_decode((const uint8_t *)val, val_len, &out_msg) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(out_msg.payload_len == 3u);
+    CHECK(memcmp(out_msg.payload, "evt", 3u) == 0);
+    free((void *)val);
 
     db_close(db);
     return 0;

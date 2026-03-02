@@ -8,6 +8,8 @@ Planned home for the C host runner:
 Implemented foundation:
 - `wire_v0.h` / `wire_v0.c`: strict v0 message + intent serialization contract
   with version checks and deterministic decode validation.
+- `wit_wire_bridge_v0.h` / `wit_wire_bridge_v0.c`: canonical bridge between
+  boundary `LMSG` frames and generated WIT/Thatch DBI value codecs (DBI1/2/4/6).
 - `runner_v0.h` / `runner_v0.c`: phase-A lifecycle scaffold with DBI bootstrap,
   schema-version guard, single-step dispatch callback integration, and
   DB-backed inbox polling with lease-aware claim/ack/requeue handling plus
@@ -41,11 +43,13 @@ Implemented foundation:
 - `mailbox_v0.h` / `mailbox_v0.c`: phase-C mailbox lease claim/ack/requeue
   scaffold with CAS-style lease token guards.
 - `dead_letter_v0.h` / `dead_letter_v0.c`: phase-C dead-letter move helpers for
-  exhausted retry-budget messages, plus drain/replay tooling APIs.
+  exhausted retry-budget messages, plus drain/replay tooling APIs (canonical DBI6).
 - `outbox_v0.h` / `outbox_v0.c`: phase-C outbox append/drain APIs plus
-  attempt-intent publisher adapter for committed outbox emission.
+  attempt-intent publisher adapter for committed outbox emission
+  (canonical DBI2 from `LMSG` frame input).
 - `timer_v0.h` / `timer_v0.c`: phase-C timer append/due-drain APIs plus
-  attempt-intent publisher adapter for committed timer ingestion.
+  attempt-intent publisher adapter for committed timer ingestion
+  (canonical DBI4 from `LMSG` frame input).
 - `scheduler_v0.h` / `scheduler_v0.c`: phase-C next-due lookup and sleep-budget
   helpers for timer-aware worker idle behavior.
 - `intent_sink_v0.h` / `intent_sink_v0.c`: composed intent sink that routes

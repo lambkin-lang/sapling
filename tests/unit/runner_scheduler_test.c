@@ -5,6 +5,7 @@
  */
 #include "runner/runner_v0.h"
 #include "runner/scheduler_v0.h"
+#include "runner/wire_v0.h"
 
 #include <limits.h>
 #include <stdint.h>
@@ -49,15 +50,50 @@ static DB *new_db(void)
     return db;
 }
 
+static int encode_message(uint32_t to_worker, uint8_t payload_tag, uint8_t *buf, uint32_t buf_cap,
+                          uint32_t *len_out)
+{
+    uint8_t msg_id[] = {'s', 'c', payload_tag};
+    uint8_t payload[] = {'p', payload_tag};
+    SapRunnerMessageV0 msg = {0};
+
+    if (!buf || !len_out)
+    {
+        return ERR_INVALID;
+    }
+
+    msg.kind = SAP_RUNNER_MESSAGE_KIND_COMMAND;
+    msg.flags = 0u;
+    msg.to_worker = (int64_t)to_worker;
+    msg.route_worker = (int64_t)to_worker;
+    msg.route_timestamp = 0;
+    msg.from_worker = 0;
+    msg.message_id = msg_id;
+    msg.message_id_len = sizeof(msg_id);
+    msg.trace_id = NULL;
+    msg.trace_id_len = 0u;
+    msg.payload = payload;
+    msg.payload_len = sizeof(payload);
+    return sap_runner_message_v0_encode(&msg, buf, buf_cap, len_out);
+}
+
 static int test_next_due_empty_and_present(void)
 {
     DB *db = new_db();
     int64_t due = 0;
+    uint8_t frame_a[128];
+    uint8_t frame_b[128];
+    uint32_t frame_a_len = 0u;
+    uint32_t frame_b_len = 0u;
 
     CHECK(db != NULL);
+    CHECK(encode_message(1u, (uint8_t)'a', frame_a, sizeof(frame_a), &frame_a_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(encode_message(1u, (uint8_t)'b', frame_b, sizeof(frame_b), &frame_b_len) ==
+          SAP_RUNNER_WIRE_OK);
     CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_NOT_FOUND);
-    CHECK(sap_runner_timer_v0_append(db, 200, 1u, (const uint8_t *)"a", 1u) == ERR_OK);
-    CHECK(sap_runner_timer_v0_append(db, 100, 1u, (const uint8_t *)"b", 1u) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 200, 1u, frame_a, frame_a_len) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 100, 1u, frame_b, frame_b_len) == ERR_OK);
     CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_OK);
     CHECK(due == 100);
 
@@ -96,11 +132,23 @@ static int test_next_due_progress_after_drain(void)
     int64_t due = 0;
     uint32_t handled = 0u;
     uint32_t processed = 0u;
+    uint8_t frame_a[128];
+    uint8_t frame_b[128];
+    uint8_t frame_c[128];
+    uint32_t frame_a_len = 0u;
+    uint32_t frame_b_len = 0u;
+    uint32_t frame_c_len = 0u;
 
     CHECK(db != NULL);
-    CHECK(sap_runner_timer_v0_append(db, 200, 1u, (const uint8_t *)"a", 1u) == ERR_OK);
-    CHECK(sap_runner_timer_v0_append(db, 100, 2u, (const uint8_t *)"b", 1u) == ERR_OK);
-    CHECK(sap_runner_timer_v0_append(db, 150, 3u, (const uint8_t *)"c", 1u) == ERR_OK);
+    CHECK(encode_message(1u, (uint8_t)'a', frame_a, sizeof(frame_a), &frame_a_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(encode_message(1u, (uint8_t)'b', frame_b, sizeof(frame_b), &frame_b_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(encode_message(1u, (uint8_t)'c', frame_c, sizeof(frame_c), &frame_c_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 200, 1u, frame_a, frame_a_len) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 100, 2u, frame_b, frame_b_len) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 150, 3u, frame_c, frame_c_len) == ERR_OK);
 
     CHECK(sap_runner_scheduler_v0_next_due(db, &due) == ERR_OK);
     CHECK(due == 100);

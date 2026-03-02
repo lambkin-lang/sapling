@@ -42,8 +42,7 @@ typedef struct
     uint32_t calls;
     int64_t due_ts[4];
     uint64_t seq[4];
-    uint8_t payloads[4][8];
-    uint32_t payload_lens[4];
+    uint8_t payload_tag[4];
 } TimerDrainCtx;
 
 static void *test_alloc(void *ctx, uint32_t sz)
@@ -239,15 +238,22 @@ static int collect_timer_due(int64_t due_ts, uint64_t seq, const uint8_t *payloa
                              uint32_t payload_len, void *ctx)
 {
     TimerDrainCtx *drain = (TimerDrainCtx *)ctx;
+    SapRunnerMessageV0 msg = {0};
+    int rc;
 
-    if (!drain || !payload || payload_len == 0u || payload_len > 8u || drain->calls >= 4u)
+    if (!drain || !payload || payload_len == 0u || drain->calls >= 4u)
     {
         return ERR_INVALID;
     }
+    rc = sap_runner_message_v0_decode(payload, payload_len, &msg);
+    if (rc != SAP_RUNNER_WIRE_OK || !msg.payload || msg.payload_len < 2u)
+    {
+        return ERR_CORRUPT;
+    }
+
     drain->due_ts[drain->calls] = due_ts;
     drain->seq[drain->calls] = seq;
-    memcpy(drain->payloads[drain->calls], payload, payload_len);
-    drain->payload_lens[drain->calls] = payload_len;
+    drain->payload_tag[drain->calls] = msg.payload[1];
     drain->calls++;
     return ERR_OK;
 }
@@ -330,13 +336,19 @@ static int test_timer_index_recovers_after_restore(void)
     TimerDrainCtx drain = {0};
     uint32_t processed = 0u;
     int64_t next_due = 0;
-    const uint8_t a[] = {'a'};
-    const uint8_t b[] = {'b'};
+    uint8_t frame_a[128];
+    uint8_t frame_b[128];
+    uint32_t frame_a_len = 0u;
+    uint32_t frame_b_len = 0u;
 
     CHECK(db != NULL);
     CHECK(sap_runner_v0_bootstrap_dbis(db) == ERR_OK);
-    CHECK(sap_runner_timer_v0_append(db, 10, 1u, a, sizeof(a)) == ERR_OK);
-    CHECK(sap_runner_timer_v0_append(db, 20, 1u, b, sizeof(b)) == ERR_OK);
+    CHECK(encode_message(1u, (uint8_t)'a', frame_a, sizeof(frame_a), &frame_a_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(encode_message(1u, (uint8_t)'b', frame_b, sizeof(frame_b), &frame_b_len) ==
+          SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 10, 1u, frame_a, frame_a_len) == ERR_OK);
+    CHECK(sap_runner_timer_v0_append(db, 20, 1u, frame_b, frame_b_len) == ERR_OK);
     CHECK(db_checkpoint(db, membuf_write, &snap) == ERR_OK);
     CHECK(snap.len > 0u);
 
@@ -346,8 +358,7 @@ static int test_timer_index_recovers_after_restore(void)
     CHECK(drain.calls == 1u);
     CHECK(drain.due_ts[0] == 10);
     CHECK(drain.seq[0] == 1u);
-    CHECK(drain.payload_lens[0] == 1u);
-    CHECK(drain.payloads[0][0] == 'a');
+    CHECK(drain.payload_tag[0] == (uint8_t)'a');
 
     snap.pos = 0u;
     CHECK(db_restore(db, membuf_read, &snap) == ERR_OK);
@@ -363,12 +374,10 @@ static int test_timer_index_recovers_after_restore(void)
     CHECK(drain.calls == 2u);
     CHECK(drain.due_ts[0] == 10);
     CHECK(drain.seq[0] == 1u);
-    CHECK(drain.payload_lens[0] == 1u);
-    CHECK(drain.payloads[0][0] == 'a');
+    CHECK(drain.payload_tag[0] == (uint8_t)'a');
     CHECK(drain.due_ts[1] == 20);
     CHECK(drain.seq[1] == 1u);
-    CHECK(drain.payload_lens[1] == 1u);
-    CHECK(drain.payloads[1][0] == 'b');
+    CHECK(drain.payload_tag[1] == (uint8_t)'b');
 
     free(snap.data);
     db_close(db);

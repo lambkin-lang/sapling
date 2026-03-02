@@ -6,7 +6,9 @@
 #include "generated/wit_schema_dbis.h"
 #include "runner/dead_letter_v0.h"
 #include "runner/runner_v0.h"
+#include "runner/wit_wire_bridge_v0.h"
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,6 +110,33 @@ static int inbox_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_ou
     return rc;
 }
 
+static int inbox_put_raw(DB *db, uint64_t worker_id, uint64_t seq, const uint8_t *raw,
+                         uint32_t raw_len)
+{
+    Txn *txn;
+    uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
+    int rc;
+
+    if (!db || !raw || raw_len == 0u)
+    {
+        return ERR_INVALID;
+    }
+
+    sap_runner_v0_inbox_key_encode(worker_id, seq, key);
+    txn = txn_begin(db, NULL, 0u);
+    if (!txn)
+    {
+        return ERR_BUSY;
+    }
+    rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), raw, raw_len);
+    if (rc != ERR_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+    return txn_commit(txn);
+}
+
 static int inbox_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst, uint32_t dst_cap,
                           uint32_t *len_out)
 {
@@ -135,15 +164,35 @@ static int inbox_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst
         txn_abort(txn);
         return rc;
     }
-    if (!val || val_len > dst_cap)
+    if (!val || val_len == 0u)
     {
         txn_abort(txn);
-        return ERR_FULL;
+        return ERR_CORRUPT;
     }
-    memcpy(dst, val, val_len);
-    *len_out = val_len;
+    if (sap_runner_wit_wire_v0_value_is_dbi1_inbox(val, val_len))
+    {
+        uint8_t *wire = NULL;
+        uint32_t wire_len = 0u;
+
+        rc = sap_runner_wit_wire_v0_decode_dbi1_inbox_value_to_wire((const uint8_t *)val, val_len,
+                                                                     &wire, &wire_len);
+        txn_abort(txn);
+        if (rc != ERR_OK)
+        {
+            return rc;
+        }
+        if (wire_len > dst_cap)
+        {
+            free(wire);
+            return ERR_FULL;
+        }
+        memcpy(dst, wire, wire_len);
+        *len_out = wire_len;
+        free(wire);
+        return ERR_OK;
+    }
     txn_abort(txn);
-    return ERR_OK;
+    return ERR_CORRUPT;
 }
 
 static int lease_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_out)
@@ -181,22 +230,27 @@ static int lease_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_ou
     return rc;
 }
 
-static int dead_letter_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_t *dst,
-                                uint32_t dst_cap, uint32_t *len_out, int *exists_out)
+static int dead_letter_read(DB *db, uint64_t worker_id, uint64_t seq, SapRunnerDeadLetterV0Record *rec_out,
+                            uint8_t *frame_buf, uint32_t frame_buf_cap, int *exists_out)
 {
     Txn *txn;
     uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
     const void *val = NULL;
     uint32_t val_len = 0u;
+    uint8_t *wire = NULL;
+    uint32_t wire_len = 0u;
+    int64_t failure_code = 0;
+    int64_t attempts = 0;
+    int64_t failed_at = 0;
     int rc;
 
-    if (!db || !dst || dst_cap == 0u || !len_out || !exists_out)
+    if (!db || !rec_out || !frame_buf || frame_buf_cap == 0u || !exists_out)
     {
         return ERR_INVALID;
     }
 
-    *len_out = 0u;
     *exists_out = 0;
+    memset(rec_out, 0, sizeof(*rec_out));
     sap_runner_v0_inbox_key_encode(worker_id, seq, key);
     txn = txn_begin(db, NULL, TXN_RDONLY);
     if (!txn)
@@ -214,23 +268,78 @@ static int dead_letter_get_copy(DB *db, uint64_t worker_id, uint64_t seq, uint8_
         txn_abort(txn);
         return rc;
     }
-    if (!val || val_len > dst_cap)
+    if (!val || val_len == 0u)
     {
         txn_abort(txn);
+        return ERR_CORRUPT;
+    }
+    if (!sap_runner_wit_wire_v0_value_is_dbi6_dead_letter(val, val_len))
+    {
+        txn_abort(txn);
+        return ERR_CORRUPT;
+    }
+    rc = sap_runner_wit_wire_v0_decode_dbi6_dead_letter_value_to_wire(
+        (const uint8_t *)val, val_len, &wire, &wire_len, &failure_code, &attempts, &failed_at);
+    (void)failed_at;
+    txn_abort(txn);
+    if (rc != ERR_OK)
+    {
+        free(wire);
+        return ERR_CORRUPT;
+    }
+    if (failure_code < INT32_MIN || failure_code > INT32_MAX || attempts < 0 || attempts > UINT32_MAX)
+    {
+        free(wire);
+        return ERR_CORRUPT;
+    }
+    if (wire_len > frame_buf_cap)
+    {
+        free(wire);
         return ERR_FULL;
     }
-    memcpy(dst, val, val_len);
-    *len_out = val_len;
+    memcpy(frame_buf, wire, wire_len);
+    free(wire);
+    rec_out->failure_rc = (int32_t)failure_code;
+    rec_out->attempts = (uint32_t)attempts;
+    rec_out->frame = frame_buf;
+    rec_out->frame_len = wire_len;
     *exists_out = 1;
-    txn_abort(txn);
     return ERR_OK;
 }
 
 static int dead_letter_exists(DB *db, uint64_t worker_id, uint64_t seq, int *exists_out)
 {
-    uint8_t tmp[512];
-    uint32_t len = 0u;
-    return dead_letter_get_copy(db, worker_id, seq, tmp, sizeof(tmp), &len, exists_out);
+    SapRunnerDeadLetterV0Record rec = {0};
+    uint8_t frame[512];
+    return dead_letter_read(db, worker_id, seq, &rec, frame, sizeof(frame), exists_out);
+}
+
+static int lease_put(DB *db, uint64_t worker_id, uint64_t seq, const SapRunnerLeaseV0 *lease)
+{
+    Txn *txn;
+    uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
+    uint8_t raw[SAP_RUNNER_LEASE_V0_VALUE_SIZE];
+    int rc;
+
+    if (!db || !lease)
+    {
+        return ERR_INVALID;
+    }
+    sap_runner_v0_inbox_key_encode(worker_id, seq, key);
+    sap_runner_lease_v0_encode(lease, raw);
+
+    txn = txn_begin(db, NULL, 0u);
+    if (!txn)
+    {
+        return ERR_BUSY;
+    }
+    rc = txn_put_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), raw, sizeof(raw));
+    if (rc != ERR_OK)
+    {
+        txn_abort(txn);
+        return rc;
+    }
+    return txn_commit(txn);
 }
 
 static int move_one_to_dead_letter(DB *db, uint64_t worker_id, uint64_t seq, uint8_t payload_tag,
@@ -264,8 +373,7 @@ static int move_one_to_dead_letter(DB *db, uint64_t worker_id, uint64_t seq, uin
 static int test_move_to_dead_letter(void)
 {
     DB *db = new_db();
-    uint8_t dlq_raw[256];
-    uint32_t dlq_len = 0u;
+    uint8_t frame[256];
     int exists = 0;
     SapRunnerDeadLetterV0Record rec = {0};
     SapRunnerMessageV0 decoded = {0};
@@ -278,9 +386,8 @@ static int test_move_to_dead_letter(void)
     CHECK(lease_exists(db, 7u, 1u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
-    CHECK(dead_letter_get_copy(db, 7u, 1u, dlq_raw, sizeof(dlq_raw), &dlq_len, &exists) == ERR_OK);
+    CHECK(dead_letter_read(db, 7u, 1u, &rec, frame, sizeof(frame), &exists) == ERR_OK);
     CHECK(exists == 1);
-    CHECK(sap_runner_dead_letter_v0_decode(dlq_raw, dlq_len, &rec) == ERR_OK);
     CHECK(rec.failure_rc == ERR_CONFLICT);
     CHECK(rec.attempts == 3u);
     CHECK(sap_runner_message_v0_decode(rec.frame, rec.frame_len, &decoded) == SAP_RUNNER_WIRE_OK);
@@ -316,6 +423,33 @@ static int test_move_rejects_stale_lease(void)
 
     CHECK(sap_runner_dead_letter_v0_move(db, 9u, 2u, &lease2, ERR_BUSY, 2u) == ERR_OK);
     CHECK(inbox_exists(db, 9u, 2u, &exists) == ERR_OK);
+    CHECK(exists == 0);
+
+    db_close(db);
+    return 0;
+}
+
+static int test_move_rejects_noncanonical_inbox_value(void)
+{
+    DB *db = new_db();
+    SapRunnerLeaseV0 lease = {0};
+    const uint8_t bad_frame[] = {0xde, 0xad, 0xbe, 0xef};
+    int exists = 0;
+
+    CHECK(db != NULL);
+    CHECK(ensure_runner_schema(db) == ERR_OK);
+    CHECK(inbox_put_raw(db, 10u, 3u, bad_frame, sizeof(bad_frame)) == ERR_OK);
+    lease.owner_worker = 10u;
+    lease.deadline_ts = 10;
+    lease.attempts = 1u;
+    CHECK(lease_put(db, 10u, 3u, &lease) == ERR_OK);
+    CHECK(sap_runner_dead_letter_v0_move(db, 10u, 3u, &lease, ERR_INVALID, 1u) == ERR_CORRUPT);
+
+    CHECK(inbox_exists(db, 10u, 3u, &exists) == ERR_OK);
+    CHECK(exists == 1);
+    CHECK(lease_exists(db, 10u, 3u, &exists) == ERR_OK);
+    CHECK(exists == 1);
+    CHECK(dead_letter_exists(db, 10u, 3u, &exists) == ERR_OK);
     CHECK(exists == 0);
 
     db_close(db);
@@ -447,6 +581,12 @@ int main(void)
         return 1;
     }
     rc = test_move_rejects_stale_lease();
+    if (rc != 0)
+    {
+        fprintf(stderr, "runner_dead_letter_test: failure line=%d\n", rc);
+        return 1;
+    }
+    rc = test_move_rejects_noncanonical_inbox_value();
     if (rc != 0)
     {
         fprintf(stderr, "runner_dead_letter_test: failure line=%d\n", rc);

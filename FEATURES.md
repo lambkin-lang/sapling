@@ -435,6 +435,13 @@ Phase A status (started):
 - done: frozen v0 wire contract module (`src/runner/wire_v0.h`,
   `src/runner/wire_v0.c`) with strict encode/decode validation and unit tests
   (`tests/unit/runner_wire_test.c`)
+- done: wire/Thatch convergence model where `wire_v0` remains the boundary
+  adapter and persisted runner payloads use generated WIT codec paths
+  (`src/runner/wit_wire_bridge_v0.*`)
+- done: inbox (DBI 1) and dead-letter (DBI 6) storage paths now enforce
+  canonical WIT/Thatch blobs with strict decode/validation boundaries
+- done: outbox (DBI 2) and timers (DBI 4) storage paths now enforce canonical
+  WIT/Thatch blobs with strict decode/validation boundaries
 - done: worker lifecycle scaffold (`src/runner/runner_v0.h`,
   `src/runner/runner_v0.c`) with DBI bootstrap from generated WIT metadata,
   schema-version guard key, and step-dispatch callback integration

@@ -300,12 +300,13 @@ need attention under load.
   - bootstrap rebuilds BEPT from DBI 4 (`sap_runner_timer_v0_sync_index`)
   - timer reads validate and self-heal BEPT index drift against DBI 4
 
-- **Wire format and Thatch convergence.** The runner wire format (`wire_v0`)
-  defines its own encode/decode for message envelopes. Thatch provides a general
-  cursor-oriented serialized data model. There may be an opportunity to express
-  wire payloads as Thatch regions, which would give message handling the same
-  zero-allocation traversal and skip-pointer benefits that Thatch provides for
-  JSON.
+- **Wire format and Thatch convergence.** Runner convergence is now in place:
+  - minimal boundary framing at ingress/egress (`wire_v0` prelude/versioning)
+  - canonical internal message records in WIT/Thatch bytes for DBI values
+  - a shared typed validation/reader path (generated WIT codec) instead of
+    parallel ad hoc decoders.
+  Inbox, outbox, timer, and dead-letter values now persist as canonical
+  WIT/Thatch blobs.
 
 ## Remaining work
 
@@ -341,8 +342,6 @@ phase reference relate to the runner implementation track described in
   `SapTxnVec` growth paths (env+txn snapshots, high-water marks, OOM counters)
 - [ ] Extract a shared DB-backed transaction substrate (non-STM) from the B+
   tree `Txn` context for rollback-capable structures
-- [ ] Evaluate expressing wire payloads as Thatch regions for zero-allocation
-  message traversal
 - [ ] Add an approximate structural estimator for `txn_count_range`
 - [ ] Add a subtree-unlink fast path for `txn_del_range`
 

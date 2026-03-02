@@ -1307,6 +1307,8 @@ static int test_worker_idle_sleep_budget(void)
     SapRunnerV0Config cfg;
     TestDispatchCtx dispatch_state = {0};
     NowCtx clock = {0};
+    uint8_t frame[128];
+    uint32_t frame_len = 0u;
     uint32_t sleep_ms = 0u;
 
     CHECK(db != NULL);
@@ -1324,11 +1326,13 @@ static int test_worker_idle_sleep_budget(void)
     CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 25u);
 
-    CHECK(sap_runner_timer_v0_append(db, 150, 1u, (const uint8_t *)"a", 1u) == ERR_OK);
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 150, 1u, frame, frame_len) == ERR_OK);
     CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 25u);
 
-    CHECK(sap_runner_timer_v0_append(db, 105, 1u, (const uint8_t *)"b", 1u) == ERR_OK);
+    CHECK(encode_test_message(7u, frame, sizeof(frame), &frame_len) == SAP_RUNNER_WIRE_OK);
+    CHECK(sap_runner_timer_v0_append(db, 105, 1u, frame, frame_len) == ERR_OK);
     CHECK(sap_runner_v0_worker_compute_idle_sleep_ms(&worker, &sleep_ms) == ERR_OK);
     CHECK(sleep_ms == 5u);
 

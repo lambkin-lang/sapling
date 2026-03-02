@@ -80,6 +80,8 @@ runner_native_example
 wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm
+tools/wit_codegen
+tests/generated/
 _codeql_detected_source_root
 .claude/settings.local.json
 

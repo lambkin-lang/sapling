@@ -46,6 +46,11 @@ int sap_runner_mailbox_v0_claim(DB *db, uint64_t inbox_worker_id, uint64_t seq,
         txn_abort(txn);
         return rc;
     }
+    if (sap_wit_validate_dbi1_inbox_value(frame, frame_len) != 0)
+    {
+        txn_abort(txn);
+        return ERR_CORRUPT;
+    }
 
     rc = txn_get_dbi(txn, SAP_WIT_DBI_LEASES, key, sizeof(key), &lease_val, &lease_len);
     if (rc == ERR_NOT_FOUND)
@@ -223,6 +228,11 @@ int sap_runner_mailbox_v0_requeue(DB *db, uint64_t worker_id, uint64_t seq,
     {
         txn_abort(txn);
         return rc;
+    }
+    if (sap_wit_validate_dbi1_inbox_value(frame, frame_len) != 0)
+    {
+        txn_abort(txn);
+        return ERR_CORRUPT;
     }
 
     rc = txn_put_flags_dbi(txn, SAP_WIT_DBI_INBOX, new_key, sizeof(new_key), frame, frame_len,
