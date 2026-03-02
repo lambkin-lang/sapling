@@ -60,3 +60,22 @@ and length by code point will require either:
 - flattening to one leaf per code point before code-point APIs, or
 - a future weighted-measure sequence variant where each handle carries an
   explicit code-point measure.
+
+## Host-Only Allocation Policy
+
+`text.c` intentionally keeps two host-convenience allocation paths:
+
+1. `text_expand_runtime_handle(...)`:
+   - default depth (`max_depth == 0` => 64) uses stack storage only
+   - custom depths above 64 use a host-side malloc fallback
+   - `SAP_NO_MALLOC` builds reject custom depths > 64 (`ERR_OOM`)
+
+2. `text_to_utf8_full(...)`:
+   - allocates output with malloc and returns it via `utf8_out`
+   - caller frees with `free()`
+   - `SAP_NO_MALLOC` builds return `ERR_INVALID` for this helper
+
+Decision (current): keep these as host-only convenience paths. For no-malloc
+runtimes, use `text_utf8_length_resolved(...)` plus
+`text_to_utf8_resolved(...)` with caller-owned buffers and default-depth
+resolver limits unless a dedicated arena-backed export path is introduced.

@@ -252,6 +252,10 @@ need attention under load.
 - **Legacy error wording in docs/examples.** Resolved. Public docs/examples now
   consistently refer to `ERR_*` result codes for subsystem APIs.
 
+- **Host-only malloc policy for Text conversion helpers.** Resolved.
+  `text_to_utf8_full` and deep resolver paths now have explicit host-only
+  policy docs: no-malloc runtimes should use caller-buffer resolved APIs.
+
 - **Allocator usage is asymmetric.** Resolved. All companion subsystems
   (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry, Thatch) now allocate
   exclusively through `SapMemArena`. Transaction-scoped metadata uses
@@ -323,8 +327,6 @@ phase reference relate to the runner implementation track described in
 
 ### Should do
 
-- [ ] Finalize policy for host-only `malloc` usage in `text.c` conversion paths
-  (document guarantees and decide whether to add an arena-backed alternative)
 - [ ] Deepen runner scheduler, lease, and dedupe test coverage
 - [ ] Implement DupSort-aware `txn_load_sorted` using the tree-builder fast path
 

@@ -197,8 +197,15 @@ TextRuntimeResolver text_make_runtime_resolver(
 /*
  * All-in-one: resolve all handles and produce UTF-8.
  * Collapses the build-resolver / compute-length / allocate / encode
- * boilerplate into one call. Caller frees *utf8_out via free().
- * Returns ERR_OK on success.
+ * boilerplate into one call.
+ *
+ * Host-convenience policy:
+ * - this helper allocates the output buffer with malloc
+ * - caller frees *utf8_out via free()
+ * - SAP_NO_MALLOC builds return ERR_INVALID for this helper
+ *
+ * No-malloc callers should use text_utf8_length_resolved +
+ * text_to_utf8_resolved with a caller-owned buffer.
  */
 int text_to_utf8_full(const Text *text,
                       struct TextLiteralTable *literals,
