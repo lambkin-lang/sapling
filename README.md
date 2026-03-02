@@ -253,7 +253,7 @@ need attention under load.
   consistently refer to `ERR_*` result codes for subsystem APIs.
 
 - **Allocator usage is asymmetric.** Resolved. All companion subsystems
-  (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry) now allocate
+  (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry, Thatch) now allocate
   exclusively through `SapMemArena`. Transaction-scoped metadata uses
   `sap_txn_scratch_alloc`; growable arrays use the new `SapTxnVec`
   (arena-backed growable array in `txn_vec.h`/`txn_vec.c`); env-scoped

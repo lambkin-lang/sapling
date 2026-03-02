@@ -355,10 +355,10 @@ Proposed target layout:
 - `tools/`: schema inspectors, log/replay helpers, migration tools
 - `docs/`: architecture, protocol, and ops documentation
 
-Migration strategy:
-- keep top-level compatibility for one transition window
-- move code in slices (engine first, then runner, then tests/tools)
+Migration strategy (completed):
+- migrate code in slices (engine first, then runner, then tests/tools)
 - preserve Make targets while introducing internal path changes
+- retire top-level compatibility shims after the transition
 
 ### Required tooling and components
 To keep a C-based system reliable, these components are required (not optional):
@@ -412,19 +412,19 @@ Likely future failure modes and planned controls:
 ### Implementation phases
 
 #### Phase 0 — Repository and tooling foundation
-- migrate to target directory structure with compatibility shims
+- migrate to target directory structure
 - add formatting, static analysis, and schema-manifest checks
 - add deterministic/fault-injection harness scaffolding
 
 Phase 0 status (initiated):
-- done: engine moved to `include/sapling` + `src/sapling` with top-level shims
+- done: engine moved to `include/sapling` + `src/sapling`; top-level shims retired
 - done: initial layout skeleton (`src/common`, `src/runner`, `src/wasi`,
   `tests/{unit,integration,stress}`, `examples`, `tools`, `schemas`, `docs`)
 - done: WIT-first schema pipeline (`wit-schema-check`, `wit-schema-generate`,
   `wit-schema-cc-check`, generated `schemas/dbi_manifest.csv`, generated C DBI metadata)
 - done: deterministic fault-injection harness scaffold
-- done: expand lint/static-analysis scope from phase-0 files to entire
-  codebase once legacy formatting debt is paid down
+- done: lint/static-analysis scope expanded from phase-0 files to the entire
+  codebase
 
 #### Phase A — Runner skeleton + contracts
 - C host process with worker threads and Wasm instance lifecycle
