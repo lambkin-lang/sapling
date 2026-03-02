@@ -125,6 +125,8 @@ WIT_SCHEMA_DIR ?= schemas/wit
 WIT_SCHEMA ?= $(WIT_SCHEMA_DIR)/runtime-schema.wit
 WIT_CODEGEN_SRC ?= tools/wit_codegen.c
 WIT_CODEGEN_BIN ?= tools/wit_codegen
+WIT_SCHEMA_CHECK_SRC ?= tools/wit_schema_check.c
+WIT_SCHEMA_CHECK_BIN ?= tools/wit_schema_check
 WIT_GEN_DIR ?= generated
 WIT_GEN_HDR ?= $(WIT_GEN_DIR)/wit_schema_dbis.h
 WIT_GEN_SRC ?= $(WIT_GEN_DIR)/wit_schema_dbis.c
@@ -641,6 +643,9 @@ wit-schema-check:
 $(WIT_CODEGEN_BIN): $(WIT_CODEGEN_SRC)
 	$(CC) -Wall -Wextra -Werror -Wswitch-enum -std=c11 -o $@ $<
 
+$(WIT_SCHEMA_CHECK_BIN): $(WIT_SCHEMA_CHECK_SRC)
+	$(CC) -Wall -Wextra -Werror -std=c11 -o $@ $<
+
 wit-schema-generate: $(WIT_SCHEMA) $(WIT_CODEGEN_BIN)
 	./$(WIT_CODEGEN_BIN) --wit $(WIT_SCHEMA) --header $(WIT_GEN_HDR) --source $(WIT_GEN_SRC)
 
@@ -654,7 +659,7 @@ TEST_RESULT_GEN_SRC := tests/generated/test_result_types.c
 TEST_UNSUPPORTED_LIST_WIT := tests/fixtures/unsupported-list.wit
 
 CLEAN_BUILD_DIRS := $(BUILD_DIR)
-CLEAN_VOLATILE_GENERATED := tests/generated $(WIT_CODEGEN_BIN)
+CLEAN_VOLATILE_GENERATED := tests/generated $(WIT_CODEGEN_BIN) $(WIT_SCHEMA_CHECK_BIN)
 CLEAN_LEGACY_BINS := \
 	test_sapling test_text test_seq \
 	bench_sapling bench_seq bench_text \
@@ -702,12 +707,12 @@ wit-codegen-drift-check: $(WIT_CODEGEN_BIN)
 	diff -u $(WIT_GEN_SRC) "$$tmpdir/generated/wit_schema_dbis.c" && \
 	echo "wit-codegen-drift-check PASSED"
 
-schema-check: wit-schema-check wit-schema-cc-check wit-codegen-drift-check wit-thatch-codegen-test
-	python3 tools/check_dbi_manifest.py $(DBI_MANIFEST)
+schema-check: wit-schema-check wit-schema-cc-check wit-codegen-drift-check wit-thatch-codegen-test $(WIT_SCHEMA_CHECK_BIN)
+	./$(WIT_SCHEMA_CHECK_BIN) manifest $(DBI_MANIFEST)
 	$(MAKE) runner-dbi-status-check
 
-runner-dbi-status-check: wit-schema-generate
-	python3 tools/check_runner_dbi_status.py $(DBI_MANIFEST) $(WIT_GEN_HDR) .
+runner-dbi-status-check: wit-schema-generate $(WIT_SCHEMA_CHECK_BIN)
+	./$(WIT_SCHEMA_CHECK_BIN) runner-status $(DBI_MANIFEST) $(WIT_GEN_HDR) .
 
 runner-lifecycle-threaded-tsan-test: wit-schema-generate $(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
 	./$(RUNNER_LIFECYCLE_TSAN_TEST_BIN)
@@ -809,7 +814,7 @@ clean-generated:
 	rm -rf $(CLEAN_VOLATILE_GENERATED)
 
 clean: clean-generated
-	rm -rf $(CLEAN_BUILD_DIRS) $(CLEAN_LEGACY_BINS)
+	rm -rf $(CLEAN_BUILD_DIRS) $(CLEAN_LEGACY_BINS) .pytest_cache __pycache__
 
 distclean: clean
 	rm -f $(DISTCLEAN_GENERATED)
