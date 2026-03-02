@@ -163,20 +163,57 @@ typedef struct
 struct SeqTxnState
 {
     SapTxnCtx *sap_txn;
+    struct SeqTxnState *parent;
     SapTxnVec new_nodes;  /* elem_size = sizeof(void*) */
     SapTxnVec old_nodes;  /* elem_size = sizeof(void*) */
     SapTxnVec shadows;    /* elem_size = sizeof(ShadowedSeq) */
 };
 
+static int seq_vec_append(SapTxnVec *dst, const SapTxnVec *src)
+{
+    uint32_t src_cnt = sap_txn_vec_len(src);
+    if (src_cnt == 0)
+        return ERR_OK;
+
+    uint32_t dst_cnt = sap_txn_vec_len(dst);
+    if (UINT32_MAX - dst_cnt < src_cnt)
+        return ERR_OOM;
+
+    int rc = sap_txn_vec_reserve(dst, dst_cnt + src_cnt);
+    if (rc != ERR_OK)
+        return rc;
+
+    for (uint32_t i = 0; i < src_cnt; i++)
+    {
+        void *elem = sap_txn_vec_at(src, i);
+        rc = sap_txn_vec_push(dst, elem);
+        if (rc != ERR_OK)
+            return rc;
+    }
+    return ERR_OK;
+}
+
+static int seq_has_shadow_for_seq(const SapTxnVec *shadows, const Seq *seq)
+{
+    uint32_t shadow_cnt = sap_txn_vec_len(shadows);
+    for (uint32_t i = 0; i < shadow_cnt; i++)
+    {
+        ShadowedSeq *sh = (ShadowedSeq *)sap_txn_vec_at(shadows, i);
+        if (sh && sh->seq == seq)
+            return 1;
+    }
+    return 0;
+}
+
 static int seq_on_begin(SapTxnCtx *txn, void *parent_state, void **state_out)
 {
-    (void)parent_state;
     /* scratch-allocated; freed wholesale at txn end */
     struct SeqTxnState *st = sap_txn_scratch_alloc(txn, (uint32_t)sizeof(struct SeqTxnState));
     if (!st)
         return ERR_OOM;
     memset(st, 0, sizeof(*st));
     st->sap_txn = txn;
+    st->parent = (struct SeqTxnState *)parent_state;
 
     SapMemArena *arena = sap_txn_arena(txn);
     int rc;
@@ -205,12 +242,43 @@ static int seq_on_commit(SapTxnCtx *txn, void *state)
     struct SeqTxnState *st = state;
     if (st)
     {
-        SapMemArena *arena = sap_txn_arena(txn);
-        uint32_t old_cnt = sap_txn_vec_len(&st->old_nodes);
-        for (uint32_t i = 0; i < old_cnt; i++)
+        if (st->parent)
         {
-            void *ptr = *(void **)sap_txn_vec_at(&st->old_nodes, i);
-            sap_arena_free_node_ptr(arena, ptr, 0);
+            int rc = seq_vec_append(&st->parent->new_nodes, &st->new_nodes);
+            if (rc != ERR_OK)
+                return rc;
+
+            rc = seq_vec_append(&st->parent->old_nodes, &st->old_nodes);
+            if (rc != ERR_OK)
+                return rc;
+
+            uint32_t child_shadow_cnt = sap_txn_vec_len(&st->shadows);
+            uint32_t parent_shadow_cnt = sap_txn_vec_len(&st->parent->shadows);
+            if (UINT32_MAX - parent_shadow_cnt < child_shadow_cnt)
+                return ERR_OOM;
+            rc = sap_txn_vec_reserve(&st->parent->shadows, parent_shadow_cnt + child_shadow_cnt);
+            if (rc != ERR_OK)
+                return rc;
+
+            for (uint32_t i = 0; i < child_shadow_cnt; i++)
+            {
+                ShadowedSeq *child_shadow = (ShadowedSeq *)sap_txn_vec_at(&st->shadows, i);
+                if (!child_shadow || seq_has_shadow_for_seq(&st->parent->shadows, child_shadow->seq))
+                    continue;
+                rc = sap_txn_vec_push(&st->parent->shadows, child_shadow);
+                if (rc != ERR_OK)
+                    return rc;
+            }
+        }
+        else
+        {
+            SapMemArena *arena = sap_txn_arena(txn);
+            uint32_t old_cnt = sap_txn_vec_len(&st->old_nodes);
+            for (uint32_t i = 0; i < old_cnt; i++)
+            {
+                void *ptr = *(void **)sap_txn_vec_at(&st->old_nodes, i);
+                sap_arena_free_node_ptr(arena, ptr, 0);
+            }
         }
         sap_txn_vec_destroy(&st->new_nodes);
         sap_txn_vec_destroy(&st->old_nodes);
@@ -298,15 +366,18 @@ static void seq_dealloc_node(SapTxnCtx *txn, void *ptr)
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
     if (st)
     {
-        uint32_t new_cnt = sap_txn_vec_len(&st->new_nodes);
-        for (uint32_t i = 0; i < new_cnt; i++)
+        for (struct SeqTxnState *cur = st; cur; cur = cur->parent)
         {
-            void *entry = *(void **)sap_txn_vec_at(&st->new_nodes, i);
-            if (entry == ptr)
+            uint32_t new_cnt = sap_txn_vec_len(&cur->new_nodes);
+            for (uint32_t i = 0; i < new_cnt; i++)
             {
-                sap_txn_vec_swap_remove(&st->new_nodes, i);
-                sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
-                return;
+                void *entry = *(void **)sap_txn_vec_at(&cur->new_nodes, i);
+                if (entry == ptr)
+                {
+                    sap_txn_vec_swap_remove(&cur->new_nodes, i);
+                    sap_arena_free_node_ptr(sap_txn_arena(txn), ptr, 0);
+                    return;
+                }
             }
         }
         if (sap_txn_vec_push(&st->old_nodes, &ptr) != ERR_OK)
@@ -343,18 +414,40 @@ static int seq_prepare_root(SapTxnCtx *txn, Seq *s)
     return sap_txn_vec_push(&st->shadows, &entry);
 }
 
+static void seq_drop_shadow_entries(SapTxnCtx *txn, Seq *seq)
+{
+    if (!txn || !seq)
+        return;
+    struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
+    for (struct SeqTxnState *cur = st; cur; cur = cur->parent)
+    {
+        uint32_t i = 0;
+        while (i < sap_txn_vec_len(&cur->shadows))
+        {
+            ShadowedSeq *sh = (ShadowedSeq *)sap_txn_vec_at(&cur->shadows, i);
+            if (sh && sh->seq == seq)
+            {
+                sap_txn_vec_swap_remove(&cur->shadows, i);
+                continue;
+            }
+            i++;
+        }
+    }
+}
+
 static int is_node_new(SapTxnCtx *txn, void *ptr)
 {
     if (!txn || !ptr)
         return 0;
     struct SeqTxnState *st = sap_txn_subsystem_state(txn, SAP_SUBSYSTEM_SEQ);
-    if (!st)
-        return 0;
-    uint32_t new_cnt = sap_txn_vec_len(&st->new_nodes);
-    for (uint32_t i = 0; i < new_cnt; i++)
+    for (struct SeqTxnState *cur = st; cur; cur = cur->parent)
     {
-        if (*(void **)sap_txn_vec_at(&st->new_nodes, i) == ptr)
-            return 1;
+        uint32_t new_cnt = sap_txn_vec_len(&cur->new_nodes);
+        for (uint32_t i = 0; i < new_cnt; i++)
+        {
+            if (*(void **)sap_txn_vec_at(&cur->new_nodes, i) == ptr)
+                return 1;
+        }
     }
     return 0;
 }
@@ -1487,20 +1580,30 @@ static SplitResult ftree_split_exact(FTree *tree, size_t idx, int item_depth, Sa
 /* Public API                                                           */
 /* ================================================================== */
 
+Seq *seq_new_txn(SapTxnCtx *txn)
+{
+    if (!txn)
+        return NULL;
+    Seq *s = seq_alloc_node(txn, sizeof(Seq));
+    if (!s)
+        return NULL;
+    s->valid = 1;
+    s->root = ftree_new(txn);
+    if (!s->root)
+    {
+        seq_dealloc_node(txn, s);
+        return NULL;
+    }
+    return s;
+}
+
 Seq *seq_new(SapEnv *env)
 {
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
     if (!txn)
         return NULL;
-    Seq *s = seq_alloc_node(txn, sizeof(Seq));
+    Seq *s = seq_new_txn(txn);
     if (!s)
-    {
-        sap_txn_abort(txn);
-        return NULL;
-    }
-    s->valid = 1;
-    s->root = ftree_new(txn);
-    if (!s->root)
     {
         sap_txn_abort(txn);
         return NULL;
@@ -1511,6 +1614,18 @@ Seq *seq_new(SapEnv *env)
 
 int seq_is_valid(const Seq *seq) { return (seq && seq->valid && seq->root) ? 1 : 0; }
 
+void seq_free_txn(SapTxnCtx *txn, Seq *seq)
+{
+    if (!txn || !seq)
+        return;
+    seq_drop_shadow_entries(txn, seq);
+    if (seq->root)
+        ftree_free(seq->root, 0, txn);
+    seq->root = NULL;
+    seq->valid = 0;
+    seq_dealloc_node(txn, seq);
+}
+
 void seq_free(SapEnv *env, Seq *seq)
 {
     if (!seq)
@@ -1518,11 +1633,7 @@ void seq_free(SapEnv *env, Seq *seq)
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
     if (!txn)
         return;
-    if (seq->root)
-        ftree_free(seq->root, 0, txn);
-    seq->root = NULL;
-    seq->valid = 0;
-    seq_dealloc_node(txn, seq);
+    seq_free_txn(txn, seq);
     sap_txn_commit(txn);
 }
 

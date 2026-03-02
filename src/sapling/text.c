@@ -440,22 +440,16 @@ static TextShared *text_shared_new_with_seq(SapTxnCtx *txn, Seq *seq)
     return shared;
 }
 
-static TextShared *text_shared_new_empty(SapTxnCtx *txn, SapEnv *env)
+static TextShared *text_shared_new_empty(SapTxnCtx *txn)
 {
-    // Need env for seq_new.
-    // If we only have txn, we can get env?
-    // sap_txn_env(txn) is available in txn.h?
-    // Let's assume yes, if not I'll fix it.
-    // txn.h has SapEnv *sap_txn_env(SapTxnCtx *txn);
-    
-    Seq *seq = seq_new(env);
+    Seq *seq = seq_new_txn(txn);
     if (!seq)
         return NULL;
 
     TextShared *shared = text_shared_new_with_seq(txn, seq);
     if (!shared)
     {
-        seq_free(env, seq);
+        seq_free_txn(txn, seq);
         return NULL;
     }
     return shared;
@@ -465,8 +459,7 @@ static void text_shared_destroy(SapTxnCtx *txn, TextShared *shared)
 {
     if (!shared)
         return;
-    SapEnv *env = sap_txn_env(txn);
-    seq_free(env, shared->seq);
+    seq_free_txn(txn, shared->seq);
     shared->seq = NULL;
     text_dealloc(txn, shared, sizeof(TextShared));
 }
@@ -486,6 +479,29 @@ static int text_shared_retain(TextShared *shared)
         return ERR_INVALID;
     shared->refs++;
     return ERR_OK;
+}
+
+static Text *text_new_in_txn(SapTxnCtx *txn)
+{
+    Text *text = text_shell_new(txn);
+    if (!text)
+        return NULL;
+    text->shared = text_shared_new_empty(txn);
+    if (!text->shared)
+    {
+        text_dealloc(txn, text, sizeof(Text));
+        return NULL;
+    }
+    return text;
+}
+
+static void text_free_in_txn(SapTxnCtx *txn, Text *text)
+{
+    if (!txn || !text)
+        return;
+    text_shared_release(txn, text->shared);
+    text->shared = NULL;
+    text_dealloc(txn, text, sizeof(Text));
 }
 
 static Seq *text_seq(const Text *text)
@@ -509,7 +525,7 @@ static int text_detach_for_write(SapTxnCtx *txn, Text *text)
         return ERR_OK;
 
     old = text->shared;
-    next = text_shared_new_empty(txn, sap_txn_env(txn));
+    next = text_shared_new_empty(txn);
     if (!next)
         return ERR_OOM;
 
@@ -538,36 +554,17 @@ static int text_detach_for_write(SapTxnCtx *txn, Text *text)
 
 static int text_rebuild_from_split(SapTxnCtx *txn, Text *text, Seq *left, Seq *right)
 {
-    // Need explicit txn passed to seq_concat? seq.h suggests seq_concat is gone?
-    // seq.h had seq_push/pop.
-    // I need to check if seq_concat exists.
-    // If not, maybe use loop push?
-    // Actually, I should assume seq_concat exists if text.c used it.
-    // But text.c used it BEFORE my read.
-    // Let's assume seq_concat exists and takes txn.
-    // Wait, seq.h I read earlier did NOT show seq_concat.
-    // O(log n) concatenation.
-    // I probably missed it or it wasn't there.
-    // If it's missing, I can't use it.
-    // But seq is finger tree, concat is main feature.
-    // Let's assume passed txn.
-    
-    // Actually I'll check seq.h again quickly if I can.
-    // No, I'll trust seq feature set.
-    // BUT if seq_concat takes txn, I need to pass it.
-    
     int rc = seq_concat(txn, text_seq(text), left);
-    SapEnv *env = sap_txn_env(txn);
     if (rc != ERR_OK)
     {
-        seq_free(env, left);
-        seq_free(env, right);
+        seq_free_txn(txn, left);
+        seq_free_txn(txn, right);
         return rc;
     }
 
     rc = seq_concat(txn, text_seq(text), right);
-    seq_free(env, left);
-    seq_free(env, right);
+    seq_free_txn(txn, left);
+    seq_free_txn(txn, right);
     return rc;
 }
 
@@ -577,17 +574,9 @@ Text *text_new(SapEnv *env)
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
     if (!txn) return NULL;
 
-    Text *text = text_shell_new(txn);
+    Text *text = text_new_in_txn(txn);
     if (!text)
     {
-        sap_txn_abort(txn);
-        return NULL;
-    }
-
-    text->shared = text_shared_new_empty(txn, env);
-    if (!text->shared)
-    {
-        text_dealloc(txn, text, sizeof(Text));
         sap_txn_abort(txn);
         return NULL;
     }
@@ -627,9 +616,7 @@ void text_free(SapEnv *env, Text *text)
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
     if (!txn) return; /* Arena deallocation requires a txn to access the arena. */
 
-    text_shared_release(txn, text->shared);
-    text->shared = NULL;
-    text_dealloc(txn, text, sizeof(Text));
+    text_free_in_txn(txn, text);
     
     sap_txn_commit(txn);
 }
@@ -774,19 +761,18 @@ static int text_set_handle_impl(SapTxnCtx *txn, Text *text, size_t idx, TextHand
         return rc;
 
     rc = seq_pop_front(txn, right, &discarded);
-    SapEnv *env = sap_txn_env(txn);
     if (rc != ERR_OK)
     {
-        seq_free(env, left);
-        seq_free(env, right);
+        seq_free_txn(txn, left);
+        seq_free_txn(txn, right);
         return rc;
     }
 
     rc = seq_push_back(txn, left, handle);
     if (rc != ERR_OK)
     {
-        seq_free(env, left);
-        seq_free(env, right);
+        seq_free_txn(txn, left);
+        seq_free_txn(txn, right);
         return rc;
     }
 
@@ -820,11 +806,10 @@ static int text_insert_handle_impl(SapTxnCtx *txn, Text *text, size_t idx, TextH
         return rc;
 
     rc = seq_push_back(txn, left, handle);
-    SapEnv *env = sap_txn_env(txn);
     if (rc != ERR_OK)
     {
-        seq_free(env, left);
-        seq_free(env, right);
+        seq_free_txn(txn, left);
+        seq_free_txn(txn, right);
         return rc;
     }
 
@@ -867,11 +852,10 @@ int text_delete_handle(SapTxnCtx *txn, Text *text, size_t idx, TextHandle *out)
         return rc;
 
     rc = seq_pop_front(txn, right, &removed);
-    SapEnv *env = sap_txn_env(txn); 
     if (rc != ERR_OK)
     {
-        seq_free(env, left);
-        seq_free(env, right);
+        seq_free_txn(txn, left);
+        seq_free_txn(txn, right);
         return rc;
     }
     if (out)
@@ -1117,21 +1101,19 @@ int text_split_at(SapTxnCtx *txn, Text *text, size_t idx, Text **left_out, Text 
     if (rc != ERR_OK)
         return rc;
 
-    SapEnv *env = sap_txn_env(txn);
-
     left = text_shell_new(txn);
     if (!left)
     {
-        seq_free(env, left_seq);
-        seq_free(env, right_seq);
+        seq_free_txn(txn, left_seq);
+        seq_free_txn(txn, right_seq);
         return ERR_OOM;
     }
     left_shared = text_shared_new_with_seq(txn, left_seq);
     if (!left_shared)
     {
         text_dealloc(txn, left, sizeof(Text));
-        seq_free(env, left_seq);
-        seq_free(env, right_seq);
+        seq_free_txn(txn, left_seq);
+        seq_free_txn(txn, right_seq);
         return ERR_OOM;
     }
     left->shared = left_shared;
@@ -1141,7 +1123,7 @@ int text_split_at(SapTxnCtx *txn, Text *text, size_t idx, Text **left_out, Text 
     {
         text_shared_destroy(txn, left_shared);
         text_dealloc(txn, left, sizeof(Text));
-        seq_free(env, right_seq);
+        seq_free_txn(txn, right_seq);
         return ERR_OOM;
     }
     right_shared = text_shared_new_with_seq(txn, right_seq);
@@ -1150,7 +1132,7 @@ int text_split_at(SapTxnCtx *txn, Text *text, size_t idx, Text **left_out, Text 
         text_dealloc(txn, right, sizeof(Text));
         text_shared_destroy(txn, left_shared);
         text_dealloc(txn, left, sizeof(Text));
-        seq_free(env, right_seq);
+        seq_free_txn(txn, right_seq);
         return ERR_OOM;
     }
     right->shared = right_shared;
@@ -1172,8 +1154,7 @@ int text_from_utf8(SapTxnCtx *txn, Text *text, const uint8_t *utf8, size_t utf8_
     if (!utf8 && utf8_len > 0)
         return ERR_INVALID;
 
-    SapEnv *env = sap_txn_env(txn);
-    next = text_new(env);
+    next = text_new_in_txn(txn);
     if (!next)
         return ERR_OOM;
 
@@ -1187,19 +1168,19 @@ int text_from_utf8(SapTxnCtx *txn, Text *text, const uint8_t *utf8, size_t utf8_
         rc = text_utf8_decode_one(utf8 + off, utf8_len - off, &consumed, &codepoint);
         if (rc != ERR_OK)
         {
-            text_free(env, next);
+            text_free_in_txn(txn, next);
             return rc;
         }
         rc = text_handle_from_codepoint(codepoint, &handle);
         if (rc != ERR_OK)
         {
-            text_free(env, next);
+            text_free_in_txn(txn, next);
             return rc;
         }
         rc = seq_push_back(txn, text_seq(next), handle);
         if (rc != ERR_OK)
         {
-            text_free(env, next);
+            text_free_in_txn(txn, next);
             return rc;
         }
         off += consumed;
@@ -1211,7 +1192,7 @@ int text_from_utf8(SapTxnCtx *txn, Text *text, const uint8_t *utf8, size_t utf8_
         next->shared = old;
     }
     // next now holds the old shared state, free it
-    text_free(env, next);
+    text_free_in_txn(txn, next);
     return ERR_OK;
 }
 
@@ -1383,7 +1364,6 @@ int text_expand_handle_at(SapTxnCtx *txn, Text *text, size_t handle_idx,
     uint32_t payload = 0;
     const uint8_t *utf8 = NULL;
     size_t utf8_len = 0;
-    SapEnv *env = NULL;
     Text *left = NULL;
     Text *right = NULL;
     Text *expanded = NULL;
@@ -1402,7 +1382,6 @@ int text_expand_handle_at(SapTxnCtx *txn, Text *text, size_t handle_idx,
         return ERR_OK;
 
     payload = text_handle_payload(handle);
-    env = sap_txn_env(txn);
 
     /* Resolve the literal */
     rc = resolve_fn(payload, &utf8, &utf8_len, resolve_ctx);
@@ -1420,27 +1399,27 @@ int text_expand_handle_at(SapTxnCtx *txn, Text *text, size_t handle_idx,
         rc = text_pop_front_handle(txn, right, &popped);
         if (rc != ERR_OK)
         {
-            text_free(env, left);
-            text_free(env, right);
+            text_free_in_txn(txn, left);
+            text_free_in_txn(txn, right);
             return rc;
         }
     }
 
     /* Create expanded text from the literal's UTF-8 content */
-    expanded = text_new(env);
+    expanded = text_new_in_txn(txn);
     if (!expanded)
     {
-        text_free(env, left);
-        text_free(env, right);
+        text_free_in_txn(txn, left);
+        text_free_in_txn(txn, right);
         return ERR_OOM;
     }
 
     rc = text_from_utf8(txn, expanded, utf8, utf8_len);
     if (rc != ERR_OK)
     {
-        text_free(env, expanded);
-        text_free(env, left);
-        text_free(env, right);
+        text_free_in_txn(txn, expanded);
+        text_free_in_txn(txn, left);
+        text_free_in_txn(txn, right);
         return rc;
     }
 
@@ -1448,21 +1427,21 @@ int text_expand_handle_at(SapTxnCtx *txn, Text *text, size_t handle_idx,
     rc = text_concat(txn, left, expanded);
     if (rc != ERR_OK)
     {
-        text_free(env, expanded);
-        text_free(env, left);
-        text_free(env, right);
+        text_free_in_txn(txn, expanded);
+        text_free_in_txn(txn, left);
+        text_free_in_txn(txn, right);
         return rc;
     }
-    text_free(env, expanded);
+    text_free_in_txn(txn, expanded);
 
     rc = text_concat(txn, left, right);
     if (rc != ERR_OK)
     {
-        text_free(env, left);
-        text_free(env, right);
+        text_free_in_txn(txn, left);
+        text_free_in_txn(txn, right);
         return rc;
     }
-    text_free(env, right);
+    text_free_in_txn(txn, right);
 
     /* Swap left's content into text.
      * text's seq is empty (from split_at), left has the result. */
@@ -1471,7 +1450,7 @@ int text_expand_handle_at(SapTxnCtx *txn, Text *text, size_t handle_idx,
         text->shared = left->shared;
         left->shared = old;
     }
-    text_free(env, left);
+    text_free_in_txn(txn, left);
     return ERR_OK;
 }
 

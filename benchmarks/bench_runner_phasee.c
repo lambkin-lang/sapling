@@ -9,6 +9,7 @@
 #include "runner/mailbox_v0.h"
 #include "runner/runner_v0.h"
 #include "runner/wire_v0.h"
+#include "runner/wit_wire_bridge_v0.h"
 #include "sapling/sapling.h"
 
 #include <stdint.h>
@@ -141,6 +142,8 @@ static int populate_inbox(DB *db, uint32_t worker_id, uint32_t count)
         uint8_t key[SAP_RUNNER_INBOX_KEY_V0_SIZE];
         uint8_t frame[BENCH_MAX_FRAME_SIZE];
         uint32_t frame_len = 0u;
+        const void *value = NULL;
+        uint32_t value_len = 0u;
         int rc;
 
         sap_runner_v0_inbox_key_encode((uint64_t)worker_id, seq, key);
@@ -150,7 +153,14 @@ static int populate_inbox(DB *db, uint32_t worker_id, uint32_t count)
             txn_abort(txn);
             return rc;
         }
-        rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), frame, frame_len);
+        rc = sap_runner_wit_wire_v0_encode_dbi1_inbox_value_from_wire(
+            (SapTxnCtx *)txn, frame, frame_len, &value, &value_len);
+        if (rc != ERR_OK)
+        {
+            txn_abort(txn);
+            return rc;
+        }
+        rc = txn_put_dbi(txn, SAP_WIT_DBI_INBOX, key, sizeof(key), value, value_len);
         if (rc != ERR_OK)
         {
             txn_abort(txn);
@@ -270,7 +280,8 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
         uint32_t key_len = 0u;
         uint32_t val_len = 0u;
         uint8_t key_copy[SAP_RUNNER_INBOX_KEY_V0_SIZE];
-        uint8_t frame_copy[BENCH_MAX_FRAME_SIZE];
+        uint8_t *frame_copy = NULL;
+        uint32_t frame_len = 0u;
         uint64_t key_worker = 0u;
         uint64_t key_seq = 0u;
         SapRunnerMessageV0 msg = {0};
@@ -310,15 +321,13 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
             txn_abort(txn);
             return rc;
         }
-        if (!key || !val || key_len != sizeof(key_copy) || val_len == 0u ||
-            val_len > sizeof(frame_copy))
+        if (!key || !val || key_len != sizeof(key_copy) || val_len == 0u)
         {
             cursor_close(cur);
             txn_abort(txn);
             return ERR_CORRUPT;
         }
         memcpy(key_copy, key, sizeof(key_copy));
-        memcpy(frame_copy, val, val_len);
         cursor_close(cur);
 
         rc = sap_runner_v0_inbox_key_decode(key_copy, sizeof(key_copy), &key_worker, &key_seq);
@@ -333,11 +342,27 @@ static int drain_fused_storage_candidate(DB *db, uint32_t worker_id, uint32_t *p
             break;
         }
 
-        if (sap_runner_message_v0_decode(frame_copy, val_len, &msg) != SAP_RUNNER_WIRE_OK)
+        if (!sap_runner_wit_wire_v0_value_is_dbi1_inbox(val, val_len))
         {
             txn_abort(txn);
             return ERR_CORRUPT;
         }
+        rc = sap_runner_wit_wire_v0_decode_dbi1_inbox_value_to_wire(
+            (const uint8_t *)val, val_len, &frame_copy, &frame_len);
+        if (rc != ERR_OK)
+        {
+            free(frame_copy);
+            txn_abort(txn);
+            return rc;
+        }
+        if (sap_runner_message_v0_decode(frame_copy, frame_len, &msg) != SAP_RUNNER_WIRE_OK)
+        {
+            free(frame_copy);
+            txn_abort(txn);
+            return ERR_CORRUPT;
+        }
+        free(frame_copy);
+        frame_copy = NULL;
         if (msg.to_worker != (int64_t)worker_id)
         {
             txn_abort(txn);
@@ -429,8 +454,8 @@ int main(int argc, char **argv)
 {
     SapArenaOptions g_alloc_opts = {
         .type = SAP_ARENA_BACKING_CUSTOM,
-        .cfg.custom.alloc_page = test_alloc,
-        .cfg.custom.free_page = test_free,
+        .cfg.custom.alloc_page = bench_alloc,
+        .cfg.custom.free_page = bench_free,
         .cfg.custom.ctx = NULL
     };
     sap_arena_init(&g_alloc, &g_alloc_opts);

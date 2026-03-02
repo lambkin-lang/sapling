@@ -46,6 +46,13 @@ int sap_seq_subsystem_init(SapEnv *env);
 Seq *seq_new(SapEnv *env);
 
 /*
+ * seq_new_txn — allocate an empty sequence within an existing transaction.
+ * Use this for higher-level structures that already own transaction scope.
+ * Returns NULL on allocation failure or invalid txn.
+ */
+Seq *seq_new_txn(SapTxnCtx *txn);
+
+/*
  * seq_is_valid — returns 1 when seq is usable, 0 otherwise.
  * A sequence may become invalid after ERR_OOM from mutating operations.
  */
@@ -57,6 +64,13 @@ int seq_is_valid(const Seq *seq);
  * Safe to call with NULL.
  */
 void seq_free(SapEnv *env, Seq *seq);
+
+/*
+ * seq_free_txn — release all internal nodes and seq itself within an
+ * existing transaction.
+ * Safe to call with NULL seq.
+ */
+void seq_free_txn(SapTxnCtx *txn, Seq *seq);
 
 /*
  * seq_reset — reinitialize seq to an empty valid state natively.

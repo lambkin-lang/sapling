@@ -6,6 +6,7 @@
  */
 
 #include "sapling/text.h"
+#include "sapling/seq.h"
 #include "sapling/txn.h"
 #include "sapling/arena.h"
 
@@ -23,6 +24,11 @@ static void setup_env(void) {
     opts.page_size = 4096;
     sap_arena_init(&g_arena, &opts);
     g_env = sap_env_create(g_arena, 4096);
+    if (!g_env || sap_seq_subsystem_init(g_env) != ERR_OK)
+    {
+        fprintf(stderr, "failed to initialize text benchmark env\n");
+        exit(1);
+    }
 }
 
 static void teardown_env(void) {

@@ -34,6 +34,11 @@ static void setup_env(void)
         fprintf(stderr, "failed to create env\n");
         exit(1);
     }
+    if (sap_seq_subsystem_init(g_env) != ERR_OK)
+    {
+        fprintf(stderr, "failed to init seq subsystem\n");
+        exit(1);
+    }
 }
 
 static void teardown_env(void)

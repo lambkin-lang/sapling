@@ -27,7 +27,10 @@ static void ensure_env(void)
         opts.page_size = 4096;
         sap_arena_init(&g_arena, &opts);
         g_env = sap_env_create(g_arena, 4096);
-        // Do not register subsystems here, simplistic
+        if (!g_env || sap_seq_subsystem_init(g_env) != ERR_OK)
+        {
+            abort();
+        }
     }
 }
 
