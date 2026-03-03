@@ -1,0 +1,5 @@
+# Suppress known Apple runtime startup leaks reported by LeakSanitizer on macOS.
+# These are outside Sapling ownership and can trigger before main().
+leak:_fetchInitializingClassList
+leak:_xpc_collect_images
+leak:_libxpc_initializer

@@ -76,6 +76,10 @@ unsigned int sap_txn_flags(SapTxnCtx *txn);
 /* Nested scratch memory allocation logic */
 void *sap_txn_scratch_alloc(SapTxnCtx *txn, uint32_t len);
 
+/* Per-transaction allocation telemetry snapshots (delta from txn begin/reset). */
+int sap_txn_alloc_stats(SapTxnCtx *txn, SapArenaAllocStats *stats_out);
+int sap_txn_alloc_stats_reset(SapTxnCtx *txn);
+
 #ifdef __cplusplus
 }
 #endif

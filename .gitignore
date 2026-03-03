@@ -81,6 +81,9 @@ wasi_runtime_test
 wasi_shim_test
 wasm_smoke.wasm
 tools/wit_codegen
+tools/wit_schema_check
+generated/wit_schema_dbis.h
+generated/wit_schema_dbis.c
 tests/generated/
 _codeql_detected_source_root
 .claude/settings.local.json

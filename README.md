@@ -164,7 +164,9 @@ The encoding is designed for zero-copy reads from Wasm linear memory.
 The WIT interface definition (`schemas/wit/runtime-schema.wit`) is the canonical
 source of truth for DBI layouts. A code generator (`tools/wit_codegen.c`)
 produces C metadata (`generated/wit_schema_dbis.h` and
-`generated/wit_schema_dbis.c`). `make schema-check` validates the full pipeline:
+`generated/wit_schema_dbis.c`). These generated files are build artifacts (not
+checked in) and are regenerated automatically by `make` targets that consume
+them. `make schema-check` validates the full pipeline:
 WIT syntax, codegen freshness, C compilation, and manifest consistency with
 runtime usage.
 

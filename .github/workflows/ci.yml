@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       WASM_TOOLS_VERSION: 1.245.1
+      WASI_SDK_VERSION: "24"
 
     steps:
       - name: Checkout
@@ -39,25 +40,55 @@ jobs:
           # Use retry for apt-get
           for i in {1..5}; do sudo apt-get update && break || sleep 5; done
           sudo apt-get install -y cppcheck clang clang-format clang-tidy curl
-          
+
           # Install wasm-tools from binary release (much faster than building from source)
           set -euo pipefail
           URL="https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux.tar.gz"
-          curl -L "$URL" | tar xz
+          curl -fsSL "$URL" | tar xz
           sudo mv wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux/wasm-tools /usr/local/bin/
           wasm-tools --version
+
+          # Install pinned WASI SDK and export tool paths for wasm-check.
+          SDK_TARBALL=""
+          for SDK_URL in \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux.tar.gz" \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz" \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}-linux.tar.gz" \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-linux.tar.gz"; do
+            if curl -fsSL "$SDK_URL" -o wasi-sdk.tar.gz; then
+              SDK_TARBALL="wasi-sdk.tar.gz"
+              break
+            fi
+          done
+          if [[ -z "$SDK_TARBALL" ]]; then
+            echo "Failed to download WASI SDK version ${WASI_SDK_VERSION}" >&2
+            exit 1
+          fi
+          tar xzf "$SDK_TARBALL"
+          SDK_DIR="$(find . -maxdepth 1 -type d -name 'wasi-sdk-*' | head -n 1)"
+          if [[ -z "$SDK_DIR" ]]; then
+            echo "Unable to locate extracted WASI SDK directory" >&2
+            exit 1
+          fi
+          echo "WASI_SYSROOT=${GITHUB_WORKSPACE}/${SDK_DIR#./}/share/wasi-sysroot" >> "$GITHUB_ENV"
+          echo "WASI_CC=${GITHUB_WORKSPACE}/${SDK_DIR#./}/bin/clang" >> "$GITHUB_ENV"
+          echo "WASI_AR=${GITHUB_WORKSPACE}/${SDK_DIR#./}/bin/llvm-ar" >> "$GITHUB_ENV"
+          "${GITHUB_WORKSPACE}/${SDK_DIR#./}/bin/clang" --version
 
       - name: Build and test
         run: make test CC=clang
 
-      - name: Phase-0 schema and harness checks
-        run: make schema-check stress-harness CC=clang CLANG_FORMAT=clang-format CLANG_TIDY=clang-tidy WASM_TOOLS=wasm-tools
+      - name: Runner release checklist
+        run: make runner-release-checklist CC=clang CLANG_FORMAT=clang-format CLANG_TIDY=clang-tidy WASM_TOOLS=wasm-tools
 
-      - name: Code Quality Checks (Lint)
-        run: make lint CC=clang CLANG_FORMAT=clang-format CLANG_TIDY=clang-tidy
+      - name: Wasm smoke check
+        run: make wasm-check WASI_CC="${WASI_CC}" WASI_AR="${WASI_AR}" WASI_SYSROOT="${WASI_SYSROOT}"
 
-      - name: Runner phase checks
-        run: make phasec-check CC=clang CLANG_FORMAT=clang-format CLANG_TIDY=clang-tidy WASM_TOOLS=wasm-tools
+      - name: No-malloc gate
+        run: make nomalloc-check CC=clang
+
+      - name: Leak check
+        run: make leak-check CC=clang
 
       - name: Upload logs on failure
         if: failure()
@@ -68,6 +99,34 @@ jobs:
             build/
             *.log
             benchmarks/
+
+  gcc-secondary:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GCC
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc
+          gcc --version
+
+      - name: Build and test with GCC
+        run: make test CC=gcc
+
+  macos-strict-leak-check:
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run strict leak check (macOS)
+        run: make leak-check CC=clang
 
   seq-fuzz-smoke:
     if: github.event_name == 'pull_request'

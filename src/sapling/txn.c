@@ -1,4 +1,5 @@
 #include "sapling/txn.h"
+#include "common/arena_alloc_internal.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -21,6 +22,7 @@ struct SapTxnCtx {
     uint32_t scratch_pgno;
     uint32_t scratch_head;
     uint32_t scratch_cap;
+    SapArenaAllocStats alloc_stats_base;
 };
 
 SapEnv *sap_env_create(SapMemArena *arena, uint32_t page_size) {
@@ -104,6 +106,7 @@ SapTxnCtx *sap_txn_begin(SapEnv *env, SapTxnCtx *parent, unsigned int flags)
     txn->env = env;
     txn->parent = parent;
     txn->flags = flags;
+    (void)sap_arena_alloc_stats(env->arena, &txn->alloc_stats_base);
     
     /* Initialize subsystem states */
     for (uint32_t i = 0; i < env->active_subs; i++) {
@@ -163,13 +166,21 @@ void sap_txn_abort(SapTxnCtx *txn)
 
 void *sap_txn_scratch_alloc(SapTxnCtx *txn, uint32_t len)
 {
+    SapMemArena *arena = NULL;
     if (!txn || len == 0) return NULL;
+    arena = txn->env ? txn->env->arena : NULL;
+    if (!arena) return NULL;
+    if (sap_arena_alloc_budget_check_scratch(arena, len) != ERR_OK) {
+        sap_arena_alloc_note_scratch(arena, len, 0u, 0);
+        return NULL;
+    }
 
     /* Lazy-allocate the scratch page on first use */
     if (!txn->scratch_page) {
         void *page = NULL;
         uint32_t pgno = 0;
-        if (sap_arena_alloc_page(txn->env->arena, &page, &pgno) != ERR_OK) {
+        if (sap_arena_alloc_page(arena, &page, &pgno) != ERR_OK) {
+            sap_arena_alloc_note_scratch(arena, len, 0u, 0);
             return NULL;
         }
         txn->scratch_page = (uint8_t *)page;
@@ -181,9 +192,30 @@ void *sap_txn_scratch_alloc(SapTxnCtx *txn, uint32_t len)
     /* Align to pointer size for safe struct placement */
     uint32_t align = (uint32_t)sizeof(void *);
     uint32_t aligned = (txn->scratch_head + align - 1) & ~(align - 1);
-    if (aligned + len > txn->scratch_cap) return NULL;
+    if (aligned + len > txn->scratch_cap) {
+        sap_arena_alloc_note_scratch(arena, len, 0u, 0);
+        return NULL;
+    }
 
     void *ptr = txn->scratch_page + aligned;
     txn->scratch_head = aligned + len;
+    sap_arena_alloc_note_scratch(arena, len, len, 1);
     return ptr;
+}
+
+int sap_txn_alloc_stats(SapTxnCtx *txn, SapArenaAllocStats *stats_out)
+{
+    SapArenaAllocStats current = {0};
+    if (!txn || !stats_out || !txn->env || !txn->env->arena)
+        return ERR_INVALID;
+    if (sap_arena_alloc_stats(txn->env->arena, &current) != ERR_OK)
+        return ERR_INVALID;
+    return sap_arena_alloc_stats_diff(&txn->alloc_stats_base, &current, stats_out);
+}
+
+int sap_txn_alloc_stats_reset(SapTxnCtx *txn)
+{
+    if (!txn || !txn->env || !txn->env->arena)
+        return ERR_INVALID;
+    return sap_arena_alloc_stats(txn->env->arena, &txn->alloc_stats_base);
 }

@@ -213,7 +213,7 @@ ALL_LIB_OBJS := $(CORE_OBJS) $(COMMON_OBJS) $(RUNNER_OBJS) $(WASI_OBJS) $(WIT_GE
 THREADED_ALL_LIB_OBJS := $(THREADED_CORE_OBJS) $(THREADED_COMMON_OBJS) $(THREADED_RUNNER_OBJS) $(THREADED_WASI_OBJS) $(THREADED_WIT_GEN_OBJ) $(THREADED_OBJ_DIR)/src/sapling/thatch.o
 OBJ := $(CORE_OBJS)
 
-.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test wit-thatch-codegen-test hamt-test debug asan asan-seq tsan bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check test-result-codegen wit-codegen-drift-check wit-codegen-unsupported-list-test $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean clean-generated distclean
+.PHONY: all test text-test text-literal-test text-tree-registry-test seq-test test-arena thatch-test thatch-json-test wit-thatch-codegen-test hamt-test debug asan asan-seq tsan leak-check bench bench-run seq-bench seq-bench-run text-bench text-bench-run bench-ci seq-fuzz text-fuzz wasm-lib wasm-check format format-check style-check lint-warnings tidy cppcheck cppcheck-strict lint lint-strict wit-schema-check wit-schema-generate wit-schema-cc-check test-result-codegen wit-codegen-drift-check wit-codegen-unsupported-list-test $(RUNNER_TEST_TARGETS) runner-lifecycle-threaded-tsan-test runner-integration-test test-integration runner-native-example runner-host-api-example runner-threaded-pipeline-example runner-multiwriter-stress-build runner-multiwriter-stress runner-multiwriter-stress-burn-in runner-multiwriter-stress-fault-build runner-multiwriter-stress-fault runner-phasee-bench runner-phasee-bench-run runner-release-checklist wasi-runtime-test wasi-shim-test wasi-dedupe-test wasm-runner-test schema-check runner-dbi-status-check stress-harness btree-fault-stress phase0-check phasea-check phaseb-check phasec-check clean clean-generated distclean
 
 all: CFLAGS += -O2
 all: $(LIB)
@@ -227,7 +227,7 @@ $(LIB): $(OBJ)
 
 
 test: CFLAGS += -O2 -g
-test: $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_TEXT_LITERAL_BIN) $(TEST_TEXT_TREE_REG_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_TXN_VEC_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
+test: $(WIT_GEN_SRC) $(TEST_BIN) $(TEST_SEQ_BIN) $(TEST_TEXT_BIN) $(TEST_TEXT_LITERAL_BIN) $(TEST_TEXT_TREE_REG_BIN) $(TEST_BEPT_BIN) $(TEST_HAMT_BIN) $(TEST_ARENA_BIN) $(TEST_TXN_VEC_BIN) $(TEST_THATCH_BIN) $(TEST_THATCH_JSON_BIN) $(WASI_SHIM_TEST_BIN) $(WASI_RUNTIME_TEST_BIN) $(WASI_DEDUPE_TEST_BIN) $(RUNNER_TEST_BINS)
 	./$(TEST_BIN)
 	./$(TEST_SEQ_BIN)
 	./$(TEST_TEXT_BIN)
@@ -269,6 +269,35 @@ tsan: LDFLAGS += -fsanitize=thread -lpthread
 tsan: clean
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_sapling.c $(SAPLING_SRC) -o $(TEST_BIN) $(LDFLAGS)
 	./$(TEST_BIN)
+
+LEAK_CHECK_BINS = \
+	$(TEST_BIN) \
+	$(TEST_SEQ_BIN) \
+	$(TEST_TEXT_BIN) \
+	$(TEST_TEXT_LITERAL_BIN) \
+	$(TEST_TEXT_TREE_REG_BIN) \
+	$(TEST_THATCH_JSON_BIN) \
+	$(BIN_DIR)/runner_lifecycle_test \
+	$(RUNNER_INTEGRATION_TEST_BIN) \
+	$(RUNNER_RECOVERY_TEST_BIN)
+
+LEAK_CHECK_ASAN_OPTIONS ?= detect_leaks=1:halt_on_error=1
+LEAK_CHECK_LSAN_SUPPRESSIONS ?= tests/sanitizers/lsan_macos.supp
+ifeq ($(shell uname -s),Darwin)
+LEAK_CHECK_LSAN_OPTIONS ?= suppressions=$(LEAK_CHECK_LSAN_SUPPRESSIONS)
+else
+LEAK_CHECK_LSAN_OPTIONS ?=
+endif
+leak-check: CFLAGS += -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+leak-check: LDFLAGS += -fsanitize=address,undefined
+leak-check: clean wit-schema-generate $(LEAK_CHECK_BINS) $(LEAK_CHECK_LSAN_SUPPRESSIONS)
+	@set -euo pipefail; \
+	for bin in $(LEAK_CHECK_BINS); do \
+		echo "Leak checking $$bin"; \
+		ASAN_OPTIONS="$(LEAK_CHECK_ASAN_OPTIONS)" \
+		LSAN_OPTIONS="$(LEAK_CHECK_LSAN_OPTIONS)" \
+		./$$bin; \
+	done
 
 bench: CFLAGS += -O3 -g
 bench: $(BENCH_BIN)
@@ -381,6 +410,24 @@ $(THREADED_OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -DSAPLING_THREADED $(INCLUDES) -c $< -o $@
 
+# Objects that include generated/wit_schema_dbis.h must ensure codegen has run.
+$(OBJ_DIR)/src/runner/%.o \
+$(OBJ_DIR)/src/wasi/%.o \
+$(OBJ_DIR)/tests/unit/runner_%.o \
+$(OBJ_DIR)/tests/unit/wasi_%.o \
+$(OBJ_DIR)/tests/stress/runner_multiwriter_stress%.o \
+$(OBJ_DIR)/tests/integration/runner_%_integration_test.o \
+$(OBJ_DIR)/examples/native/runner_%.o: $(WIT_GEN_SRC)
+
+$(OBJ_DIR)/tests/unit/wasm_runner_test.o \
+$(OBJ_DIR)/tests/unit/test_runner_ttl_sweep.o \
+$(OBJ_DIR)/benchmarks/bench_runner_phasee.o: $(WIT_GEN_SRC)
+
+$(THREADED_OBJ_DIR)/src/runner/%.o \
+$(THREADED_OBJ_DIR)/src/wasi/%.o \
+$(THREADED_OBJ_DIR)/tests/stress/runner_multiwriter_stress%.o \
+$(THREADED_OBJ_DIR)/examples/native/runner_%.o: $(WIT_GEN_SRC)
+
 $(TEST_BIN): tests/unit/test_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_sapling.c $(SAPLING_SRC) -o $@ $(LDFLAGS)
@@ -388,9 +435,9 @@ $(TEST_BIN): tests/unit/test_sapling.c $(SAPLING_SRC) $(SAPLING_HDR)
 test-arena: $(TEST_ARENA_BIN)
 	./$(TEST_ARENA_BIN)
 
-$(TEST_ARENA_BIN): tests/unit/test_arena.c src/sapling/arena.c include/sapling/arena.h
+$(TEST_ARENA_BIN): tests/unit/test_arena.c src/sapling/arena.c src/sapling/txn.c src/sapling/txn_vec.c include/sapling/arena.h include/sapling/txn.h include/sapling/txn_vec.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_arena.c src/sapling/arena.c -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_arena.c src/sapling/arena.c src/sapling/txn.c src/sapling/txn_vec.c -o $@ $(LDFLAGS)
 
 test-txn-vec: $(TEST_TXN_VEC_BIN)
 	./$(TEST_TXN_VEC_BIN)
@@ -433,7 +480,7 @@ wit-thatch-codegen-test: CFLAGS += -O2 -g
 wit-thatch-codegen-test: wit-schema-generate test-result-codegen wit-codegen-unsupported-list-test $(TEST_WIT_THATCH_CODEGEN_BIN)
 	./$(TEST_WIT_THATCH_CODEGEN_BIN)
 
-$(TEST_WIT_THATCH_CODEGEN_BIN): tests/unit/test_wit_thatch_codegen.c $(WIT_GEN_SRC) $(WIT_GEN_HDR) $(TEST_RESULT_GEN_SRC) $(TEST_RESULT_GEN_HDR) $(THATCH_SRC) $(THATCH_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
+$(TEST_WIT_THATCH_CODEGEN_BIN): tests/unit/test_wit_thatch_codegen.c $(WIT_GEN_SRC) $(TEST_RESULT_GEN_SRC) $(TEST_RESULT_GEN_HDR) $(THATCH_SRC) $(THATCH_HDR) $(SAPLING_SRC) $(SAPLING_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(INCLUDES) tests/unit/test_wit_thatch_codegen.c $(WIT_GEN_SRC) $(THATCH_SRC) $(SAPLING_SRC) -o $@ $(LDFLAGS)
 
@@ -646,10 +693,13 @@ $(WIT_CODEGEN_BIN): $(WIT_CODEGEN_SRC)
 $(WIT_SCHEMA_CHECK_BIN): $(WIT_SCHEMA_CHECK_SRC)
 	$(CC) -Wall -Wextra -Werror -std=c11 -o $@ $<
 
-wit-schema-generate: $(WIT_SCHEMA) $(WIT_CODEGEN_BIN)
+$(WIT_GEN_SRC): $(WIT_SCHEMA) $(WIT_CODEGEN_BIN)
+	@mkdir -p $(WIT_GEN_DIR)
 	./$(WIT_CODEGEN_BIN) --wit $(WIT_SCHEMA) --header $(WIT_GEN_HDR) --source $(WIT_GEN_SRC)
 
-wit-schema-cc-check: wit-schema-generate
+wit-schema-generate: $(WIT_GEN_SRC)
+
+wit-schema-cc-check: $(WIT_GEN_SRC)
 	@mkdir -p $(dir $(WIT_GEN_OBJ))
 	$(CC) $(CFLAGS) $(INCLUDES) -c $(WIT_GEN_SRC) -o $(WIT_GEN_OBJ)
 
@@ -659,7 +709,7 @@ TEST_RESULT_GEN_SRC := tests/generated/test_result_types.c
 TEST_UNSUPPORTED_LIST_WIT := tests/fixtures/unsupported-list.wit
 
 CLEAN_BUILD_DIRS := $(BUILD_DIR)
-CLEAN_VOLATILE_GENERATED := tests/generated $(WIT_CODEGEN_BIN) $(WIT_SCHEMA_CHECK_BIN)
+CLEAN_VOLATILE_GENERATED := tests/generated $(WIT_CODEGEN_BIN) $(WIT_SCHEMA_CHECK_BIN) $(WIT_GEN_HDR) $(WIT_GEN_SRC)
 CLEAN_LEGACY_BINS := \
 	test_sapling test_text test_seq \
 	bench_sapling bench_seq bench_text \

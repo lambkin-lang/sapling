@@ -6,6 +6,7 @@
  */
 
 #include "sapling/txn_vec.h"
+#include "common/arena_alloc_internal.h"
 
 #include <string.h>
 
@@ -42,6 +43,8 @@ void sap_txn_vec_destroy(SapTxnVec *vec)
 
 int sap_txn_vec_reserve(SapTxnVec *vec, uint32_t needed)
 {
+    uint64_t requested_bytes = 0;
+
     if (!vec || !vec->arena)
         return ERR_INVALID;
     if (needed <= vec->cap)
@@ -53,21 +56,36 @@ int sap_txn_vec_reserve(SapTxnVec *vec, uint32_t needed)
     while (new_cap < needed)
     {
         if (new_cap > UINT32_MAX / 2)
+        {
+            requested_bytes = (uint64_t)needed * (uint64_t)vec->elem_size;
+            sap_arena_alloc_note_txn_vec(vec->arena, requested_bytes, 0u, 0);
             return ERR_OOM;
+        }
         new_cap *= 2;
     }
 
+    requested_bytes = (uint64_t)new_cap * (uint64_t)vec->elem_size;
+
     /* Overflow check: new_cap * elem_size */
     if (new_cap > UINT32_MAX / vec->elem_size)
+    {
+        sap_arena_alloc_note_txn_vec(vec->arena, requested_bytes, 0u, 0);
         return ERR_OOM;
+    }
 
     uint32_t new_size = new_cap * vec->elem_size;
+    if (sap_arena_alloc_budget_check_txn_vec(vec->arena, requested_bytes) != ERR_OK) {
+        sap_arena_alloc_note_txn_vec(vec->arena, requested_bytes, 0u, 0);
+        return ERR_OOM;
+    }
 
     void *new_data = NULL;
     uint32_t new_nodeno = 0;
     int rc = sap_arena_alloc_node(vec->arena, new_size, &new_data, &new_nodeno);
-    if (rc != ERR_OK)
+    if (rc != ERR_OK) {
+        sap_arena_alloc_note_txn_vec(vec->arena, requested_bytes, 0u, 0);
         return rc;
+    }
 
     if (vec->data && vec->len > 0)
         memcpy(new_data, vec->data, (size_t)vec->len * vec->elem_size);
@@ -79,6 +97,7 @@ int sap_txn_vec_reserve(SapTxnVec *vec, uint32_t needed)
     vec->data = new_data;
     vec->nodeno = new_nodeno;
     vec->cap = new_cap;
+    sap_arena_alloc_note_txn_vec(vec->arena, requested_bytes, new_size, 1);
     return ERR_OK;
 }
 

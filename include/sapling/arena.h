@@ -48,6 +48,52 @@ typedef struct {
     } cfg;
 } SapArenaOptions;
 
+/*
+ * Unified allocation telemetry across arena page/node allocators, transaction
+ * scratch allocation, and SapTxnVec reserve growth.
+ */
+typedef struct {
+    uint64_t page_alloc_calls;
+    uint64_t page_alloc_ok;
+    uint64_t page_alloc_oom;
+    uint64_t page_free_calls;
+    uint64_t page_free_ok;
+
+    uint64_t node_alloc_calls;
+    uint64_t node_alloc_ok;
+    uint64_t node_alloc_oom;
+    uint64_t node_free_calls;
+    uint64_t node_free_ok;
+
+    uint64_t scratch_alloc_calls;
+    uint64_t scratch_alloc_ok;
+    uint64_t scratch_alloc_fail;
+    uint64_t scratch_bytes_requested;
+    uint64_t scratch_bytes_granted;
+
+    uint64_t txn_vec_reserve_calls;
+    uint64_t txn_vec_reserve_ok;
+    uint64_t txn_vec_reserve_oom;
+    uint64_t txn_vec_bytes_requested;
+    uint64_t txn_vec_bytes_allocated;
+
+    uint64_t budget_reject_active_slots;
+    uint64_t budget_reject_scratch_bytes;
+    uint64_t budget_reject_txn_vec_bytes;
+
+    uint64_t active_slots_current;
+    uint64_t active_slots_high_water;
+} SapArenaAllocStats;
+
+/*
+ * Optional allocation budgets. Zero means "unlimited".
+ */
+typedef struct {
+    uint64_t max_active_slots;
+    uint64_t max_scratch_request_bytes;
+    uint64_t max_txn_vec_reserve_bytes;
+} SapArenaAllocBudget;
+
 /* 
  * Initialize a new arena.
  */
@@ -99,6 +145,20 @@ uint32_t sap_arena_active_pages(const SapMemArena *arena);
  * Pointer resolution: Map a page/node integer reference back to a process pointer.
  */
 void *sap_arena_resolve(SapMemArena *arena, uint32_t p_or_n_no);
+
+/*
+ * Read/reset aggregate allocation telemetry.
+ */
+int sap_arena_alloc_stats(const SapMemArena *arena, SapArenaAllocStats *out);
+int sap_arena_alloc_stats_reset(SapMemArena *arena);
+int sap_arena_alloc_stats_diff(const SapArenaAllocStats *start, const SapArenaAllocStats *end,
+                               SapArenaAllocStats *delta_out);
+
+/*
+ * Configure/query optional allocation budgets.
+ */
+int sap_arena_set_alloc_budget(SapMemArena *arena, const SapArenaAllocBudget *budget);
+int sap_arena_get_alloc_budget(const SapMemArena *arena, SapArenaAllocBudget *budget_out);
 
 #ifdef __cplusplus
 }

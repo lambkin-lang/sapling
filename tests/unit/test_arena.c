@@ -4,6 +4,8 @@
 #include <stdint.h>
 
 #include "sapling/arena.h"
+#include "sapling/txn.h"
+#include "sapling/txn_vec.h"
 
 #define CHECK(cond) \
     do { \
@@ -290,6 +292,106 @@ static void test_arena_fragmentation_reuse(void)
     sap_arena_destroy(arena);
 }
 
+static void test_allocator_telemetry_and_budget(void)
+{
+    SapMemArena *arena = NULL;
+    SapArenaOptions opts = {
+        .type = SAP_ARENA_BACKING_MALLOC,
+        .page_size = 4096u
+    };
+    SapArenaAllocStats stats = {0};
+    SapArenaAllocStats txn_stats = {0};
+    SapArenaAllocStats base = {0};
+    SapArenaAllocStats delta = {0};
+    SapArenaAllocBudget budget = {0};
+    SapArenaAllocBudget got_budget = {0};
+    void *page = NULL;
+    uint32_t pgno = 0u;
+    void *node = NULL;
+    uint32_t nodeno = 0u;
+    SapEnv *env = NULL;
+    SapTxnCtx *txn = NULL;
+    SapTxnVec vec;
+
+    printf("Test: allocator telemetry and budget controls\n");
+    CHECK(sap_arena_init(&arena, &opts) == ERR_OK);
+    CHECK(sap_arena_alloc_stats(arena, &stats) == ERR_OK);
+    CHECK(stats.page_alloc_calls == 0u);
+    CHECK(stats.active_slots_current == 0u);
+    CHECK(stats.active_slots_high_water == 0u);
+
+    budget.max_active_slots = 8u;
+    budget.max_scratch_request_bytes = 64u;
+    budget.max_txn_vec_reserve_bytes = 256u;
+    CHECK(sap_arena_set_alloc_budget(arena, &budget) == ERR_OK);
+    CHECK(sap_arena_get_alloc_budget(arena, &got_budget) == ERR_OK);
+    CHECK(got_budget.max_active_slots == budget.max_active_slots);
+    CHECK(got_budget.max_scratch_request_bytes == budget.max_scratch_request_bytes);
+    CHECK(got_budget.max_txn_vec_reserve_bytes == budget.max_txn_vec_reserve_bytes);
+
+    CHECK(sap_arena_alloc_page(arena, &page, &pgno) == ERR_OK);
+    CHECK(sap_arena_alloc_node(arena, 48u, &node, &nodeno) == ERR_OK);
+    CHECK(sap_arena_free_node(arena, nodeno, 48u) == ERR_OK);
+    CHECK(sap_arena_free_page(arena, pgno) == ERR_OK);
+
+    env = sap_env_create(arena, 4096u);
+    CHECK(env != NULL);
+    txn = sap_txn_begin(env, NULL, 0u);
+    CHECK(txn != NULL);
+    CHECK(sap_txn_scratch_alloc(txn, 32u) != NULL);
+    CHECK(sap_txn_scratch_alloc(txn, 128u) == NULL); /* budget reject */
+    CHECK(sap_txn_alloc_stats(txn, &txn_stats) == ERR_OK);
+    CHECK(txn_stats.scratch_alloc_calls >= 2u);
+    CHECK(txn_stats.scratch_alloc_ok >= 1u);
+    CHECK(txn_stats.scratch_alloc_fail >= 1u);
+    CHECK(txn_stats.budget_reject_scratch_bytes >= 1u);
+    sap_txn_abort(txn);
+    txn = NULL;
+    sap_env_destroy(env);
+    env = NULL;
+
+    CHECK(sap_txn_vec_init(&vec, arena, sizeof(uint32_t), 0u) == ERR_OK);
+    CHECK(sap_txn_vec_reserve(&vec, 8u) == ERR_OK);
+    CHECK(sap_txn_vec_reserve(&vec, 100u) == ERR_OOM); /* exceeds max_txn_vec_reserve_bytes */
+    sap_txn_vec_destroy(&vec);
+
+    CHECK(sap_arena_alloc_stats(arena, &base) == ERR_OK);
+    CHECK(base.page_alloc_ok >= 2u); /* direct page + scratch page */
+    CHECK(base.node_alloc_ok >= 2u); /* direct node + txn vec reserve */
+    CHECK(base.scratch_alloc_calls >= 2u);
+    CHECK(base.txn_vec_reserve_calls >= 2u);
+    CHECK(base.txn_vec_reserve_ok >= 1u);
+    CHECK(base.txn_vec_reserve_oom >= 1u);
+    CHECK(base.budget_reject_scratch_bytes >= 1u);
+    CHECK(base.budget_reject_txn_vec_bytes >= 1u);
+    CHECK(base.active_slots_high_water >= base.active_slots_current);
+
+    CHECK(sap_arena_alloc_stats_reset(arena) == ERR_OK);
+    CHECK(sap_arena_alloc_stats(arena, &stats) == ERR_OK);
+    CHECK(stats.page_alloc_calls == 0u);
+    CHECK(stats.node_alloc_calls == 0u);
+    CHECK(stats.scratch_alloc_calls == 0u);
+    CHECK(stats.txn_vec_reserve_calls == 0u);
+    CHECK(stats.active_slots_current == sap_arena_active_pages(arena));
+    CHECK(stats.active_slots_high_water == stats.active_slots_current);
+
+    budget.max_active_slots = 1u;
+    budget.max_scratch_request_bytes = 0u;
+    budget.max_txn_vec_reserve_bytes = 0u;
+    CHECK(sap_arena_set_alloc_budget(arena, &budget) == ERR_OK);
+    CHECK(sap_arena_alloc_page(arena, &page, &pgno) == ERR_OK);
+    CHECK(sap_arena_alloc_page(arena, &page, &pgno) == ERR_OOM);
+    CHECK(sap_arena_alloc_stats(arena, &delta) == ERR_OK);
+    CHECK(delta.budget_reject_active_slots >= 1u);
+    CHECK(sap_arena_free_page(arena, pgno) == ERR_OK);
+
+    CHECK(sap_arena_alloc_stats_diff(&stats, &delta, &txn_stats) == ERR_OK);
+    CHECK(txn_stats.page_alloc_calls >= 2u);
+    CHECK(txn_stats.page_alloc_oom >= 1u);
+
+    sap_arena_destroy(arena);
+}
+
 int main(void)
 {
     test_arena_init_destroy();
@@ -298,6 +400,7 @@ int main(void)
     test_arena_backing_strategy_switch();
     test_arena_exhaustion_behavior();
     test_arena_fragmentation_reuse();
+    test_allocator_telemetry_and_budget();
     
     printf("All test_arena tests passed.\n");
     return 0;
