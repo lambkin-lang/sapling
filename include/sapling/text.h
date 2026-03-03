@@ -91,7 +91,12 @@ Text *text_new(SapEnv *env);
 /* O(1) clone with copy-on-write sharing. */
 Text *text_clone(SapEnv *env, const Text *text);
 
-void  text_free(SapEnv *env, Text *text);
+/*
+ * Release a Text object and its shared state.
+ * Safe to call with NULL (returns ERR_OK).
+ * Returns ERR_OK, ERR_INVALID, or ERR_OOM if it cannot open a txn.
+ */
+int   text_free(SapEnv *env, Text *text);
 int   text_reset(SapTxnCtx *txn, Text *text);
 int   text_is_valid(const Text *text);
 

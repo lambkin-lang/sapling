@@ -572,6 +572,22 @@ static void txn_changes_clear(struct BTreeTxnState *txn)
     txn->change_cap = 0;
 }
 
+static void txn_changes_truncate(struct BTreeTxnState *txn, uint32_t keep_count)
+{
+    if (!txn || !txn->changes || keep_count >= txn->change_cnt)
+        return;
+    for (uint32_t i = keep_count; i < txn->change_cnt; i++)
+    {
+        free(txn->changes[i].key);
+        free(txn->changes[i].val);
+        txn->changes[i].key = NULL;
+        txn->changes[i].val = NULL;
+        txn->changes[i].key_len = 0;
+        txn->changes[i].val_len = 0;
+    }
+    txn->change_cnt = keep_count;
+}
+
 static int txn_track_change(struct BTreeTxnState *txn, uint32_t dbi, const void *key, uint32_t key_len)
 {
     struct BTreeTxnStateChange *chg;
@@ -3991,6 +4007,33 @@ static int btree_on_commit(SapTxnCtx *ctx, void *state)
     {
         struct BTreeTxnState *par = txn->parent;
         uint32_t nd = db->num_dbs;
+        uint32_t par_saved_new_cnt = par->new_cnt;
+        uint32_t par_saved_old_cnt = par->old_cnt;
+        uint32_t par_saved_change_cnt = par->change_cnt;
+        uint32_t *par_saved_new_pages = NULL;
+        uint32_t *par_saved_old_pages = NULL;
+        int rc = ERR_OK;
+
+        if (par_saved_new_cnt > 0)
+        {
+            size_t bytes = (size_t)par_saved_new_cnt * sizeof(uint32_t);
+            par_saved_new_pages = (uint32_t *)malloc(bytes);
+            if (!par_saved_new_pages)
+                return ERR_OOM;
+            memcpy(par_saved_new_pages, par->new_pages, bytes);
+        }
+        if (par_saved_old_cnt > 0)
+        {
+            size_t bytes = (size_t)par_saved_old_cnt * sizeof(uint32_t);
+            par_saved_old_pages = (uint32_t *)malloc(bytes);
+            if (!par_saved_old_pages)
+            {
+                free(par_saved_new_pages);
+                return ERR_OOM;
+            }
+            memcpy(par_saved_old_pages, par->old_pages, bytes);
+        }
+
         for (uint32_t i = 0; i < nd; i++)
         {
             par->dbs[i].root_pgno = txn->dbs[i].root_pgno;
@@ -3999,16 +4042,57 @@ static int btree_on_commit(SapTxnCtx *ctx, void *state)
         par->free_pgno = txn->free_pgno;
         par->num_pages = txn->num_pages;
         for (uint32_t i = 0; i < txn->new_cnt; i++)
-            u32_push(&par->new_pages, &par->new_cnt, &par->new_cap, txn->new_pages[i]);
+        {
+            if (u32_push(&par->new_pages, &par->new_cnt, &par->new_cap, txn->new_pages[i]) < 0)
+            {
+                rc = ERR_OOM;
+                goto nested_commit_rollback;
+            }
+        }
         for (uint32_t i = 0; i < txn->old_cnt; i++)
         {
             uint32_t p = txn->old_pages[i];
             u32_remove(par->new_pages, &par->new_cnt, p);
-            u32_push(&par->old_pages, &par->old_cnt, &par->old_cap, p);
+            if (u32_push(&par->old_pages, &par->old_cnt, &par->old_cap, p) < 0)
+            {
+                rc = ERR_OOM;
+                goto nested_commit_rollback;
+            }
         }
-        (void)txn_merge_changes(par, txn);
+        if (txn_merge_changes(par, txn) < 0)
+        {
+            rc = ERR_OOM;
+            goto nested_commit_rollback;
+        }
+        free(par_saved_new_pages);
+        free(par_saved_old_pages);
         txn_free_mem(txn);
         return ERR_OK;
+
+nested_commit_rollback:
+        for (uint32_t i = 0; i < nd; i++)
+        {
+            par->dbs[i].root_pgno = txn->dbs[i].saved_root;
+            par->dbs[i].num_entries = txn->dbs[i].saved_entries;
+        }
+        par->free_pgno = txn->saved_free;
+        par->num_pages = txn->saved_npages;
+        if (par_saved_new_cnt > 0 && par->new_pages && par_saved_new_pages)
+        {
+            memcpy(par->new_pages, par_saved_new_pages,
+                   (size_t)par_saved_new_cnt * sizeof(uint32_t));
+        }
+        if (par_saved_old_cnt > 0 && par->old_pages && par_saved_old_pages)
+        {
+            memcpy(par->old_pages, par_saved_old_pages,
+                   (size_t)par_saved_old_cnt * sizeof(uint32_t));
+        }
+        par->new_cnt = par_saved_new_cnt;
+        par->old_cnt = par_saved_old_cnt;
+        txn_changes_truncate(par, par_saved_change_cnt);
+        free(par_saved_new_pages);
+        free(par_saved_old_pages);
+        return rc;
     }
     uint64_t freed_at = txn->txnid;
     txn->txnid++;
@@ -4146,20 +4230,6 @@ static void btree_on_env_destroy(void *state)
 {
     struct BTreeEnvState *db = (struct BTreeEnvState *)state;
     if (!db) return;
-    
-    /* Safely abort any outstanding write txn */
-    /* Note: txn_abort logic assumes valid db state, but we are tearing it down. */
-    /* If write_txn holds resources, they are freed via txn_abort(txn). on_env_destroy shouldn't happen during active txn ideally. */
-    if (db->write_txn)
-    {
-        /* We can't use sap_txn_abort here easily as we don't have the txn pointer list.
-           Ideally app aborts txns before destroy. If we leak txn memory here it's unfortunate but safer than crash.
-           But let's try to free what we can. */
-        /* Actually db->write_txn is internal state. The SapEnv owns the SapTxnCtx. 
-           If SapEnv is destroyed, outstanding SapTxnCtx are leaked if user didn't free them?
-           SapTxnCtx doesn't link back to Env's list of txns (only parent links). 
-           So yes, user is responsible for closing txns. */
-    }
 
     if (db->pages)
     {

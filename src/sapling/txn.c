@@ -7,6 +7,8 @@ struct SapEnv {
     SapMemArena *arena;
     SapTxnSubsystemCallbacks subsystems[SAP_MAX_SUBSYSTEMS];
     void *subsystem_env_states[SAP_MAX_SUBSYSTEMS];
+    struct SapTxnCtx *live_txns_head;
+    uint32_t live_txn_count;
     uint32_t active_subs;
     uint32_t page_size;
 };
@@ -14,6 +16,8 @@ struct SapEnv {
 struct SapTxnCtx {
     SapEnv *env;
     struct SapTxnCtx *parent;
+    struct SapTxnCtx *env_next;
+    struct SapTxnCtx *env_prev;
     uint64_t txnid;
     unsigned int flags;
     void *subsystem_states[SAP_MAX_SUBSYSTEMS];
@@ -24,6 +28,36 @@ struct SapTxnCtx {
     uint32_t scratch_cap;
     SapArenaAllocStats alloc_stats_base;
 };
+
+static void env_txn_link(SapEnv *env, SapTxnCtx *txn)
+{
+    if (!env || !txn)
+        return;
+    txn->env_prev = NULL;
+    txn->env_next = env->live_txns_head;
+    if (env->live_txns_head)
+        env->live_txns_head->env_prev = txn;
+    env->live_txns_head = txn;
+    env->live_txn_count++;
+}
+
+static void env_txn_unlink(SapTxnCtx *txn)
+{
+    SapEnv *env;
+    if (!txn || !txn->env)
+        return;
+    env = txn->env;
+    if (txn->env_prev)
+        txn->env_prev->env_next = txn->env_next;
+    else if (env->live_txns_head == txn)
+        env->live_txns_head = txn->env_next;
+    if (txn->env_next)
+        txn->env_next->env_prev = txn->env_prev;
+    txn->env_next = NULL;
+    txn->env_prev = NULL;
+    if (env->live_txn_count > 0)
+        env->live_txn_count--;
+}
 
 SapEnv *sap_env_create(SapMemArena *arena, uint32_t page_size) {
     SapEnv *env = calloc(1, sizeof(SapEnv));
@@ -36,6 +70,9 @@ SapEnv *sap_env_create(SapMemArena *arena, uint32_t page_size) {
 
 void sap_env_destroy(SapEnv *env) {
     if (env) {
+        while (env->live_txns_head) {
+            sap_txn_abort(env->live_txns_head);
+        }
         for (uint32_t i = 0; i < env->active_subs; i++) {
             if (env->subsystems[i].on_env_destroy) {
                 env->subsystems[i].on_env_destroy(env->subsystem_env_states[i]);
@@ -106,6 +143,7 @@ SapTxnCtx *sap_txn_begin(SapEnv *env, SapTxnCtx *parent, unsigned int flags)
     txn->env = env;
     txn->parent = parent;
     txn->flags = flags;
+    env_txn_link(env, txn);
     (void)sap_arena_alloc_stats(env->arena, &txn->alloc_stats_base);
     
     /* Initialize subsystem states */
@@ -140,6 +178,7 @@ int sap_txn_commit(SapTxnCtx *txn)
         }
     }
 
+    env_txn_unlink(txn);
     if (txn->scratch_page) {
         sap_arena_free_page(env->arena, txn->scratch_pgno);
     }
@@ -152,6 +191,7 @@ void sap_txn_abort(SapTxnCtx *txn)
     if (!txn) return;
     SapEnv *env = txn->env;
 
+    env_txn_unlink(txn);
     for (uint32_t i = 0; i < env->active_subs; i++) {
         if (env->subsystems[i].on_abort) {
             env->subsystems[i].on_abort(txn, txn->subsystem_states[i]);

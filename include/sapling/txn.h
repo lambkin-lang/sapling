@@ -47,6 +47,7 @@ typedef struct {
 typedef struct SapEnv SapEnv;
 
 SapEnv *sap_env_create(SapMemArena *arena, uint32_t page_size);
+/* Destroys env and aborts any live transactions before subsystem teardown. */
 void sap_env_destroy(SapEnv *env);
 
 /* Accessors for environment properties */

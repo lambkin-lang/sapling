@@ -572,6 +572,7 @@ Text *text_new(SapEnv *env)
 {
     if (!env) return NULL;
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
+    int rc = ERR_OK;
     if (!txn) return NULL;
 
     Text *text = text_new_in_txn(txn);
@@ -580,7 +581,9 @@ Text *text_new(SapEnv *env)
         sap_txn_abort(txn);
         return NULL;
     }
-    sap_txn_commit(txn);
+    rc = sap_txn_commit(txn);
+    if (rc != ERR_OK)
+        return NULL;
     return text;
 }
 
@@ -589,6 +592,7 @@ Text *text_clone(SapEnv *env, const Text *text)
     if (!env || !text || !text->shared) return NULL;
     
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
+    int rc = ERR_OK;
     if (!txn) return NULL;
     
     Text *clone = text_shell_new(txn);
@@ -604,21 +608,23 @@ Text *text_clone(SapEnv *env, const Text *text)
         return NULL;
     }
     clone->shared = text->shared;
-    sap_txn_commit(txn);
+    rc = sap_txn_commit(txn);
+    if (rc != ERR_OK)
+        return NULL;
     return clone;
 }
 
-void text_free(SapEnv *env, Text *text)
+int text_free(SapEnv *env, Text *text)
 {
     if (!env || !text)
-        return;
+        return text ? ERR_INVALID : ERR_OK;
     
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
-    if (!txn) return; /* Arena deallocation requires a txn to access the arena. */
+    if (!txn) return ERR_OOM; /* Arena deallocation requires a txn to access the arena. */
 
     text_free_in_txn(txn, text);
     
-    sap_txn_commit(txn);
+    return sap_txn_commit(txn);
 }
 
 int text_reset(SapTxnCtx *txn, Text *text)

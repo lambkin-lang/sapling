@@ -1600,6 +1600,7 @@ Seq *seq_new_txn(SapTxnCtx *txn)
 Seq *seq_new(SapEnv *env)
 {
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
+    int rc = ERR_OK;
     if (!txn)
         return NULL;
     Seq *s = seq_new_txn(txn);
@@ -1608,7 +1609,9 @@ Seq *seq_new(SapEnv *env)
         sap_txn_abort(txn);
         return NULL;
     }
-    sap_txn_commit(txn);
+    rc = sap_txn_commit(txn);
+    if (rc != ERR_OK)
+        return NULL;
     return s;
 }
 
@@ -1626,15 +1629,17 @@ void seq_free_txn(SapTxnCtx *txn, Seq *seq)
     seq_dealloc_node(txn, seq);
 }
 
-void seq_free(SapEnv *env, Seq *seq)
+int seq_free(SapEnv *env, Seq *seq)
 {
     if (!seq)
-        return;
+        return ERR_OK;
+    if (!env)
+        return ERR_INVALID;
     SapTxnCtx *txn = sap_txn_begin(env, NULL, 0);
     if (!txn)
-        return;
+        return ERR_OOM;
     seq_free_txn(txn, seq);
-    sap_txn_commit(txn);
+    return sap_txn_commit(txn);
 }
 
 int seq_reset(SapTxnCtx *txn, Seq *seq)

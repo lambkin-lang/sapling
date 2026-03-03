@@ -61,9 +61,10 @@ int seq_is_valid(const Seq *seq);
 /*
  * seq_free — release all internal nodes of seq and seq itself.
  * Element handles are value types; no per-element payload is freed.
- * Safe to call with NULL.
+ * Safe to call with NULL (returns ERR_OK).
+ * Returns ERR_OK, ERR_INVALID, or ERR_OOM if it cannot open a txn.
  */
-void seq_free(SapEnv *env, Seq *seq);
+int seq_free(SapEnv *env, Seq *seq);
 
 /*
  * seq_free_txn — release all internal nodes and seq itself within an

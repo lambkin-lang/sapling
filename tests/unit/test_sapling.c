@@ -853,6 +853,42 @@ static void test_deep_nested(void)
 }
 
 /* ================================================================== */
+/* Test: db_close with live transactions                                 */
+/* ================================================================== */
+
+static void test_db_close_with_live_txns(void)
+{
+    SECTION("db_close with live transactions");
+
+    SapMemArena *alloc = NULL;
+    struct FailingAllocCtx fa = {0};
+    SapArenaOptions opts = {
+        .type = SAP_ARENA_BACKING_CUSTOM,
+        .page_size = SAPLING_PAGE_SIZE,
+        .cfg.custom.alloc_page = failing_alloc_page,
+        .cfg.custom.free_page = failing_free_page,
+        .cfg.custom.ctx = &fa};
+
+    CHECK(sap_arena_init(&alloc, &opts) == ERR_OK);
+    DB *db = db_open(alloc, SAPLING_PAGE_SIZE, NULL, NULL);
+    CHECK(db != NULL);
+
+    Txn *outer = txn_begin(db, NULL, 0);
+    CHECK(outer != NULL);
+    CHECK(str_put(outer, "outer", "v0") == ERR_OK);
+
+    Txn *inner = txn_begin(db, outer, 0);
+    CHECK(inner != NULL);
+    CHECK(str_put(inner, "inner", "v1") == ERR_OK);
+
+    db_close(db);
+    CHECK(sap_arena_active_pages(alloc) == 0u);
+
+    sap_arena_destroy(alloc);
+    CHECK(fa.live_pages == 0u);
+}
+
+/* ================================================================== */
 /* Test: free-list page recycling                                       */
 /* ================================================================== */
 
@@ -4312,6 +4348,7 @@ int main(void)
     test_nested_commit();
     test_nested_abort();
     test_deep_nested();
+    test_db_close_with_live_txns();
     test_freelist_recycling();
     test_txn_abort();
     test_readonly_flag();

@@ -108,8 +108,8 @@ int text_tree_registry_register(TextTreeRegistry *reg, const Text *text,
     int rc = sap_txn_vec_push(&reg->entries, &entry);
     if (rc != ERR_OK)
     {
-        text_free(reg->env, clone);
-        return rc;
+        int free_rc = text_free(reg->env, clone);
+        return free_rc == ERR_OK ? rc : free_rc;
     }
 
     *id_out = cur_len;
@@ -179,7 +179,9 @@ int text_tree_registry_release(TextTreeRegistry *reg, uint32_t id)
     if (old == 1u)
     {
         /* Last reference — free the Text */
-        text_free(reg->env, entry->text);
+        int rc = text_free(reg->env, entry->text);
+        if (rc != ERR_OK)
+            return rc;
         entry->text = NULL;
     }
 
