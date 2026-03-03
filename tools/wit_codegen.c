@@ -107,6 +107,70 @@ static void codegen_die_type(const char *context, int type_idx)
     codegen_die("%s: %s", context, typebuf);
 }
 
+static void build_result_access_paths(const char *access,
+                                      char **is_ok_access_out,
+                                      char **ok_access_out,
+                                      char **err_access_out)
+{
+    const char *field;
+    size_t prefix_len;
+    size_t field_len;
+    size_t is_ok_len;
+    size_t ok_len;
+    size_t err_len;
+    char *is_ok_access;
+    char *ok_access;
+    char *err_access;
+
+    if (!access || !is_ok_access_out || !ok_access_out || !err_access_out) {
+        codegen_die("internal: invalid result access path inputs");
+    }
+
+    field = strrchr(access, '>');
+    if (field) field += 1; /* skip "->" */
+    else field = access;
+
+    prefix_len = (size_t)(field - access);
+    field_len = strlen(field);
+    if (field_len == 0) {
+        codegen_die("internal: empty field in result access path: %s", access);
+    }
+
+    is_ok_len = prefix_len + 3u + field_len + 3u + 1u;     /* prefix + is_ + field + _ok + NUL */
+    ok_len = prefix_len + field_len + 9u + 1u;             /* prefix + field + _val.ok.v + NUL */
+    err_len = prefix_len + field_len + 10u + 1u;           /* prefix + field + _val.err.v + NUL */
+
+    is_ok_access = (char *)malloc(is_ok_len);
+    ok_access = (char *)malloc(ok_len);
+    err_access = (char *)malloc(err_len);
+    if (!is_ok_access || !ok_access || !err_access) {
+        free(is_ok_access);
+        free(ok_access);
+        free(err_access);
+        codegen_die("out of memory while building result access paths");
+    }
+
+    memcpy(is_ok_access, access, prefix_len);
+    memcpy(is_ok_access + prefix_len, "is_", 3u);
+    memcpy(is_ok_access + prefix_len + 3u, field, field_len);
+    memcpy(is_ok_access + prefix_len + 3u + field_len, "_ok", 3u);
+    is_ok_access[is_ok_len - 1u] = '\0';
+
+    memcpy(ok_access, access, prefix_len);
+    memcpy(ok_access + prefix_len, field, field_len);
+    memcpy(ok_access + prefix_len + field_len, "_val.ok.v", 9u);
+    ok_access[ok_len - 1u] = '\0';
+
+    memcpy(err_access, access, prefix_len);
+    memcpy(err_access + prefix_len, field, field_len);
+    memcpy(err_access + prefix_len + field_len, "_val.err.v", 10u);
+    err_access[err_len - 1u] = '\0';
+
+    *is_ok_access_out = is_ok_access;
+    *ok_access_out = ok_access;
+    *err_access_out = err_access;
+}
+
 /* ------------------------------------------------------------------ */
 /* AST types                                                          */
 /* ------------------------------------------------------------------ */
@@ -1285,28 +1349,10 @@ static void emit_write_type_expr(FILE *out, const WitRegistry *reg,
         return;
     }
     case TYPE_RESULT: {
-        /* access is like "val->result" with sep "_", so:
-         * is_ok flag: access + "_ok" → but access already has the prefix.
-         * We need "val->is_result_ok" and "val->result_val.ok.v" / "val->result_val.err.v"
-         * The C struct layout is: is_<name>_ok, union { struct { ... } ok; struct { ... } err; } <name>_val; */
-        /* Extract the field name from the access (last component) */
-        const char *field = strrchr(access, '>');
-        if (field) field += 1; /* skip '->' */
-        else field = access;
-
-        char is_ok_access[256], ok_access[256], err_access[256];
-        /* Build the prefix (everything before the field name) */
-        int prefix_len = (int)(field - access);
-        char prefix[256];
-        if (prefix_len > 0 && prefix_len < (int)sizeof(prefix)) {
-            memcpy(prefix, access, prefix_len);
-            prefix[prefix_len] = '\0';
-        } else {
-            prefix[0] = '\0';
-        }
-        snprintf(is_ok_access, sizeof(is_ok_access), "%sis_%s_ok", prefix, field);
-        snprintf(ok_access, sizeof(ok_access), "%s%s_val.ok.v", prefix, field);
-        snprintf(err_access, sizeof(err_access), "%s%s_val.err.v", prefix, field);
+        char *is_ok_access = NULL;
+        char *ok_access = NULL;
+        char *err_access = NULL;
+        build_result_access_paths(access, &is_ok_access, &ok_access, &err_access);
 
         char inner[64];
         snprintf(inner, sizeof(inner), "%s    ", indent);
@@ -1319,6 +1365,9 @@ static void emit_write_type_expr(FILE *out, const WitRegistry *reg,
         if (t->param_count > 1 && t->params[1] >= 0)
             emit_write_type_expr(out, reg, t->params[1], err_access, ".", inner);
         fprintf(out, "%s}\n", indent);
+        free(is_ok_access);
+        free(ok_access);
+        free(err_access);
         return;
     }
     }
@@ -1537,23 +1586,10 @@ static void emit_read_type_expr(FILE *out, const WitRegistry *reg,
         return;
     }
     case TYPE_RESULT: {
-        /* Same field extraction logic as the writer */
-        const char *field = strrchr(access, '>');
-        if (field) field += 1;
-        else field = access;
-
-        char is_ok_access[256], ok_access[256], err_access[256];
-        int prefix_len = (int)(field - access);
-        char prefix[256];
-        if (prefix_len > 0 && prefix_len < (int)sizeof(prefix)) {
-            memcpy(prefix, access, prefix_len);
-            prefix[prefix_len] = '\0';
-        } else {
-            prefix[0] = '\0';
-        }
-        snprintf(is_ok_access, sizeof(is_ok_access), "%sis_%s_ok", prefix, field);
-        snprintf(ok_access, sizeof(ok_access), "%s%s_val.ok.v", prefix, field);
-        snprintf(err_access, sizeof(err_access), "%s%s_val.err.v", prefix, field);
+        char *is_ok_access = NULL;
+        char *ok_access = NULL;
+        char *err_access = NULL;
+        build_result_access_paths(access, &is_ok_access, &ok_access, &err_access);
 
         char inner[64];
         snprintf(inner, sizeof(inner), "%s    ", indent);
@@ -1567,6 +1603,9 @@ static void emit_read_type_expr(FILE *out, const WitRegistry *reg,
         if (t->param_count > 1 && t->params[1] >= 0)
             emit_read_type_expr(out, reg, t->params[1], err_access, ".", inner);
         fprintf(out, "%s  } else return ERR_TYPE; }\n", indent);
+        free(is_ok_access);
+        free(ok_access);
+        free(err_access);
         return;
     }
     }
