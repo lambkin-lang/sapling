@@ -56,6 +56,7 @@ typedef struct
     uint32_t step_latency_max_ms;
     uint64_t ttl_sweeps_run;
     uint64_t ttl_expired_entries_deleted;
+    SapArenaAllocStats allocator;
 } SapRunnerV0Metrics;
 
 /*
@@ -124,6 +125,7 @@ typedef struct
     SapRunnerV0State state;
     SapRunnerV0Policy policy;
     SapRunnerV0Metrics metrics;
+    SapArenaAllocStats alloc_stats_baseline;
     sap_runner_v0_metrics_sink metrics_sink;
     void *metrics_sink_ctx;
     sap_runner_v0_log_sink log_sink;

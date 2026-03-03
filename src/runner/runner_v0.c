@@ -11,6 +11,7 @@
 #include "runner/scheduler_v0.h"
 #include "runner/timer_v0.h"
 #include "runner/wit_wire_bridge_v0.h"
+#include "sapling/txn.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -44,6 +45,7 @@ static void metrics_note_step_attempt(SapRunnerV0 *runner);
 static void metrics_note_step_success(SapRunnerV0 *runner);
 static void metrics_note_requeue(SapRunnerV0 *runner);
 static void metrics_note_dead_letter_move(SapRunnerV0 *runner);
+static void metrics_snapshot_fill(const SapRunnerV0 *runner, SapRunnerV0Metrics *snapshot_out);
 static void emit_metrics_snapshot(const SapRunnerV0 *runner);
 static void emit_log_event(const SapRunnerV0 *runner, uint8_t kind, uint64_t seq, int32_t rc,
                            uint32_t detail);
@@ -406,6 +408,41 @@ static int read_next_inbox_frame(DB *db, uint32_t worker_id, uint8_t **key_out,
 
 static int is_retryable_step_rc(int rc) { return rc == ERR_BUSY || rc == ERR_CONFLICT; }
 
+static void metrics_snapshot_fill(const SapRunnerV0 *runner, SapRunnerV0Metrics *snapshot_out)
+{
+    SapMemArena *arena = NULL;
+    SapArenaAllocStats current = {0};
+
+    if (!snapshot_out)
+    {
+        return;
+    }
+    memset(snapshot_out, 0, sizeof(*snapshot_out));
+    if (!runner)
+    {
+        return;
+    }
+
+    *snapshot_out = runner->metrics;
+    arena = sap_env_get_arena((SapEnv *)runner->db);
+    if (!arena)
+    {
+        return;
+    }
+    if (sap_arena_alloc_stats(arena, &current) != ERR_OK)
+    {
+        return;
+    }
+    if (sap_arena_alloc_stats_diff(&runner->alloc_stats_baseline, &current,
+                                   &snapshot_out->allocator) != ERR_OK)
+    {
+        snapshot_out->allocator = current;
+        return;
+    }
+    snapshot_out->allocator.active_slots_current = current.active_slots_current;
+    snapshot_out->allocator.active_slots_high_water = current.active_slots_high_water;
+}
+
 static void emit_metrics_snapshot(const SapRunnerV0 *runner)
 {
     SapRunnerV0Metrics snapshot;
@@ -414,7 +451,7 @@ static void emit_metrics_snapshot(const SapRunnerV0 *runner)
     {
         return;
     }
-    snapshot = runner->metrics;
+    metrics_snapshot_fill(runner, &snapshot);
     runner->metrics_sink(&snapshot, runner->metrics_sink_ctx);
 }
 
@@ -1081,11 +1118,19 @@ void sap_runner_v0_set_policy(SapRunnerV0 *runner, const SapRunnerV0Policy *poli
 
 void sap_runner_v0_metrics_reset(SapRunnerV0 *runner)
 {
+    SapMemArena *arena = NULL;
+
     if (!runner)
     {
         return;
     }
     memset(&runner->metrics, 0, sizeof(runner->metrics));
+    memset(&runner->alloc_stats_baseline, 0, sizeof(runner->alloc_stats_baseline));
+    arena = sap_env_get_arena(runner->db);
+    if (arena)
+    {
+        (void)sap_arena_alloc_stats(arena, &runner->alloc_stats_baseline);
+    }
     emit_metrics_snapshot(runner);
 }
 
@@ -1095,7 +1140,7 @@ void sap_runner_v0_metrics_snapshot(const SapRunnerV0 *runner, SapRunnerV0Metric
     {
         return;
     }
-    *metrics_out = runner->metrics;
+    metrics_snapshot_fill(runner, metrics_out);
 }
 
 void sap_runner_v0_set_metrics_sink(SapRunnerV0 *runner, sap_runner_v0_metrics_sink sink,
@@ -1684,11 +1729,7 @@ int sap_runner_v0_worker_tick(SapRunnerV0Worker *worker, uint32_t *processed_out
                 {
                     worker->runner.metrics.ttl_sweeps_run++;
                     worker->runner.metrics.ttl_expired_entries_deleted += total_deleted;
-                    if (worker->runner.metrics_sink)
-                    {
-                        worker->runner.metrics_sink(&worker->runner.metrics,
-                                                    worker->runner.metrics_sink_ctx);
-                    }
+                    emit_metrics_snapshot(&worker->runner);
                 }
             }
         }

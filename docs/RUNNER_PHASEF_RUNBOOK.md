@@ -40,6 +40,10 @@ Track these metrics counters (`SapRunnerV0Metrics`):
 - `non_retryable_failures`
 - `requeues`, `dead_letter_moves`
 - `step_latency_samples`, `step_latency_total_ms`, `step_latency_max_ms`
+- allocator stats under `allocator`:
+  - page/node alloc+free and OOM counters
+  - scratch/txn-vec reserve counters and byte totals
+  - budget reject counters and `active_slots_*` gauges
 
 Track log events (`SapRunnerV0LogEvent`):
 - step failure events (retryable/non-retryable)

@@ -736,6 +736,7 @@ static int test_runner_metrics_non_retryable_and_reset(void)
     CHECK(metrics.requeues == 1u);
     CHECK(metrics.dead_letter_moves == 0u);
     CHECK(metrics.step_latency_samples == 2u);
+    CHECK(metrics.allocator.page_alloc_calls > 0u);
 
     sap_runner_v0_metrics_reset(&runner);
     sap_runner_v0_metrics_snapshot(&runner, &metrics);
@@ -748,6 +749,12 @@ static int test_runner_metrics_non_retryable_and_reset(void)
     CHECK(metrics.step_latency_samples == 0u);
     CHECK(metrics.step_latency_total_ms == 0u);
     CHECK(metrics.step_latency_max_ms == 0u);
+    CHECK(metrics.allocator.page_alloc_calls == 0u);
+    CHECK(metrics.allocator.page_alloc_ok == 0u);
+    CHECK(metrics.allocator.page_alloc_oom == 0u);
+    CHECK(metrics.allocator.node_alloc_calls == 0u);
+    CHECK(metrics.allocator.scratch_alloc_calls == 0u);
+    CHECK(metrics.allocator.txn_vec_reserve_calls == 0u);
 
     db_close(db);
     return 0;
@@ -898,12 +905,17 @@ static int test_runner_observability_sinks_emit_updates(void)
     CHECK(metrics.non_retryable_failures == 0u);
     CHECK(metrics.requeues == 1u);
     CHECK(metrics.dead_letter_moves == 0u);
+    CHECK(metrics.allocator.page_alloc_calls > 0u);
 
     CHECK(metrics_sink.count > 1u);
     CHECK(metrics_sink.last.step_attempts == metrics.step_attempts);
     CHECK(metrics_sink.last.step_successes == metrics.step_successes);
     CHECK(metrics_sink.last.retryable_failures == metrics.retryable_failures);
     CHECK(metrics_sink.last.requeues == metrics.requeues);
+    CHECK(metrics_sink.last.allocator.page_alloc_calls == metrics.allocator.page_alloc_calls);
+    CHECK(metrics_sink.last.allocator.scratch_alloc_calls == metrics.allocator.scratch_alloc_calls);
+    CHECK(metrics_sink.last.allocator.txn_vec_reserve_calls ==
+          metrics.allocator.txn_vec_reserve_calls);
 
     CHECK(log_sink.count == 2u);
     CHECK(log_sink.events[0].kind == SAP_RUNNER_V0_LOG_EVENT_STEP_RETRYABLE_FAILURE);

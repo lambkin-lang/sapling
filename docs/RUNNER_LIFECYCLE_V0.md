@@ -111,6 +111,10 @@ Current integration contract:
 - non-retryable failures
 - requeue and dead-letter move counts
 - step latency samples/total/max (millisecond resolution)
+- allocator telemetry snapshot (`metrics.allocator`) sourced from arena stats:
+  - page/node alloc+free calls and OOMs
+  - txn scratch and txn-vec reserve calls/bytes
+  - allocation-budget rejects and active-slot gauges
 
 API:
 - `sap_runner_v0_metrics_snapshot(...)`
