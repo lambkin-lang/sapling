@@ -12,6 +12,21 @@ strip away runtime overhead. Sapling targets Universal Wasm with linear memory
 rather than heavier options like WasmGC, and every abstraction is shaped by that
 constraint.
 
+## Momentum highlights
+
+- Runner lifecycle from Phase A through Phase F is in place: schema guards,
+  mailbox/lease/timer coordination, retry/dead-letter policy, and operational
+  runbook + release checklist.
+- Unified arena allocation model is complete across core structures (B+ tree,
+  Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry, Thatch).
+- Unified allocator telemetry + budget controls are implemented across arena,
+  txn scratch, and txn-vec growth paths, and are exposed through runner metrics
+  snapshots/sinks.
+- Observability surfaces are stable and practical: runner metrics sinks,
+  structured log sinks, replay hooks, and deterministic failure/recovery tests.
+- CI quality gates are materially stronger with strict lint/sanitizer/test
+  checks, including strict macOS sanitizer/leak-check coverage.
+
 ## Architecture at a glance
 
 Sapling models a complete Wasm worker environment. A C host runner manages
@@ -191,6 +206,7 @@ The `docs/` directory contains detailed design documents for each subsystem.
 - `docs/RUNNER_WIRE_V0.md` — frozen v0 serialization contract
 - `docs/WIT_SCHEMA.md` — schema conventions and codegen pipeline
 - `docs/RUNNER_PHASEF_RUNBOOK.md` — operational guide and incident handling
+- `docs/REVISION_LOG.md` — milestone-by-milestone implementation history
 
 ---
 
@@ -227,88 +243,9 @@ need attention under load.
 - **Runner scheduler, lease, and dedupe** subsystems each have around 110 lines
   of test code. Coverage is functional but not deep.
 
-### Recently resolved quality issues
+### Revision log
 
-- **Multi-writer stress hardening.** Resolved. The threaded 4-stage
-  pipeline stress harness (`make runner-multiwriter-stress`) passes reliably
-  with per-round corruption telemetry and free-list structural validation.
-  A burn-in profile (`make runner-multiwriter-stress-burn-in`) runs 32 rounds
-  of 256 orders for extended soak testing. A fault-injected variant
-  (`make runner-multiwriter-stress-fault`) verifies graceful degradation under
-  configurable page-alloc failure rates — workers survive transient OOM and the
-  pipeline makes forward progress despite faults. Additional coverage includes
-  HAMT concurrent stress, deferred-page pressure, and fault-injected B+ tree
-  stress tests.
-
-- **Error code families are disjoint.** Resolved. All subsystems now share a
-  unified `ERR_*` taxonomy defined in `include/sapling/err.h`. Previous
-  per-subsystem error families were removed and generic catch-all returns were
-  decomposed into specific codes (`ERR_OOM`, `ERR_INVALID`, `ERR_CORRUPT`) at
-  each call site. A diagnostic helper `err_to_string()` is available for
-  logging.
-
-- **Legacy error wording in docs/examples.** Resolved. Public docs/examples now
-  consistently refer to `ERR_*` result codes for subsystem APIs.
-
-- **Host-only malloc policy for Text conversion helpers.** Resolved.
-  `text_to_utf8_full` and deep resolver paths now have explicit host-only
-  policy docs: no-malloc runtimes should use caller-buffer resolved APIs.
-
-- **Runner scheduler/lease/dedupe coverage depth.** Resolved. Targeted unit
-  coverage now includes additional edge-path checks:
-  scheduler wake-budget caps and due-queue progression after drains; lease
-  renew/release conflict and decode guardrails; dedupe decode corruption
-  guardrails, checksum clamp behavior, and staged-write commit paths.
-
-- **Allocator usage is asymmetric.** Resolved. All companion subsystems
-  (Seq, BEPT, HAMT, Text, TextLiteral, TextTreeRegistry, Thatch) now allocate
-  exclusively through `SapMemArena`. Transaction-scoped metadata uses
-  `sap_txn_scratch_alloc`; growable arrays use the new `SapTxnVec`
-  (arena-backed growable array in `txn_vec.h`/`txn_vec.c`); env-scoped
-  structs use `sap_arena_alloc_node`. Two host-only `malloc` call sites
-  remain in `text.c` (deep-tree path buffer, `text_to_utf8_full` output
-  buffer) and are guarded by `#ifndef SAP_NO_MALLOC`. A `nomalloc.h` header
-  (`#pragma GCC poison malloc calloc realloc free`) enforces this at compile
-  time; run `make nomalloc-check` to verify.
-
-- **Memory cleanup questions in text.c.** Resolved. The inline questions
-  referenced at lines 561 and 600 no longer exist (line numbers drifted after
-  prior edits). The code at those locations (`text_insert_range` epilogue and
-  `text_shared_retain` in `text_clone`) is clean with correct arena-based
-  lifecycle management.
-
-### Reuse and alignment opportunities
-
-- **~~Unified node allocator.~~** Completed at the substrate level. Seq, BEPT,
-  HAMT, Text, TextLiteral, TextTreeRegistry, and Thatch now allocate through
-  `SapMemArena` primitives (`sap_arena_alloc_node`/`sap_arena_alloc_page`) for
-  persistent data and `sap_txn_scratch_alloc` for transaction-scoped metadata.
-  `SapTxnVec` is the shared arena-backed growable-array abstraction used by
-  higher-level containers. Remaining allocator work is observability and
-  budgeting (telemetry), not allocator-model unification.
-
-- **Shared DB-backed transaction substrate (non-STM).** The B+ tree currently
-  owns the `Txn` context and MVCC machinery. Extracting a shared transaction
-  substrate would let rollback-capable DB-backed structures (B+ tree, BEPT, and
-  future tries) participate in the same snapshot/rollback semantics for atomic
-  cross-structure updates. Boundary: this is not pointer-level shared-memory
-  STM. Data that cannot rollback should remain thread-local or cross threads via
-  explicit ownership transfer.
-
-- **BEPT timer integration hardening.** Completed with a deterministic
-  persist-or-rebuild contract:
-  - BEPT init is wired into `db_open`, and init is idempotent
-  - timers are durably stored in DBI 4 and indexed in BEPT for fast due lookup
-  - bootstrap rebuilds BEPT from DBI 4 (`sap_runner_timer_v0_sync_index`)
-  - timer reads validate and self-heal BEPT index drift against DBI 4
-
-- **Wire format and Thatch convergence.** Runner convergence is now in place:
-  - minimal boundary framing at ingress/egress (`wire_v0` prelude/versioning)
-  - canonical internal message records in WIT/Thatch bytes for DBI values
-  - a shared typed validation/reader path (generated WIT codec) instead of
-    parallel ad hoc decoders.
-  Inbox, outbox, timer, and dead-letter values now persist as canonical
-  WIT/Thatch blobs.
+Completed task history is tracked in [`docs/REVISION_LOG.md`](docs/REVISION_LOG.md). This keeps the README focused on architecture, current state, and forward momentum.
 
 ## Remaining work
 
@@ -316,34 +253,23 @@ This is a concrete task list, ordered roughly by impact. Items marked with a
 phase reference relate to the runner implementation track described in
 `FEATURES.md`.
 
-### Must do (completed)
+### Strategic Next Steps (future alignment)
 
-- [x] Wire a real clock source into the WASI shim's `atomic_ctx.now_ms` for TTL
-  sweep correctness
-- [x] Harden BEPT timer integration: standardize subsystem initialization
-  (remove manual call-site init requirements)
-- [x] Define and test BEPT timer-index durability semantics for
-  `db_checkpoint`/`db_restore` (deterministic DBI4 source-of-truth rebuild)
-- [x] Expand BEPT test coverage further: deletion edge cases, word-boundary
-  keys, arena exhaustion
-- [x] Expand arena allocator tests: backing-strategy switching, exhaustion
-  behavior, multi-region fragmentation
-- [x] Extend WIT codegen to produce usable C struct layouts for compound types
-  (`message-envelope`, `lease-state`, `worker-id`) instead of `unknown_layout`
-  placeholders
-- [x] Implement DupSort-aware `txn_load_sorted` non-empty merge fast path
-
-### Should do
-
-- No active should-do items at the moment.
-
-### Could do (future alignment)
-
-- [ ] Define and implement a unified allocator telemetry/budget interface across
+- [x] Define and implement a unified allocator telemetry/budget interface across
   `sap_arena_alloc_page`, `sap_arena_alloc_node`, `sap_txn_scratch_alloc`, and
-  `SapTxnVec` growth paths (env+txn snapshots, high-water marks, OOM counters)
-- [ ] Extract a shared DB-backed transaction substrate (non-STM) from the B+
-  tree `Txn` context for rollback-capable structures
+  `SapTxnVec` growth paths (env+txn snapshots, high-water marks, OOM counters),
+  then expose it through runner metrics sinks
+- [ ] Add first-class `SapEnv` convenience wrappers for allocator telemetry and
+  budget APIs so callers do not need to reach through arena accessors directly
+- [ ] Add targeted runner observability tests that force non-zero
+  scratch/txn-vec and budget-reject counters in sink callbacks (not just page
+  allocator counters)
+- [ ] Define a stable host-facing metrics export contract (field naming, units,
+  reset semantics) for `SapRunnerV0Metrics`, including allocator counters
+- [ ] Complete and harden the shared DB-backed transaction substrate:
+  formalize prepare/commit failure semantics and migrate remaining B+ tree
+  snapshot/rollback orchestration into reusable substrate components so
+  rollback-capable structures share one consistent atomic model
 - [ ] Add an approximate structural estimator for `txn_count_range`
 - [ ] Add a subtree-unlink fast path for `txn_del_range`
 

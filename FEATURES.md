@@ -4,6 +4,24 @@ Sapling is the storage engine for Lambkin's substrate tables — the shared-stat
 layer that threads communicate through. This document tracks features beyond the
 current sorted key-value API, ordered by priority for the language runtime.
 
+## Momentum highlights
+
+- Runner lifecycle foundation is complete through operational readiness:
+  atomic execution model, mailbox/lease/timer flows, replay hooks, and runbook
+  + release checklist.
+- Unified allocator architecture and telemetry are now in place across arena,
+  transaction scratch, and txn-vec growth paths, with runner-level metrics
+  exposure.
+- Shared `SapEnv`/`SapTxnCtx` transaction substrate is adopted by major
+  rollback-capable subsystems; remaining work is semantic hardening and further
+  consolidation of legacy B+ tree-specific orchestration.
+- Quality gates and stress discipline are materially stronger (schema/codegen
+  checks, sanitizers, threaded stress, deterministic recovery coverage).
+
+Detailed completed milestone history is maintained in
+[`docs/REVISION_LOG.md`](docs/REVISION_LOG.md).
+This roadmap keeps focus on capability surface and next execution targets.
+
 ## Current capabilities (done)
 
 - Copy-on-write B+ tree with MVCC snapshot isolation
@@ -415,15 +433,8 @@ Likely future failure modes and planned controls:
 - add formatting, static analysis, and schema-manifest checks
 - add deterministic/fault-injection harness scaffolding
 
-Phase 0 status (initiated):
-- done: engine moved to `include/sapling` + `src/sapling`; top-level shims retired
-- done: initial layout skeleton (`src/common`, `src/runner`, `src/wasi`,
-  `tests/{unit,integration,stress}`, `examples`, `tools`, `schemas`, `docs`)
-- done: WIT-first schema pipeline (`wit-schema-check`, `wit-schema-generate`,
-  `wit-schema-cc-check`, generated `schemas/dbi_manifest.csv`, generated C DBI metadata)
-- done: deterministic fault-injection harness scaffold
-- done: lint/static-analysis scope expanded from phase-0 files to the entire
-  codebase
+Phase 0 status:
+- Completed. See revision log for milestone-level details.
 
 #### Phase A — Runner skeleton + contracts
 - C host process with worker threads and Wasm instance lifecycle
@@ -431,80 +442,8 @@ Phase 0 status (initiated):
 - dispatch loop with explicit schema/version guardrails
 - DBI bootstrap and schema/version guard
 
-Phase A status (started):
-- done: frozen v0 wire contract module (`src/runner/wire_v0.h`,
-  `src/runner/wire_v0.c`) with strict encode/decode validation and unit tests
-  (`tests/unit/runner_wire_test.c`)
-- done: wire/Thatch convergence model where `wire_v0` remains the boundary
-  adapter and persisted runner payloads use generated WIT codec paths
-  (`src/runner/wit_wire_bridge_v0.*`)
-- done: inbox (DBI 1) and dead-letter (DBI 6) storage paths now enforce
-  canonical WIT/Thatch blobs with strict decode/validation boundaries
-- done: outbox (DBI 2) and timers (DBI 4) storage paths now enforce canonical
-  WIT/Thatch blobs with strict decode/validation boundaries
-- done: worker lifecycle scaffold (`src/runner/runner_v0.h`,
-  `src/runner/runner_v0.c`) with DBI bootstrap from generated WIT metadata,
-  schema-version guard key, and step-dispatch callback integration
-  (`tests/unit/runner_lifecycle_test.c`)
-- done: step dispatch connected to DB-backed inbox cursor loop (DBI 1 inbox,
-  worker-prefixed key scan, callback dispatch, post-dispatch delete)
-- done: worker shell around lifecycle state machine (`SapRunnerV0Worker` with
-  tick/stop APIs and optional pthread start/join under `SAPLING_THREADED`)
-- done: worker shell wired to initial Wasm invocation shim in `src/wasi`
-  (`shim_v0` callback contract + integration tests)
-- done: callback stub replaced with concrete runtime-backed guest invocation
-  (`runtime_v0` + shim integration tests)
-- done: initial Phase B host tx context (`src/runner/txctx_v0`) with read-set
-  tracking, write-set staging, intent buffering, and validate/apply helpers
-  (`tests/unit/runner_txctx_test.c`)
-- done: nested atomic context stack scaffold (`src/runner/txstack_v0`) with
-  closed-nesting push/commit/abort flow and root commit guards
-  (`tests/unit/runner_txstack_test.c`)
-- done: bounded retry attempt engine scaffold (`src/runner/attempt_v0`) around
-  snapshot execution, root validate/apply, and post-commit intent sink
-  (`tests/unit/runner_attempt_test.c`)
-- done: deterministic integration coverage for conflict-retry + nested
-  rollback/commit (`tests/integration/runner_atomic_integration_test.c`)
-- done: initial Phase C mailbox lease claim/ack/requeue scaffold
-  (`src/runner/mailbox_v0` + `tests/unit/runner_mailbox_test.c`)
-- done: initial outbox append/drain + committed-intent publisher adapter
-  (`src/runner/outbox_v0` + `tests/unit/runner_outbox_test.c`)
-- done: initial timer ingestion and due-drain path (`src/runner/timer_v0` +
-  `tests/unit/runner_timer_test.c`)
-- done: timer scheduling helper scaffold (`src/runner/scheduler_v0`) for
-  next-due lookup + bounded sleep-budget calculation
-- done: worker shell now drains due timers in `worker_tick` and uses scheduler
-  helper for timer-aware idle sleep budgeting in threaded loop
-- done: composed attempt intent sink (`src/runner/intent_sink_v0`) routes both
-  `OUTBOX_EMIT` and `TIMER_ARM` through one callback path
-- done: lease-aware inbox handling now requeues claimed messages on handler
-  failure, clears lease state, and keeps retryable failures in-band
-- done: retry-budget/dead-letter routing scaffold
-  (`src/runner/dead_letter_v0`) with DBI 5 retry counters and DBI 6 dead-letter
-  records for exhausted retryable failures or invalid frames
-- done: WASI shim handler now executes through `attempt_v0` and publishes
-  committed intents via composed sink (`intent_sink_v0`)
-- done: generic attempt-backed runner handler contract exposed in
-  `src/runner/attempt_handler_v0` for non-WASI integrations
-- done: non-WASI example runner path wired through `attempt_handler_v0`
-  (`examples/native/runner_native_example.c`)
-- done: dead-letter replay/drain tooling path via `dead_letter_v0` APIs
-  (`sap_runner_dead_letter_v0_drain`, `sap_runner_dead_letter_v0_replay`) with
-  expanded unit coverage and operational policy docs
-- done: runner reliability counters for conflict/busy/non-retryable failures,
-  requeues/dead-letter moves, and step latency aggregation
-- done: runner checkpoint/restore recovery integration coverage for inbox and
-  dead-letter continuity (`runner_recovery_integration_test.c`)
-- done: optional deterministic replay hook surface on `runner_v0` for
-  inbox/timer/disposition event capture during debugging
-- done: stable runner policy/config surface for lease/requeue/retry-budget
-  tuning (`SapRunnerV0Policy` + setter APIs)
-- done: threaded worker stop/join signaling is now synchronized; worker loop
-  no longer exits on transient `ERR_BUSY`; threaded regression coverage added
-- done: worker clock hooks now drive inbox lease-claim timing and timer/inbox
-  step-latency measurements (not only scheduler idle-sleep decisions)
-- next: execute reprioritized backlog below (Priority 7 and beyond, based on
-  product demand)
+Phase A status:
+- Completed. See revision log for milestone-level details.
 
 #### Phase B — Atomic runtime
 - host tx context (`read_set`/`write_set`/intent buffer)
@@ -512,131 +451,22 @@ Phase A status (started):
 - commit/abort/retry engine with bounded policy
 - deterministic integration tests for conflict retry + nested rollback/commit
 
-Phase B status (started):
-- done: `txctx_v0` scaffolding for read-set capture, write-set coalescing,
-  intent frame buffering, read validation, and staged write apply
-- done: `txstack_v0` nested frame push/commit/abort with child->parent merge
-  semantics and nested read-your-write behavior across frame depth
-- done: `attempt_v0` bounded retry loop (`ERR_BUSY`/`ERR_CONFLICT`) with
-  backoff policy hooks and run stats
-- done: deterministic integration test that exercises conflict injection,
-  bounded retry, child commit/abort merge semantics, and post-commit intents
-- done: Phase C mailbox lease claim/ack/requeue scaffolding with CAS-style
-  lease token guards and takeover-on-expiry behavior
-- done: Phase C outbox append/drain callback path and attempt intent-sink
-  publisher integration for `OUTBOX_EMIT`
-- done: Phase C timer append/due-drain path and attempt intent-sink publisher
-  integration for `TIMER_ARM`
-- done: Phase C scheduler helper for next-due timer lookup and bounded sleep
-  budget decisions
-- done: timer-aware wake/sleep integrated into worker thread loop and due-timer
-  dispatch integrated into worker tick path
-- done: composed intent sink for outbox+timer publication
-- done: mailbox lease claim/ack/requeue integrated into inbox polling with
-  retry-aware requeue semantics
-- done: mailbox-claimed message execution through `attempt_v0` in live WASI
-  worker flow with retry stats captured in shim state
-- done: retry-budget/dead-letter policy for repeatedly failing retryable
-  messages in runner inbox polling path
-- done: generic runner-level attempt handler contract (beyond WASI shim) via
-  `attempt_handler_v0`
-- done: additional runner integration path via non-WASI native example
-  (`examples/native/runner_native_example.c`)
-- done: dead-letter drain/replay tooling API and policy docs in Phase C
-- done: initial Phase D reliability counters surfaced on `SapRunnerV0`
-- done: crash-recovery checks around checkpoint/restore for runner flows
-- done: deterministic replay hooks (optional) for postmortem debugging
-- done: stable runner config knobs for worker retry/lease behavior
-- done: threaded worker stop/join signaling is now synchronized; worker loop
-  now treats transient `ERR_BUSY` as retryable
-- done: worker clock hooks now cover lease timing + latency measurement paths
-- next: execute reprioritized backlog below (Priority 7 and beyond, based on
-  product demand)
+Phase B status:
+- Completed. See revision log for milestone-level details.
 
 #### Phase C — Mailbox, leases, timers
 - claim/ack/requeue flows with CAS guards
 - outbox dispatch after commit
 - timer ingestion and due-time wake scheduling
 
-Phase C status (started):
-- done: mailbox lease key/value encoding and DBI 3 claim/ack/requeue APIs
-  with exact lease token guards
-- done: DBI 2 outbox append/drain API with conflict-safe delete-if-match and
-  attempt-intent publisher adapter
-- done: timer append/due-drain API migrated to BEPT-backed due-time ordering
-  (128-bit `(due_ts, seq)` composite keys) with attempt-intent publisher
-  adapter
-- done: scheduler helper to derive earliest due timestamp and bounded idle
-  sleep duration
-- done: worker-loop integration for timer-aware wake/sleep decisions and due
-  timer dispatch
-- done: composed intent-sink adapter for mixed outbox+timer intent streams
-- done: lease-aware worker coordination for retryable and fatal callback errors
-  now preserves message durability while clearing stale lease records
-- done: retry-budget counter tracking in DBI 5 and dead-letter diversion to DBI 6
-  for exhausted retryable failures
-- done: dead-letter replay/drain helpers for operational tooling plus
-  replay-policy documentation (`docs/RUNNER_DEAD_LETTER_POLICY.md`)
-- done: reliability counters for retries/conflicts/requeues/dead-letter moves
-  and step latency in runner lifecycle path
-- done: runner checkpoint/restore integration checks for inbox + dead-letter
-  state continuity and resumed dispatch behavior
-- done: deterministic replay hook events for inbox/timer step flow and
-  disposition outcomes
-- done: stable runner config surface for retry budget, lease TTL, and requeue
-  attempt search budget
-- done: threaded worker stop/join signaling hardened and transient `ERR_BUSY`
-  recovery in worker loop validated under threaded regression
-- done: worker time-hook usage expanded from scheduler-only to inbox lease and
-  latency paths
-- done: added threaded C-level order-pipeline sample with four worker threads
-  and DB-backed stage queues (`examples/native/runner_threaded_pipeline_example.c`,
-  `make runner-threaded-pipeline-example`)
-- next: execute reprioritized backlog below (Priority 7 and beyond, based on
-  product demand)
+Phase C status:
+- Completed. See revision log for milestone-level details.
 
-#### Reprioritized runner backlog (known issues + planned features)
-1. [Done][P1] Replay fidelity gap fixed: timer replay events now preserve timer
-   key sequence, and lifecycle coverage asserts sequence-correct replay events.
-2. [Done][P1] CI/threaded coverage gap fixed: added a threaded runner lifecycle
-   TSan target and wired it into phase check dependencies for regression gating.
-3. [Done][P2] Replay hook frame ownership contract is now explicit in API/docs
-   (callback-scoped frame bytes; hooks must copy for post-callback retention).
-4. [Done][P2] Runner observability export surface is now available via explicit
-   host sink hooks for reliability metrics snapshots and structured log events.
-5. [Done][P3] Phase E profile-guided coupling study scaffold added via
-   `bench_runner_phasee.c` and `docs/RUNNER_PHASEE_COUPLING_STUDY.md`, with
-   benchmarked baseline public-API polling vs study-only fused storage path.
-6. [Done][P2] Phase F operational readiness package documented:
-   `docs/RUNNER_PHASEF_RUNBOOK.md` + `docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md`,
-   with automated checklist entry point `make runner-release-checklist`.
-7. [Done][P1] Schema status metadata reconciled with implemented runner DBIs:
-   DBI 1-6 now marked `active`, and `tools/check_runner_dbi_status.py` was
-   added and wired into `make schema-check` to prevent manifest/docs/runtime
-   status drift regressions.
-8. [Done][P2] WASI v0 runtime evolved to a pluggable adapter surface:
-   `sap_wasi_runtime_v0_init_adapter` + optional streaming invoke support were
-   added, and shim init now supports configurable reply-buffer capacity via
-   `sap_wasi_shim_v0_init_with_options` (removing fixed-cap-only behavior).
-9. [Done][P1] Investigate and harden concurrent multi-writer threaded
-   behavior in runner-style workloads sharing one DB handle:
-   - added storage hardening guards in allocator/leaf insert paths to avoid
-     out-of-bounds writes on corrupted free-space metadata
-   - added optional shared DB gate APIs on runner workers plus transient
-     `ERR_NOT_FOUND`/`ERR_CONFLICT` normalization in worker tick path
-   - stabilized runtime semantics under sustained threaded churn
-     (`runner-multiwriter-stress` safely completes without deadlocks)
-10. [Done][P1] Added dedicated threaded runner-style multi-writer stress
-    harness target (`tests/stress/runner_multiwriter_stress.c`,
-    `make runner-multiwriter-stress`) and build gating entry point
-    (`make runner-multiwriter-stress-build`) wired into phase-C checks;
-    runtime stress execution has been stabilized and passes reliably.
-11. [Done][P1] Removed manual BEPT initialization requirements:
-    `db_open` now initializes BEPT by default, and
-    `sap_bept_subsystem_init(...)` is idempotent for repeated calls.
-12. [Done][P1] BEPT timer-index checkpoint/restore semantics defined and
-    implemented as deterministic rebuild/self-heal from DBI 4 source-of-truth,
-    with regression coverage in runner timer and recovery tests.
+#### Runner focus now
+- Keep correctness and observability baselines strong while advancing compact,
+  high-leverage improvements (allocator telemetry ergonomics, metrics contract
+  stability, and shared transaction-substrate hardening).
+- Maintain deterministic stress/recovery coverage as changes land.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
@@ -649,10 +479,7 @@ Phase C status (started):
 - explicitly non-blocking for runner functional bring-up
 
 Phase E status:
-- done: introduced coupling-study benchmark harness
-  (`bench_runner_phasee.c`) comparing baseline runner public-API polling against
-  a study-only fused storage candidate path, plus usage/guardrail docs in
-  `docs/RUNNER_PHASEE_COUPLING_STUDY.md`
+- Completed. See revision log for milestone-level details.
 
 #### Phase F — Packaging and operational readiness
 - stable config surface (worker counts, retry policy, lease durations)
@@ -660,9 +487,7 @@ Phase E status:
 - release checklist with compatibility and migration verification
 
 Phase F status:
-- done: runner operations runbook added (`docs/RUNNER_PHASEF_RUNBOOK.md`)
-- done: release checklist document and automation entry point added
-  (`docs/RUNNER_PHASEF_RELEASE_CHECKLIST.md`, `make runner-release-checklist`)
+- Completed. See revision log for milestone-level details.
 
 ---
 
@@ -728,15 +553,8 @@ Current constraints:
 - `ttl_dbi` uses reserved key prefixes for internal lookup/index rows.
 - TTL helper keys must satisfy `key_len <= UINT16_MAX - 9`.
 
-Next priorities:
-1. [x] Harden sweep correctness: when draining index entries, verify lookup
-   expiry exactly matches index expiry before deleting data rows (mismatch
-   should prune stale metadata only).
-2. [x] Add a protected TTL metadata mode so raw `txn_put*`/`txn_del*` calls
-   cannot violate reserved lookup/index key-prefix invariants in `ttl_dbi`.
-3. [x] Add resumable sweep checkpoints to continue long expiration drains.
-4. [x] Add optional lazy-expiry deletes on read/cursor paths in write txns.
-5. [x] Add host-runner background sweep cadence and observability counters.
+TTL hardening follow-ups listed previously are completed. See revision log for
+historical details and sequencing.
 
 ### Range delete (done)
 `txn_del_range` is available with half-open semantics `[lo, hi)` and currently
@@ -810,21 +628,39 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
 - **Container support:** `SapTxnVec` is the common arena-backed growable-array
   primitive replacing ad hoc malloc/realloc patterns in subsystem helpers.
 
-### Allocator Telemetry and Budget Controls (next)
-- **Goal:** Add a unified observability and budget surface across
-  `sap_arena_alloc_page`, `sap_arena_alloc_node`, `sap_txn_scratch_alloc`, and
-  `SapTxnVec` growth paths.
-- **Benefit:** Gives deterministic visibility into allocation pressure and
-  failure modes (env-wide + per-transaction), enabling better runtime policy
-  tuning for embedded and Wasm targets.
+### Allocator Telemetry and Budget Controls (done)
+- **Status:** Completed across arena, transaction, and runner observability.
+- **What is implemented:**
+  - unified telemetry + budget structs (`SapArenaAllocStats`,
+    `SapArenaAllocBudget`)
+  - instrumentation in `sap_arena_alloc_page`, `sap_arena_alloc_node`,
+    `sap_txn_scratch_alloc`, and `SapTxnVec` reserve/growth paths
+  - env snapshots (`sap_arena_alloc_stats*`) and txn-relative snapshots
+    (`sap_txn_alloc_stats*`)
+  - high-water/active-slot gauges, OOM/failure counters, and budget-reject
+    counters
+  - runner metrics exposure via `SapRunnerV0Metrics.allocator` in both
+    pull snapshots and push sink callbacks
 
-### Shared DB-Backed Transaction Substrate (non-STM)
-- **Goal:** Pull the transaction context (`struct Txn`, watches, rollback state)
-  out of the sole B+ tree implementation into a shared DB-backed substrate for
-  rollback-capable structures.
-- **Benefit:** Lets B+ tree, BEPT, and future rollback-capable tries share the
-  same snapshot, rollback, and uncommitted-write visibility rules for composite
-  atomic operations.
+### Allocator Telemetry Follow-ups (next)
+- **Goal:** Add first-class `SapEnv` convenience wrappers for allocator
+  telemetry and budget APIs to reduce direct arena plumbing at call sites.
+- **Goal:** Expand runner observability tests to explicitly exercise
+  scratch/txn-vec and budget-reject allocator counters in sink emissions.
+- **Goal:** Define a stable host-facing metrics export contract (field naming,
+  units, reset semantics) for `SapRunnerV0Metrics`, including allocator
+  counters.
+
+### Shared DB-Backed Transaction Substrate (in progress)
+- **Status:** Foundational substrate is in place (`SapEnv`/`SapTxnCtx` +
+  subsystem begin/commit/abort callbacks) and is already used by B+ tree,
+  BEPT, HAMT, Seq, and Thatch.
+- **Next goal:** Complete semantic hardening: formalize prepare/commit failure
+  behavior across subsystem participants and migrate remaining B+ tree-specific
+  snapshot/rollback orchestration into reusable substrate components.
+- **Benefit:** Ensures rollback-capable DB-backed structures share one
+  consistent snapshot, rollback, and uncommitted-write visibility model for
+  composite atomic operations.
 - **Boundary:** This is not a general shared-memory STM over arbitrary pointers.
   Cross-thread sharing remains DB-mediated. Data that cannot rollback should be
   thread-local or move-only via ownership transfer.
