@@ -253,25 +253,36 @@ This is a concrete task list, ordered roughly by impact. Items marked with a
 phase reference relate to the runner implementation track described in
 `FEATURES.md`.
 
-### Strategic Next Steps (future alignment)
+### Strategic Next Steps (reprioritized TLC track)
 
-- [x] Define and implement a unified allocator telemetry/budget interface across
-  `sap_arena_alloc_page`, `sap_arena_alloc_node`, `sap_txn_scratch_alloc`, and
-  `SapTxnVec` growth paths (env+txn snapshots, high-water marks, OOM counters),
-  then expose it through runner metrics sinks
-- [ ] Add first-class `SapEnv` convenience wrappers for allocator telemetry and
-  budget APIs so callers do not need to reach through arena accessors directly
-- [ ] Add targeted runner observability tests that force non-zero
-  scratch/txn-vec and budget-reject counters in sink callbacks (not just page
-  allocator counters)
-- [ ] Define a stable host-facing metrics export contract (field naming, units,
-  reset semantics) for `SapRunnerV0Metrics`, including allocator counters
-- [ ] Complete and harden the shared DB-backed transaction substrate:
-  formalize prepare/commit failure semantics and migrate remaining B+ tree
-  snapshot/rollback orchestration into reusable substrate components so
-  rollback-capable structures share one consistent atomic model
-- [ ] Add an approximate structural estimator for `txn_count_range`
-- [ ] Add a subtree-unlink fast path for `txn_del_range`
+- [ ] Harden shared DB-backed transaction substrate semantics end-to-end:
+  introduce explicit prepare/apply/finalize commit phases, define nested commit
+  failure guarantees, and add deterministic fault-injection coverage for
+  participant commit failures
+- [ ] Close immediate B+ tree nested-commit correctness gaps by propagating and
+  handling child-to-parent merge failures (page tracking and change-tracking
+  merges) instead of ignoring return codes
+- [ ] Add lifecycle safety and commit-result propagation for convenience APIs
+  that open/commit internal transactions (`seq_*`, `text_*`, and related
+  wrappers) so commit failures cannot be silently dropped
+- [ ] Implement HAMT commit-time old-node reclamation (or deferred reclamation)
+  with stress and churn benchmarks to keep memory growth stable under sustained
+  write workloads
+- [ ] Complete allocator observability follow-through:
+  `SapEnv` convenience wrappers, sink tests that force non-zero scratch/txn-vec
+  and budget-reject counters, and a stable host-facing `SapRunnerV0Metrics`
+  export contract (field names, units, reset semantics)
+- [ ] Reduce runner metrics overhead under load by adding configurable
+  snapshot/sink coalescing instead of emitting synchronously on every counter
+  increment path
+- [ ] Accelerate hot query/delete paths by adding a structural estimator for
+  `txn_count_range` and subtree-unlink fast paths for `txn_del_range`
+- [ ] Generalize runtime-facing map/set APIs for language use:
+  add iterator/range/batch primitives for HAMT and BEPT so they are practical
+  first-class runtime containers
+- [ ] Align Thatch API contract and implementation:
+  either implement multi-page region support or constrain/document the current
+  single-page region model explicitly
 
 ## License
 

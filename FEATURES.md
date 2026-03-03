@@ -22,6 +22,31 @@ Detailed completed milestone history is maintained in
 [`docs/REVISION_LOG.md`](docs/REVISION_LOG.md).
 This roadmap keeps focus on capability surface and next execution targets.
 
+## Reprioritized TLC roadmap (current execution order)
+
+1. Shared transaction substrate semantic hardening: explicit prepare/apply/finalize
+   commit semantics, deterministic failure-path testing, and strict nested
+   commit rollback guarantees across subsystem participants.
+2. B+ tree nested-commit correctness follow-through: remove ignored merge return
+   codes in child-to-parent state transfer and treat allocation/merge failures as
+   first-class commit outcomes.
+3. Lifecycle and commit-propagation safety: ensure convenience wrappers that open
+   internal transactions surface commit failures and keep environment teardown
+   invariants explicit.
+4. HAMT long-run memory stability: add commit/deferred reclamation for replaced
+   COW nodes and validate with sustained churn stress.
+5. Allocator telemetry + metrics contract completion: `SapEnv` convenience
+   wrappers, budget-reject/scratch/txn-vec sink-path tests, and a stable host
+   export contract for `SapRunnerV0Metrics`.
+6. Runner metrics sink efficiency: reduce synchronous emission overhead with
+   configurable coalescing/batching policies.
+7. B+ tree query-path acceleration: structural estimator for `txn_count_range`
+   and subtree-unlink fast path for `txn_del_range`.
+8. Runtime-facing data-structure generalization: iterator/range/batch APIs for
+   HAMT and BEPT to make them practical runtime collections.
+9. Thatch contract cohesion: align API docs and implementation on region model
+   boundaries (single-page vs multi-page support).
+
 ## Current capabilities (done)
 
 - Copy-on-write B+ tree with MVCC snapshot isolation
@@ -463,10 +488,12 @@ Phase C status:
 - Completed. See revision log for milestone-level details.
 
 #### Runner focus now
-- Keep correctness and observability baselines strong while advancing compact,
-  high-leverage improvements (allocator telemetry ergonomics, metrics contract
-  stability, and shared transaction-substrate hardening).
-- Maintain deterministic stress/recovery coverage as changes land.
+- Prioritize transaction-substrate semantic hardening and deterministic failure
+  coverage before new runner feature expansion.
+- Keep allocator telemetry/metrics contract work moving in parallel, with sink
+  tests that exercise non-page allocator counters and budget rejects.
+- Maintain deterministic stress/recovery coverage while tightening step-level
+  metrics emission cost under sustained load.
 
 #### Phase D — Reliability and observability
 - deterministic replay hooks (optional)
@@ -642,22 +669,19 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
   - runner metrics exposure via `SapRunnerV0Metrics.allocator` in both
     pull snapshots and push sink callbacks
 
-### Allocator Telemetry Follow-ups (next)
-- **Goal:** Add first-class `SapEnv` convenience wrappers for allocator
-  telemetry and budget APIs to reduce direct arena plumbing at call sites.
-- **Goal:** Expand runner observability tests to explicitly exercise
-  scratch/txn-vec and budget-reject allocator counters in sink emissions.
-- **Goal:** Define a stable host-facing metrics export contract (field naming,
-  units, reset semantics) for `SapRunnerV0Metrics`, including allocator
-  counters.
-
-### Shared DB-Backed Transaction Substrate (in progress)
+### Shared DB-Backed Transaction Substrate (highest priority, in progress)
 - **Status:** Foundational substrate is in place (`SapEnv`/`SapTxnCtx` +
   subsystem begin/commit/abort callbacks) and is already used by B+ tree,
   BEPT, HAMT, Seq, and Thatch.
-- **Next goal:** Complete semantic hardening: formalize prepare/commit failure
-  behavior across subsystem participants and migrate remaining B+ tree-specific
-  snapshot/rollback orchestration into reusable substrate components.
+- **Next goals:**
+  - formalize participant commit phases (prepare/apply/finalize) and make
+    nested-commit failure semantics explicit
+  - remove remaining B+ tree-specific snapshot/rollback orchestration from
+    ad hoc paths and consolidate into substrate-level helpers
+  - harden child-to-parent merge correctness in B+ tree commit paths by
+    handling allocation/merge failures instead of ignoring return codes
+  - add deterministic failure-injection tests for participant commit failures
+    and nested merge OOM paths
 - **Benefit:** Ensures rollback-capable DB-backed structures share one
   consistent snapshot, rollback, and uncommitted-write visibility model for
   composite atomic operations.
@@ -665,9 +689,42 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
   Cross-thread sharing remains DB-mediated. Data that cannot rollback should be
   thread-local or move-only via ownership transfer.
 
+### Transaction Convenience and Lifecycle Safety (high priority)
+- **Goal:** Harden convenience wrappers that open internal transactions so they
+  propagate commit failures (`seq_*`, `text_*`, and related helpers) instead of
+  silently discarding transactional errors.
+- **Goal:** Define and test environment-teardown behavior with outstanding
+  transactions to keep shutdown semantics explicit and safe.
+
+### Allocator Telemetry Follow-ups (high priority)
+- **Goal:** Add first-class `SapEnv` convenience wrappers for allocator
+  telemetry and budget APIs to reduce direct arena plumbing at call sites.
+- **Goal:** Expand runner observability tests to explicitly exercise
+  scratch/txn-vec and budget-reject allocator counters in sink emissions.
+- **Goal:** Define a stable host-facing metrics export contract (field naming,
+  units, reset semantics) for `SapRunnerV0Metrics`, including allocator
+  counters.
+- **Goal:** Add configurable sink/snapshot coalescing for runner metrics so
+  observability updates stay cheap under sustained step throughput.
+
+### B+ Tree Query Path Acceleration (high priority)
+- **Goal:** Add an approximate structural estimator for `txn_count_range` to
+  avoid O(k) scans on planning-heavy read paths.
+- **Goal:** Add a subtree-unlink fast path for `txn_del_range` to reduce
+  deletion costs for large contiguous ranges.
+
 ### Wasm-Optimized Map/Set Implementations
 - **Big-Endian Patricia Trie (BEPT) (done):** A highly compact radix tree ideal for integer-keyed maps or fast memory indexing. It branches cleanly using bitwise checks and natively lowers to zero-overhead Wasm instructions like `i32/64.clz` (count leading zeros).
 - **Hash Array Mapped Trie (HAMT):** Excellent for general hash maps/sets. It relies heavily on bitmap querying, which cleanly compiles down to Wasm's native `popcnt` instruction, offering very high memory density and "almost hash table-like" speed without array-resize overheads.
+- **HAMT hardening goal:** Add commit/deferred reclamation for replaced COW
+  nodes so long-running write-heavy workloads do not grow memory monotonically.
+- **Runtime API goal:** Add iterator/range/batch primitives for HAMT and BEPT
+  so these structures are directly useful as first-class runtime collections.
+
+### Thatch Region Model Cohesion (next)
+- **Goal:** Align API contract and implementation on region capacity semantics
+  (either add multi-page region support or explicitly constrain and document
+  single-page region behavior as the supported model).
 
 ### Strong Mutable `text` Implementation
 - **Goal:** Implement a sophisticated string type (`text`) optimized for heavily mutated text (like a Rope or a Piece Table), leveraging the Finger Tree engine.
@@ -680,4 +737,4 @@ To serve as a high-performance Wasm target out of the box, existing capabilities
 ## Priority 9 — Tunable Data Structures (Compile-Time Subsets)
 
 - **Goal:** Introduce compile-time meta-programming (via C macros or static feature flags) to strip down or scale up features. Small applications shouldn't pay the binary-size or memory overhead for transaction nested-stack handling if they only need a basic dictionary.
-- **Benefit:** Manage the trade-off between **executable size** and **speed / capability**. Congent subsets of functionality can be turned on or off gracefully depending on the specific application's requirement profile.
+- **Benefit:** Manage the trade-off between **executable size** and **speed / capability**. Coherent subsets of functionality can be turned on or off gracefully depending on the specific application's requirement profile.
