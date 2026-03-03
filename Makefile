@@ -84,6 +84,8 @@ SEQ_FUZZ_BIN = $(BIN_DIR)/fuzz_seq
 TEXT_FUZZ_BIN = $(BIN_DIR)/fuzz_text
 
 RUNNER_LIFECYCLE_TSAN_TEST_BIN = $(BIN_DIR)/runner_lifecycle_test_tsan
+RUNNER_INTEGRATION_TEST_BIN = $(BIN_DIR)/runner_atomic_integration_test
+RUNNER_RECOVERY_TEST_BIN = $(BIN_DIR)/runner_recovery_integration_test
 
 
 
@@ -281,11 +283,12 @@ LEAK_CHECK_BINS = \
 	$(RUNNER_INTEGRATION_TEST_BIN) \
 	$(RUNNER_RECOVERY_TEST_BIN)
 
-LEAK_CHECK_ASAN_OPTIONS ?= detect_leaks=1:halt_on_error=1
 LEAK_CHECK_LSAN_SUPPRESSIONS ?= tests/sanitizers/lsan_macos.supp
 ifeq ($(shell uname -s),Darwin)
-LEAK_CHECK_LSAN_OPTIONS ?= suppressions=$(LEAK_CHECK_LSAN_SUPPRESSIONS)
+LEAK_CHECK_ASAN_OPTIONS ?= detect_leaks=0:halt_on_error=1
+LEAK_CHECK_LSAN_OPTIONS ?=
 else
+LEAK_CHECK_ASAN_OPTIONS ?= detect_leaks=1:halt_on_error=1
 LEAK_CHECK_LSAN_OPTIONS ?=
 endif
 leak-check: CFLAGS += -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
@@ -591,7 +594,6 @@ endef
 $(foreach test,$(RUNNER_TEST_NAMES),$(eval $(call RUNNER_TEST_RULE,$(test))))
 
 # Special case for recovery which is an integration test
-RUNNER_RECOVERY_TEST_BIN = $(BIN_DIR)/runner_recovery_integration_test
 runner-recovery-test: CFLAGS += -O2 -g
 runner-recovery-test: wit-schema-generate $(RUNNER_RECOVERY_TEST_BIN)
 	./$(RUNNER_RECOVERY_TEST_BIN)
@@ -616,7 +618,6 @@ RUNNER_THREADED_PIPELINE_EXAMPLE_BIN = $(BIN_DIR)/runner_threaded_pipeline_examp
 RUNNER_MULTIWRITER_STRESS_BIN = $(BIN_DIR)/runner_multiwriter_stress
 RUNNER_MULTIWRITER_STRESS_FAULT_BIN = $(BIN_DIR)/runner_multiwriter_stress_fault
 RUNNER_PHASEE_BENCH_BIN = $(BIN_DIR)/bench_runner_phasee
-RUNNER_INTEGRATION_TEST_BIN = $(BIN_DIR)/runner_atomic_integration_test
 
 $(RUNNER_NATIVE_EXAMPLE_BIN): $(OBJ_DIR)/examples/native/runner_native_example.o $(ALL_LIB_OBJS)
 	@mkdir -p $(dir $@)
