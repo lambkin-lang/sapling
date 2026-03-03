@@ -294,7 +294,7 @@ endif
 leak-check: CFLAGS += -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 leak-check: LDFLAGS += -fsanitize=address,undefined
 leak-check: clean wit-schema-generate $(LEAK_CHECK_BINS) $(LEAK_CHECK_LSAN_SUPPRESSIONS)
-	@set -euo pipefail; \
+	@set -eu; \
 	for bin in $(LEAK_CHECK_BINS); do \
 		echo "Leak checking $$bin"; \
 		ASAN_OPTIONS="$(LEAK_CHECK_ASAN_OPTIONS)" \
